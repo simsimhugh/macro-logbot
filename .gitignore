@@ -1,0 +1,53 @@
+# --- Secrets (절대 commit 금지) ---
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+*.token
+*.crt
+credentials*
+secrets/
+auth/
+
+# --- 사내 환경 전용 설정 (사외 repo에 노출 금지) ---
+*.internal.yaml
+*.internal.yml
+*.internal.json
+config.internal*
+requirements.internal.txt
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.venv/
+venv/
+env/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# --- Node ---
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# --- Build / dist ---
+build/
+dist/
+*.egg
+*.whl
+
+# --- IDE ---
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# --- OS ---
+.DS_Store
+Thumbs.db
