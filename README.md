@@ -23,3 +23,8 @@
 - 사내 환경은 외부 인터넷 격리 → 사내 미러 레포 사용 (배포 환경별 의존성 소스 전환 가능)
 
 자세한 내용은 요구사항 확인서를 참고하세요.
+
+## Repository
+
+- Source: https://github.com/simsimhugh/macro-logbot
+- License: TBD (Stage 2에서 결정)
