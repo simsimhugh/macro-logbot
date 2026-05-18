@@ -18,7 +18,8 @@ class ChatCompletionRequest(BaseModel):
     model: str
     temperature: float | None = None
     max_tokens: int | None = None
-    # stream=True is out of scope for this PR; field accepted but ignored
+    # stream=True 은 본 PR 에서 미지원 — endpoint 가 명시적 400 으로 거절.
+    # SSE 본기능 지원은 후속 PR (FOLLOWUP task-LG-003).
     stream: bool = False
 
 

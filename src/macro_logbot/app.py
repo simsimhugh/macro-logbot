@@ -3,7 +3,7 @@
 Spec reference: docs/design/02-설계문서.md (v1.1) §5.1 External Interfaces
 """
 
-from fastapi import APIRouter, Depends, FastAPI
+from fastapi import APIRouter, Depends, FastAPI, HTTPException
 from pydantic import BaseModel
 
 from macro_logbot import __version__
@@ -46,6 +46,10 @@ async def chat_completions(
     gateway: LLMGateway = Depends(get_gateway),  # noqa: B008
 ) -> ChatCompletionResponse:
     """OpenAI 호환 chat completions 엔드포인트."""
+    # stream=True silent ignore 는 Open WebUI 가 SSE 파싱 실패로 멈출 수 있어
+    # 명시적 400 으로 거절. SSE 본기능 지원은 후속 PR (FOLLOWUP task-LG-003).
+    if body.stream:
+        raise HTTPException(status_code=400, detail="streaming not yet supported")
     return await gateway.complete(
         messages=body.messages,
         model=body.model,

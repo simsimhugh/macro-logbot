@@ -72,6 +72,33 @@ async def test_default_model_fallback(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 @pytest.mark.asyncio
+async def test_complete_handles_missing_usage() -> None:
+    """provider 가 usage 를 부분/전체 None 으로 반환해도 0 으로 안전하게 변환된다."""
+    response_without_usage = SimpleNamespace(
+        id="chatcmpl-no-usage",
+        object="chat.completion",
+        created=int(time.time()),
+        model="groq/llama3-8b-8192",
+        choices=[
+            SimpleNamespace(
+                index=0,
+                message=SimpleNamespace(role="assistant", content="ok"),
+                finish_reason="stop",
+            )
+        ],
+        usage=None,
+    )
+    mock = AsyncMock(return_value=response_without_usage)
+    with patch("macro_logbot.gateway.client.litellm.acompletion", new=mock):
+        gateway = LLMGateway(default_model="groq/llama3-8b-8192")
+        result = await gateway.complete([Message(role="user", content="Hi")])
+
+    assert result.usage.prompt_tokens == 0
+    assert result.usage.completion_tokens == 0
+    assert result.usage.total_tokens == 0
+
+
+@pytest.mark.asyncio
 async def test_complete_uses_model_override() -> None:
     """complete() 의 model 인자가 default_model 을 오버라이드한다."""
     fake_response = _make_litellm_response(model="groq/llama3-8b-8192")

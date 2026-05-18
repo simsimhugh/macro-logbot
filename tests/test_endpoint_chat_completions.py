@@ -83,3 +83,17 @@ def test_chat_completions_missing_model(client_with_mock_gateway: TestClient) ->
         json={"messages": [{"role": "user", "content": "Hello"}]},
     )
     assert response.status_code == 422
+
+
+def test_chat_completions_stream_rejected(client_with_mock_gateway: TestClient) -> None:
+    """stream=true 요청은 명시적 400 으로 거절된다 (Open WebUI 호환 위험 방지)."""
+    response = client_with_mock_gateway.post(
+        "/v1/chat/completions",
+        json={
+            "model": "openai/gpt-4o-mini",
+            "messages": [{"role": "user", "content": "Hi"}],
+            "stream": True,
+        },
+    )
+    assert response.status_code == 400
+    assert "streaming not yet supported" in response.json()["detail"]

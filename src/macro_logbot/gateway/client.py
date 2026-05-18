@@ -31,7 +31,7 @@ _FALLBACK_MODEL = "openai/gpt-4o-mini"
 
 
 class LLMGateway:
-    """LiteLLM を통한 멀티 프로바이더 LLM 게이트웨이."""
+    """LiteLLM 을 통한 멀티 프로바이더 LLM 게이트웨이."""
 
     def __init__(self, default_model: str | None = None) -> None:
         # Priority: explicit arg → env var → hardcoded fallback
@@ -68,11 +68,13 @@ class LLMGateway:
             )
             for c in response.choices
         ]
+        # LiteLLM provider 일부(예: Anthropic prompt caching, Groq stream 종결)에서
+        # response.usage 또는 그 하위 필드가 None 인 케이스 방어.
         usage_data = response.usage
         usage = Usage(
-            prompt_tokens=usage_data.prompt_tokens,
-            completion_tokens=usage_data.completion_tokens,
-            total_tokens=usage_data.total_tokens,
+            prompt_tokens=getattr(usage_data, "prompt_tokens", 0) or 0,
+            completion_tokens=getattr(usage_data, "completion_tokens", 0) or 0,
+            total_tokens=getattr(usage_data, "total_tokens", 0) or 0,
         )
 
         return ChatCompletionResponse(
