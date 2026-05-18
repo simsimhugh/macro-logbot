@@ -19,7 +19,7 @@
 ## Pending Tasks
 
 ### task-001 — Spec 도구 8/9 불일치 정정
-- **출처**: PR #3 architect (issuecomment-4478135929) WARN
+- **출처**: PR #3 architect (issuecomment-4478591552) WARN
 - **scope**: `docs/design/02-설계문서.md` §6.3, §9.1, §10.5 — "MCP 도구 8개" → "9개"로 통일 (§5.3 헤더는 이미 v1.1에서 9개로 갱신됨)
 - **suggested branch**: `docs/spec-tool-count-fix`
 - **reviewer scope**: §9 메타 변경 (architect + verifier만)
