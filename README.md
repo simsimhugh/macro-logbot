@@ -28,3 +28,15 @@
 
 - Source: https://github.com/simsimhugh/macro-logbot
 - License: TBD (Stage 2에서 결정)
+
+## Stage 3 진입
+
+골격(skeleton) PR 머지 완료 — FastAPI app, 빈 패키지 구조, 기본 테스트 준비됨.
+
+### 빠른 시작
+
+```bash
+pip install -e .[dev]   # 의존성 설치
+make test               # 테스트 실행
+make run                # 서버 실행 (localhost:8000)
+```
