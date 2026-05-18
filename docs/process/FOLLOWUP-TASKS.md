@@ -18,6 +18,30 @@
 
 ## Pending Tasks
 
+### task-LG-001 — Message 모델 tool_calls round-trip 지원 (Agent Core 선결)
+- **출처**: PR #8 architect (issuecomment-4479740071) WARN
+- **scope**: `src/macro_logbot/gateway/models.py` `Message` 에 `tool_calls: list[ToolCall] | None`, `tool_call_id: str | None`, `name: str | None` 추가 + `client.py` 직렬화에서 None 제외해 LiteLLM 으로 전달. spec §5.2 AgentState.messages · §5.4 Session.messages · §7.4 AS-1 multi-turn tool calling 검증 (E000 case) 선결 요건.
+- **suggested branch**: `feat/gateway-tool-calls`
+- **reviewer scope**: 일반 (전체 reviewer cycle)
+- **size estimate**: models.py ~20 lines + client.py ~10 lines + tests ~50 lines
+- **priority**: **high** — Agent Core PR (feat/agent-core) 시작 전 선결
+
+### task-LG-002 — LLMGateway base_url/api_key override (사내 LLM 통합 선결)
+- **출처**: PR #8 architect (issuecomment-4479740071) WARN
+- **scope**: `LLMGateway.__init__` 에 `base_url: str | None = None`, `api_key: str | None = None`, `custom_llm_provider: str | None = None` 인자 추가 + 대응 env `MACRO_LOGBOT_LLM_BASE_URL` · `MACRO_LOGBOT_LLM_API_KEY` 흡수 + `acompletion` 호출 시 forward. spec §7.3 직접 인용.
+- **suggested branch**: `feat/gateway-internal-llm-hooks`
+- **reviewer scope**: 일반 (전체 reviewer cycle)
+- **size estimate**: client.py ~30 lines + tests ~40 lines
+- **priority**: **high** — 사내 LLM endpoint 통합 PR 시작 전 선결
+
+### task-LG-003 — /v1/chat/completions streaming (SSE) 지원
+- **출처**: PR #8 architect (issuecomment-4479740071) WARN — 본 PR 에서는 400 으로 임시 거절
+- **scope**: `/v1/chat/completions` 에 `stream=true` 시 `StreamingResponse(media_type="text/event-stream")` 반환 — LiteLLM `acompletion(stream=True)` async generator forward. Open WebUI 호환 운영 진입 전 필요.
+- **suggested branch**: `feat/gateway-streaming`
+- **reviewer scope**: 일반 (전체 reviewer cycle)
+- **size estimate**: app.py + client.py ~60 lines + tests ~80 lines
+- **priority**: medium — Open WebUI 통합 PR (feat/openwebui-integ) 시점에 함께
+
 ### task-006 — Python 3.14 휠 가용성 CI matrix (chore)
 - **출처**: PR #3 code-reviewer (issuecomment-4479212053) LOW (정보성이지만 가치 있어 등록)
 - **scope**: `.github/workflows/`에 minimal CI matrix 추가 — `pip install -e ".[dev]"` + `pytest` 통과 검증. PR #4의 reviewer workflow와 별개 (단순 build/test CI만)
@@ -50,12 +74,20 @@
 - **scope**: `tests/conftest.py` — `with TestClient(app) as client: yield client` 패턴 적용
 - **priority**: deferred (현재 lifespan 미사용이라 무해)
 
+### task-LG-004 — LG spec §7.1 잔여 책임 (rate limit · retry · timeout 일관 처리)
+- **출처**: PR #8 architect (issuecomment-4479740071) COMMENT — follow-up 등록 권고
+- **scope**: `LLMGateway.complete` 에 retry/timeout/rate-limit 일관 처리 — Tenacity 또는 LiteLLM `Router` 활용. 사용자 코드가 매 호출마다 새 LLMGateway 인스턴스 생성하는 현 패턴 (`app.py` `get_gateway`) 도 함께 모듈 레벨 싱글톤/`lru_cache` 로 정리.
+- **priority**: deferred — Agent Core 통합 시점에 함께 (지금은 stateless 라 위험 낮음)
+
 ---
 
 ## Priority Order (실행 순서)
 
-1. **task-006** — Python 3.14 CI matrix (Stage 3 진척 후)
-2. **deferred 항목들** — 발견 시점에 처리
+1. **task-LG-001** — Message tool_calls round-trip (Agent Core PR 선결)
+2. **task-LG-002** — LLMGateway base_url/api_key (사내 LLM 통합 PR 선결)
+3. **task-LG-003** — /v1/chat/completions streaming (Open WebUI 통합 PR 시점)
+4. **task-006** — Python 3.14 CI matrix (Stage 3 진척 후)
+5. **deferred 항목들** — 발견 시점에 처리
 
 ---
 
