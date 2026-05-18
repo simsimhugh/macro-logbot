@@ -10,6 +10,7 @@ from pydantic import BaseModel
 
 from macro_logbot import __version__
 from macro_logbot.agent import MAX_ITERS_DEFAULT, run_agent
+from macro_logbot.auth import verify_api_key
 from macro_logbot.gateway import (
     ChatCompletionRequest,
     ChatCompletionResponse,
@@ -46,7 +47,11 @@ def get_gateway() -> LLMGateway:
 v1_router = APIRouter(prefix="/v1")
 
 
-@v1_router.post("/chat/completions", response_model=ChatCompletionResponse)
+@v1_router.post(
+    "/chat/completions",
+    response_model=ChatCompletionResponse,
+    dependencies=[Depends(verify_api_key)],
+)
 async def chat_completions(
     body: ChatCompletionRequest,
     agent: bool = True,
@@ -121,7 +126,11 @@ _ANALYZE_SYSTEM_PROMPT = (
 )
 
 
-@app.post("/agent/analyze", response_model=AgentAnalyzeResponse)
+@app.post(
+    "/agent/analyze",
+    response_model=AgentAnalyzeResponse,
+    dependencies=[Depends(verify_api_key)],
+)
 async def agent_analyze(
     body: AgentAnalyzeRequest,
     gateway: LLMGateway = Depends(get_gateway),  # noqa: B008
