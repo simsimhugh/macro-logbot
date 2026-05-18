@@ -187,6 +187,11 @@ python scripts/evaluate.py --models groq/llama-3.1-70b-versatile --cases E001 E0
 
 # Quick mode (test-engineer agent가 PR에서 호출)
 python scripts/evaluate.py --quick   # cases 3개 × default model 1개만
+
+# KB Ablation Study (KB on/off 3 모드 비교 — 약한 LLM 강화 사이클 핵심)
+python scripts/evaluate.py --models all --cases all --kb-mode isolated      # KB off (baseline)
+python scripts/evaluate.py --models all --cases all --kb-mode cumulative    # KB 누적 (운영 시뮬레이션)
+python scripts/evaluate.py --models all --cases all --kb-mode pre-seeded    # KB 사전 채움 (운영 초기 시뮬레이션)
 ```
 
 동작 (한 case 기준):
@@ -338,6 +343,24 @@ flowchart LR
 - 또는 한 사이클 적용 후 Δ < 1%p (개선 없음)이 3회 연속
 
 종료 후 모든 사이클 시도·결과를 `poc/reports/cycles-summary.md`로 정리.
+
+### 7.5 KB 누적 효과 (Ablation 측정)
+
+약한 LLM 강화 사이클에서 Knowledge Base(KB §5.5)의 기여는 별도 측정. 시간이 지나며 KB가 baseline을 어떻게 끌어올리는지 정량화.
+
+**측정 방법** (Stage 2 spec §10.6에 동일 정의):
+- `--kb-mode isolated`: KB 비활성 baseline
+- `--kb-mode cumulative`: case 처리하며 KB 점진 누적
+- `--kb-mode pre-seeded`: ground_truth로 KB 사전 채움
+
+**기대 효과**:
+- Cumulative와 isolated의 Δ = "운영 시 자연 누적이 가져오는 효과"
+- Pre-seeded와 isolated의 Δ = "사내 운영팀이 과거 사례를 초기 KB에 등록할 가치"
+- 약한 LLM(Groq Llama)에서 Δ가 가장 큰 것이 기대 결과 — 검증되면 macro-logbot 시스템 엔지니어링 가치 명확
+
+**사이클과의 통합**:
+- 사이클 PR마다 3 모드 모두 측정 → `poc/reports/<cycle-id>/comparison.md`에 9 column 매트릭스 (3 KB mode × 3 단계: 사이클 전 / 사이클 적용 / 사이클 후)
+- 사이클이 KB 활용 전략을 개선하면 cumulative·pre-seeded 모드에서 Δ 증가가 우선 관찰됨
 
 ## 8. 운영 후 사내 적용 (v1.0 → 운영)
 
