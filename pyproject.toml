@@ -13,6 +13,11 @@ dependencies = [
     "fastapi>=0.115",
     "uvicorn[standard]>=0.30",
     "pydantic>=2.7",
+    # Python 3.14 호환 한계로 1.83.7 이 가용 최신 (1.83.8+ 는 Requires-Python <3.14).
+    # 1.83.7 은 malware (1.82.9 fix), OIDC bypass (1.83.0), proxy SQLi/MCP RCE (1.83.7) 모두 패치됨.
+    # guardrails sandbox escape (1.83.10 fix) 는 본 PoC 가 guardrails 미사용이라 무영향.
+    # LiteLLM 3.14 지원 복구 시 1.83.10+ 으로 상향 — FOLLOWUP task-SEC-001.
+    "litellm>=1.83.7,<2.0",
 ]
 
 [project.optional-dependencies]
