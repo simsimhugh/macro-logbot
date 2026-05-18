@@ -17,6 +17,10 @@ auth/
 config.internal*
 requirements.internal.txt
 
+# --- 로컬 작업 도구 산출물 (Claude Code / OMC) ---
+.claude/
+.omc/
+
 # --- Python ---
 __pycache__/
 *.py[cod]
