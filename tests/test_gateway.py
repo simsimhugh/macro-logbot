@@ -99,6 +99,33 @@ async def test_complete_handles_missing_usage() -> None:
 
 
 @pytest.mark.asyncio
+async def test_complete_handles_missing_response_id() -> None:
+    """response.id/object/model None 반환 시 fallback 으로 안전하게 변환된다."""
+    response_partial = SimpleNamespace(
+        id=None,
+        object=None,
+        created=int(time.time()),
+        model=None,
+        choices=[
+            SimpleNamespace(
+                index=0,
+                message=SimpleNamespace(role="assistant", content="ok"),
+                finish_reason="stop",
+            )
+        ],
+        usage=SimpleNamespace(prompt_tokens=1, completion_tokens=1, total_tokens=2),
+    )
+    mock = AsyncMock(return_value=response_partial)
+    with patch("macro_logbot.gateway.client.litellm.acompletion", new=mock):
+        gateway = LLMGateway(default_model="groq/llama3-8b-8192")
+        result = await gateway.complete([Message(role="user", content="Hi")])
+
+    assert result.id.startswith("chatcmpl-litellm-")
+    assert result.object == "chat.completion"
+    assert result.model == "groq/llama3-8b-8192"
+
+
+@pytest.mark.asyncio
 async def test_complete_uses_model_override() -> None:
     """complete() 의 model 인자가 default_model 을 오버라이드한다."""
     fake_response = _make_litellm_response(model="groq/llama3-8b-8192")

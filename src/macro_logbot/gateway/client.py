@@ -77,11 +77,13 @@ class LLMGateway:
             total_tokens=getattr(usage_data, "total_tokens", 0) or 0,
         )
 
+        # response.id / .object / .model 도 provider edge case 에서 None 가능 —
+        # usage 와 동일 defensive 패턴 적용 (일관성).
         return ChatCompletionResponse(
-            id=response.id,
-            object=response.object,
+            id=response.id or f"chatcmpl-litellm-{int(time.time())}",
+            object=response.object or "chat.completion",
             created=response.created or int(time.time()),
-            model=response.model,
+            model=response.model or target_model,
             choices=choices,
             usage=usage,
         )

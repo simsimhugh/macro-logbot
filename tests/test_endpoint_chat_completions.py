@@ -97,3 +97,42 @@ def test_chat_completions_stream_rejected(client_with_mock_gateway: TestClient) 
     )
     assert response.status_code == 400
     assert "streaming not yet supported" in response.json()["detail"]
+
+
+def test_chat_completions_omits_none_kwargs() -> None:
+    """Optional 필드 (temperature/max_tokens) 가 None 이면 gateway.complete 로 forward 안 한다."""
+    mock_response = ChatCompletionResponse(
+        id="chatcmpl-mock-001",
+        object="chat.completion",
+        created=int(time.time()),
+        model="openai/gpt-4o-mini",
+        choices=[
+            Choice(
+                index=0,
+                message=Message(role="assistant", content="Mock"),
+                finish_reason="stop",
+            )
+        ],
+        usage=Usage(prompt_tokens=1, completion_tokens=1, total_tokens=2),
+    )
+    mock_gw = LLMGateway.__new__(LLMGateway)
+    mock_gw.default_model = "openai/gpt-4o-mini"
+    mock_gw.complete = AsyncMock(return_value=mock_response)  # type: ignore[method-assign]
+    app.dependency_overrides[get_gateway] = lambda: mock_gw
+    try:
+        client = TestClient(app)
+        response = client.post(
+            "/v1/chat/completions",
+            json={
+                "model": "openai/gpt-4o-mini",
+                "messages": [{"role": "user", "content": "Hi"}],
+                # temperature / max_tokens 미명시 → None → forward 안 함
+            },
+        )
+        assert response.status_code == 200
+        mock_gw.complete.assert_called_once()
+        call_kwargs = mock_gw.complete.call_args.kwargs
+        assert "temperature" not in call_kwargs, "None temperature 가 forward 됨"
+        assert "max_tokens" not in call_kwargs, "None max_tokens 가 forward 됨"
+    finally:
+        app.dependency_overrides.clear()

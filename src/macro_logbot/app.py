@@ -50,11 +50,16 @@ async def chat_completions(
     # 명시적 400 으로 거절. SSE 본기능 지원은 후속 PR (FOLLOWUP task-LG-003).
     if body.stream:
         raise HTTPException(status_code=400, detail="streaming not yet supported")
+    # provider 일부 (Gemini, Groq) 는 명시적 None 을 거절하거나 default override 하므로
+    # None 값은 forward 하지 않음 — model_dump(exclude_none=True).
+    optional_kwargs = body.model_dump(
+        exclude_none=True,
+        exclude={"messages", "model", "stream"},
+    )
     return await gateway.complete(
         messages=body.messages,
         model=body.model,
-        temperature=body.temperature,
-        max_tokens=body.max_tokens,
+        **optional_kwargs,
     )
 
 
