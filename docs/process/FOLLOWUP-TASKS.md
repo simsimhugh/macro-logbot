@@ -18,30 +18,6 @@
 
 ## Pending Tasks
 
-### task-001 — Spec 도구 8/9 불일치 정정
-- **출처**: PR #3 architect (issuecomment-4478591552) WARN
-- **scope**: `docs/design/02-설계문서.md` §6.3, §9.1, §10.5 — "MCP 도구 8개" → "9개"로 통일 (§5.3 헤더는 이미 v1.1에서 9개로 갱신됨)
-- **suggested branch**: `docs/spec-tool-count-fix`
-- **reviewer scope**: §9 메타 변경 (architect + verifier만)
-- **size estimate**: 3 줄 정도 Edit
-- **priority**: high (다음 머지 후 즉시)
-
-### task-002 — §6.2 reviewer comment template과 §6.7 callout 정합
-- **출처**: PR #5 architect (issuecomment-4479041673) WARN
-- **scope**: `docs/process/03-개발-프로세스.md` §6.2 — 현재 plain `Severity: <PASS|WARN|BLOCK|INFO>` 형식을 §6.7 callout 포함 형태로 갱신
-- **suggested branch**: `docs/process-template-callout-fix`
-- **reviewer scope**: §9 메타 변경
-- **size estimate**: §6.2 template 5~10줄 갱신
-- **priority**: high
-
-### task-003 — §6.7 severity 매핑에 LOW 추가
-- **출처**: PR #5 architect (issuecomment-4479041673) WARN
-- **scope**: `docs/process/03-개발-프로세스.md` §6.7 — code-reviewer/security-reviewer는 LOW까지 5단계인데 callout 표는 4단계. LOW를 NOTE에 매핑 + 한 줄 설명 추가
-- **suggested branch**: `docs/process-severity-low-mapping`
-- **reviewer scope**: §9 메타 변경
-- **size estimate**: 표 1줄 추가
-- **priority**: medium
-
 ### task-006 — Python 3.14 휠 가용성 CI matrix (chore)
 - **출처**: PR #3 code-reviewer (issuecomment-4479212053) LOW (정보성이지만 가치 있어 등록)
 - **scope**: `.github/workflows/`에 minimal CI matrix 추가 — `pip install -e ".[dev]"` + `pytest` 통과 검증. PR #4의 reviewer workflow와 별개 (단순 build/test CI만)
@@ -78,14 +54,24 @@
 
 ## Priority Order (실행 순서)
 
-1. **task-001** — spec 일관성 (PR #3 머지 후 즉시)
-2. **task-002** — process 문서 template 정합성
-3. **task-003** — process 문서 severity 매핑 보강
-4. **task-006** — CI matrix (Stage 3 진척 후)
-5. **deferred 항목들** — 발견 시점에 처리
+1. **task-006** — Python 3.14 CI matrix (Stage 3 진척 후)
+2. **deferred 항목들** — 발견 시점에 처리
 
 ---
 
 ## Completed Tasks
 
-(없음 — PR #3 머지 후 task-001부터 진행)
+### task-001 — Spec 도구 8/9 불일치 정정 ✅
+- **출처**: PR #3 architect (issuecomment-4478591552) WARN
+- **처리 PR**: docs/followup-batch-1 (PR #7)
+- **변경**: docs/design/02-설계문서.md §6.3 line 286, §9.1 line 396, §10.5 line 630 — "8개"/"8 tools" → "9개"/"9 tools"
+
+### task-002 — §6.2 reviewer comment template과 §6.7 callout 정합 ✅
+- **출처**: PR #5 architect (issuecomment-4479041673) WARN
+- **처리 PR**: docs/followup-batch-1 (PR #7)
+- **변경**: docs/process/03-개발-프로세스.md §6.2 General comment template + Line-level comment template 모두 callout 포함 형태 + 대상 commit 필드 명시
+
+### task-003 — §6.7 severity 매핑에 LOW 추가 ✅
+- **출처**: PR #5 architect (issuecomment-4479041673) WARN
+- **처리 PR**: docs/followup-batch-1 (PR #7)
+- **변경**: docs/process/03-개발-프로세스.md §6.7 표에 LOW · COMMENT/INFO 분리 매핑 추가 (둘 다 `[!NOTE]` 사용)
