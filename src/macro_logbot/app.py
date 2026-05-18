@@ -3,10 +3,15 @@
 Spec reference: docs/design/02-설계문서.md (v1.1) §5.1 External Interfaces
 """
 
-from fastapi import APIRouter, FastAPI
+from fastapi import APIRouter, Depends, FastAPI
 from pydantic import BaseModel
 
 from macro_logbot import __version__
+from macro_logbot.gateway import (
+    ChatCompletionRequest,
+    ChatCompletionResponse,
+    LLMGateway,
+)
 
 app = FastAPI(
     title="macro-logbot",
@@ -26,7 +31,27 @@ async def health() -> HealthResponse:
     return HealthResponse(status="ok", version=__version__)
 
 
-# Spec §5.1 — Open WebUI 호환 OpenAI 형식 backend 라우터 자리.
-# 실제 endpoint(chat/completions 등)는 후속 PR feat/llm-gateway에서 마운트.
+def get_gateway() -> LLMGateway:
+    """DI 팩토리 — 테스트에서 app.dependency_overrides 로 교체 가능."""
+    return LLMGateway()
+
+
+# Spec §5.1 — Open WebUI 호환 OpenAI 형식 backend 라우터
 v1_router = APIRouter(prefix="/v1")
+
+
+@v1_router.post("/chat/completions", response_model=ChatCompletionResponse)
+async def chat_completions(
+    body: ChatCompletionRequest,
+    gateway: LLMGateway = Depends(get_gateway),  # noqa: B008
+) -> ChatCompletionResponse:
+    """OpenAI 호환 chat completions 엔드포인트."""
+    return await gateway.complete(
+        messages=body.messages,
+        model=body.model,
+        temperature=body.temperature,
+        max_tokens=body.max_tokens,
+    )
+
+
 app.include_router(v1_router)
