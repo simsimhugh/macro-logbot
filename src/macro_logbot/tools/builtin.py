@@ -20,6 +20,9 @@ from typing import Any
 # MVP 수준 — subprocess 호출 timeout 일괄 적용 (deadlock 방지).
 _SUBPROCESS_TIMEOUT_SEC = 15
 
+# read_file 메모리 가드 — 거대 파일/바이너리 OOM 방지.
+_READ_FILE_MAX_BYTES = 2_000_000
+
 
 def _safe_resolve(path: str) -> Path | None:
     """cwd 안으로 제한된 절대 경로를 반환. 밖이면 None."""
@@ -98,6 +101,18 @@ def read_file(
         return {"error": "path outside working directory"}
     if not safe.is_file():
         return {"error": f"not a file: {path}"}
+    try:
+        size = safe.stat().st_size
+    except OSError as exc:
+        return {"error": str(exc)}
+    # 메모리 가드 — 큰 파일은 전체 로드 거절 (LLM 이 라인 범위 명시하도록).
+    if size > _READ_FILE_MAX_BYTES:
+        return {
+            "error": (
+                f"file too large: {size} bytes (max {_READ_FILE_MAX_BYTES}). "
+                "specify start_line/end_line/max_lines to read a slice."
+            )
+        }
     try:
         text = safe.read_text(encoding="utf-8", errors="replace")
     except OSError as exc:
@@ -197,11 +212,13 @@ def git_blame(
 def search_logs(
     pattern: str,
     log_dir: str,
+    max_results: int = 50,
 ) -> dict[str, Any]:
     """log_dir 내 .log/.txt 파일들에서 패턴 검색.
 
     Returns:
-      {"matches": [{"file": str, "line": int, "text": str}, ...]} 혹은 {"error": str}.
+      {"matches": [{"file": str, "line": int, "text": str}, ...], "truncated": bool}
+      혹은 {"error": str}.
     """
     safe = _safe_resolve(log_dir)
     if safe is None:
@@ -229,6 +246,7 @@ def search_logs(
         return {"error": completed.stderr.strip() or "grep failed"}
 
     matches: list[dict[str, Any]] = []
+    truncated = False
     for line in completed.stdout.splitlines():
         parts = line.split(":", 2)
         if len(parts) < 3:
@@ -239,4 +257,7 @@ def search_logs(
         except ValueError:
             continue
         matches.append({"file": file_path, "line": line_no_int, "text": text})
-    return {"matches": matches}
+        if len(matches) >= max_results:
+            truncated = True
+            break
+    return {"matches": matches, "truncated": truncated}

@@ -74,6 +74,54 @@ def test_agent_analyze_happy_path(
     assert record["traceback"] is not None
     # raw 는 응답 직렬화에서 자동 제외 (사내 deploy 로그 본문 노출 방지).
     assert "raw" not in record
+    # final answer 도달 (tool_calls 없는 응답) — terminated_reason="final".
+    assert body["terminated_reason"] == "final"
+
+
+def test_agent_analyze_max_iters_terminates_with_flag(
+    client_with_mock_gateway: TestClient,
+) -> None:
+    """max_iters 도달 + 마지막 assistant 가 tool_calls 보유 시 terminated_reason='max_iters'."""
+    from macro_logbot.agent.core import MAX_ITERS_DEFAULT
+    from macro_logbot.gateway.models import FunctionCall, ToolCall
+
+    last_with_tool_calls = ChatCompletionResponse(
+        id="chatcmpl-loop",
+        object="chat.completion",
+        created=int(time.time()),
+        model="openai/gpt-4o-mini",
+        choices=[
+            Choice(
+                index=0,
+                message=Message(
+                    role="assistant",
+                    content=None,
+                    tool_calls=[
+                        ToolCall(
+                            id="call-x",
+                            function=FunctionCall(name="read_file", arguments="{}"),
+                        )
+                    ],
+                ),
+                finish_reason="tool_calls",
+            )
+        ],
+        usage=Usage(prompt_tokens=0, completion_tokens=0, total_tokens=0),
+    )
+    fake = AgentRunResult(
+        response=last_with_tool_calls,
+        iterations=MAX_ITERS_DEFAULT,
+        messages=[],
+    )
+    with patch("macro_logbot.app.run_agent", new=AsyncMock(return_value=fake)):
+        response = client_with_mock_gateway.post(
+            "/agent/analyze",
+            json={"log_text": "loop never ends"},
+        )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["terminated_reason"] == "max_iters"
+    assert body["iterations"] == MAX_ITERS_DEFAULT
 
 
 def test_agent_analyze_requires_log_text(

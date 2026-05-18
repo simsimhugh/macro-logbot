@@ -143,6 +143,28 @@ def test_git_blame_non_git_dir(workspace: Path) -> None:
     assert "error" in result
 
 
+def test_read_file_too_large_rejected(workspace: Path) -> None:
+    """파일이 _READ_FILE_MAX_BYTES (2MB) 초과 시 명시적 error 반환."""
+    big = workspace / "huge.txt"
+    # 2MB + 1 byte
+    big.write_bytes(b"x" * (2_000_000 + 1))
+    result = read_file(str(big))
+    assert "error" in result
+    assert "file too large" in result["error"]
+
+
+def test_search_logs_respects_max_results(workspace: Path) -> None:
+    """search_logs max_results 가드 — 초과 시 truncate + flag."""
+    logs = workspace / "logs"
+    logs.mkdir()
+    (logs / "app.log").write_text(
+        "\n".join(f"line{i} pattern" for i in range(100)), encoding="utf-8"
+    )
+    result = search_logs("pattern", log_dir=str(logs), max_results=5)
+    assert len(result["matches"]) == 5
+    assert result["truncated"] is True
+
+
 def test_search_logs_finds_pattern(workspace: Path) -> None:
     logs = workspace / "logs"
     logs.mkdir()

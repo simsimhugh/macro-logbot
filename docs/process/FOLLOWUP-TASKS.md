@@ -42,6 +42,27 @@
 - **size estimate**: app.py + client.py ~60 lines + tests ~80 lines
 - **priority**: medium — Open WebUI 통합 PR (feat/openwebui-integ) 시점에 함께
 
+### task-SEC-005 — python-dotenv CVE-2026-28684 회피 (1.2.2+ 상향)
+- **출처**: PR #11 security-reviewer (issuecomment-4480493181) MEDIUM
+- **scope**: `pyproject.toml` 에 `python-dotenv>=1.2.2` explicit pin. 본 PR 안 시도 시 litellm 1.83.7 dependency resolution 충돌 — litellm 상향 (task-SEC-001) 과 함께 처리. 본 PoC 는 .env 직접 사용 없음, blast radius 낮음.
+- **suggested branch**: task-SEC-001 와 묶음 (`chore/litellm-pin-upgrade`)
+- **priority**: medium — task-SEC-001 와 함께
+
+### task-MVP-010 — `read_file` 바이너리/크기 가드 확장
+- **출처**: PR #11 security-reviewer (issuecomment-4480493181) MEDIUM
+- **scope**: `read_file` 의 `_READ_FILE_MAX_BYTES = 2_000_000` (본 PR 안 도입) 외에 (a) 바이너리 파일 magic byte 거절, (b) 스트리밍 read (전체 메모리 로드 회피), (c) `list_directory` `recursive=True` entries max 가드. `task-MVP-006` (Tool 보안 강화) 의 scope 확장 또는 별도.
+- **priority**: medium — 사내 운영 진입 전
+
+### task-SEC-006 — Tool kwargs pydantic schema 강제
+- **출처**: PR #11 security-reviewer (issuecomment-4480493181) INFO
+- **scope**: `tools/registry.py` `execute_tool(**arguments)` 가 LLM 임의 kwarg 받음. tool 별 pydantic Input 모델 정의 + validate. 비현실적 인자 (e.g. `max_results=10**9`) 거절. `task-SEC-003` (LLMGateway kwargs allowlist) 와 별건.
+- **priority**: low — Agent Core 안정화 시점
+
+### task-MVP-011 — gateway/client.py `_extract_tool_calls` dict 경로 테스트
+- **출처**: PR #11 test-engineer (issuecomment-4480495225) WARN
+- **scope**: `tests/test_gateway.py` 에 `_extract_tool_calls({"id":"x","function":{...}})` 단위 테스트 추가. provider edge case 방어 코드 커버.
+- **priority**: low — gateway/client.py coverage 80%+ 회복
+
 ### task-SEC-001 — LiteLLM 3.14 지원 복구 시 1.83.10+ 으로 상향
 - **출처**: PR #8 security-reviewer (issuecomment-4479896415) MEDIUM, 본 PR 안 임시 fix (`>=1.83.7,<2.0`) 후 등록
 - **scope**: `pyproject.toml` 의 `litellm` pin 을 `>=1.83.10,<2.0` 으로 상향. 현재 LiteLLM 1.83.8+ 은 Python <3.14 만 지원해 본 환경에 미가용. LiteLLM 측에서 3.14 지원 복구하거나 사내 Python 정책이 3.13 으로 정해질 때 진행.

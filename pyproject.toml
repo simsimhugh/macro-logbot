@@ -18,6 +18,9 @@ dependencies = [
     # guardrails sandbox escape (1.83.10 fix) 는 본 PoC 가 guardrails 미사용이라 무영향.
     # LiteLLM 3.14 지원 복구 시 1.83.10+ 으로 상향 — FOLLOWUP task-SEC-001.
     "litellm>=1.83.7,<2.0",
+    # python-dotenv 는 litellm 의 transitive — 직접 pin 시 litellm 1.83.7 과 dependency
+    # resolution 충돌 (litellm 이 더 좁은 범위 요구). CVE-2026-28684 (1.2.2 fix) 대응은
+    # FOLLOWUP task-SEC-005 (litellm pin 상향과 함께 진행).
 ]
 
 [project.optional-dependencies]

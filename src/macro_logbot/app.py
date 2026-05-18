@@ -3,15 +3,18 @@
 Spec reference: docs/design/02-설계문서.md (v1.1) §5.1 External Interfaces
 """
 
+from typing import Literal
+
 from fastapi import APIRouter, Depends, FastAPI, HTTPException
 from pydantic import BaseModel
 
 from macro_logbot import __version__
-from macro_logbot.agent import run_agent
+from macro_logbot.agent import MAX_ITERS_DEFAULT, run_agent
 from macro_logbot.gateway import (
     ChatCompletionRequest,
     ChatCompletionResponse,
     LLMGateway,
+    Message,
 )
 from macro_logbot.intake import IntakeRecord, parse_macro_log
 from macro_logbot.tools import get_openai_tools_schema
@@ -98,11 +101,17 @@ class AgentAnalyzeRequest(BaseModel):
 
 
 class AgentAnalyzeResponse(BaseModel):
-    """POST /agent/analyze 응답."""
+    """POST /agent/analyze 응답.
+
+    terminated_reason:
+      - "final": agent loop 가 final answer (tool_calls 없음) 으로 정상 종료
+      - "max_iters": max_iters 도달 — analysis 가 빈 문자열일 수 있음 (호출자가 가시화)
+    """
 
     analysis: str
     record: IntakeRecord
     iterations: int
+    terminated_reason: Literal["final", "max_iters"]
 
 
 _ANALYZE_SYSTEM_PROMPT = (
@@ -118,8 +127,6 @@ async def agent_analyze(
     gateway: LLMGateway = Depends(get_gateway),  # noqa: B008
 ) -> AgentAnalyzeResponse:
     """MACRO 에러 로그를 받아 agent loop 으로 분석하고 결과 반환."""
-    from macro_logbot.gateway import Message
-
     record = parse_macro_log(body.log_text)
     user_prompt = (
         "다음 MACRO 에러 로그를 분석해 주세요. 필요 시 tool 을 호출하세요.\n\n"
@@ -139,8 +146,22 @@ async def agent_analyze(
     analysis = ""
     if result.response.choices:
         analysis = result.response.choices[0].message.content or ""
+    # final answer 도달 여부 — 마지막 assistant message 가 tool_calls 없으면 정상 종료.
+    # max_iters 도달 시 마지막 assistant 가 여전히 tool_calls 만 있을 수 있음.
+    last_assistant_has_tool_calls = bool(
+        result.response.choices
+        and result.response.choices[0].message.tool_calls
+    )
+    terminated_reason: Literal["final", "max_iters"] = (
+        "max_iters"
+        if (result.iterations >= MAX_ITERS_DEFAULT and last_assistant_has_tool_calls)
+        else "final"
+    )
     return AgentAnalyzeResponse(
-        analysis=analysis, record=record, iterations=result.iterations
+        analysis=analysis,
+        record=record,
+        iterations=result.iterations,
+        terminated_reason=terminated_reason,
     )
 
 
