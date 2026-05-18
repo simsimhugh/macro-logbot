@@ -92,11 +92,12 @@ async def chat_completions(
     # Open WebUI 기본 stream=true 송신 → SSE 본구현 없는 본 PR 에서는 거절 대신
     # silently non-stream 으로 처리 (demo 안전). SSE 본기능 지원은 FOLLOWUP
     # task-LG-003. 거절했던 PR #8 의 정책을 demo 진입 PR (#12) 부터 완화.
+    # body 자체는 mutate 하지 않고 다운스트림 logging/audit 의도 보존을 위해
+    # local var 만 사용 (CR LOW finding 반영).
     if body.stream:
         logger.warning(
             "stream=True downgraded to non-stream (SSE not implemented — task-LG-003)"
         )
-        body.stream = False
 
     # raw passthrough: 호출자가 tools 를 직접 명시했거나 agent=false 인 경우.
     if body.tools is not None or not agent:

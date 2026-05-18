@@ -14,6 +14,7 @@ FOLLOWUP task-SEC-002 (본 PR 안 처리).
 
 from __future__ import annotations
 
+import hmac
 import logging
 import os
 
@@ -24,6 +25,9 @@ logger = logging.getLogger(__name__)
 _API_KEY_ENV = "MACRO_LOGBOT_API_KEY"
 _AUTH_REQUIRED_ENV = "MACRO_LOGBOT_AUTH_REQUIRED"
 _WWW_AUTH_HEADER = {"WWW-Authenticate": "Bearer"}
+
+# dev 모드 진입 1회만 WARN 로깅 — 매 요청마다 noisy 방지.
+_DEV_MODE_WARNED: bool = False
 
 
 def _auth_required() -> bool:
@@ -67,12 +71,15 @@ async def verify_api_key(request: Request) -> None:
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 detail="server API key not configured",
             )
-        # dev/PoC 모드 — 인증 skip.
-        logger.warning(
-            "%s not set and %s is not true — authentication is DISABLED (dev mode)",
-            _API_KEY_ENV,
-            _AUTH_REQUIRED_ENV,
-        )
+        # dev/PoC 모드 — 인증 skip. 1회만 WARN (noisy 방지).
+        global _DEV_MODE_WARNED
+        if not _DEV_MODE_WARNED:
+            logger.warning(
+                "%s not set and %s is not true — authentication is DISABLED (dev mode)",
+                _API_KEY_ENV,
+                _AUTH_REQUIRED_ENV,
+            )
+            _DEV_MODE_WARNED = True
         return
 
     token = _extract_token(request)
@@ -82,7 +89,8 @@ async def verify_api_key(request: Request) -> None:
             detail="missing API key",
             headers=_WWW_AUTH_HEADER,
         )
-    if token != server_key:
+    # timing-safe 비교 — 단일 공유 key 환경에서도 byte-level 추출 방어.
+    if not hmac.compare_digest(token.encode("utf-8"), server_key.encode("utf-8")):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="invalid API key",

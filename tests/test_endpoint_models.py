@@ -11,16 +11,24 @@ from macro_logbot.app import app
 
 
 @pytest.fixture
-def client(monkeypatch: pytest.MonkeyPatch) -> Iterator[TestClient]:
-    """dev 모드 — 인증 미설정 + AUTH_REQUIRED=false 로 인증 skip."""
+def dev_client(monkeypatch: pytest.MonkeyPatch) -> Iterator[TestClient]:
+    """dev 모드 — 인증 미설정 + AUTH_REQUIRED=false."""
     monkeypatch.delenv("MACRO_LOGBOT_API_KEY", raising=False)
     monkeypatch.setenv("MACRO_LOGBOT_AUTH_REQUIRED", "false")
     yield TestClient(app)
 
 
-def test_list_models_returns_openai_compatible_shape(client: TestClient) -> None:
+@pytest.fixture
+def auth_client(monkeypatch: pytest.MonkeyPatch) -> Iterator[TestClient]:
+    """인증 활성 모드 — 'secret-key' 가 server key."""
+    monkeypatch.setenv("MACRO_LOGBOT_API_KEY", "secret-key")
+    monkeypatch.setenv("MACRO_LOGBOT_AUTH_REQUIRED", "true")
+    yield TestClient(app)
+
+
+def test_list_models_returns_openai_compatible_shape(dev_client: TestClient) -> None:
     """GET /v1/models 가 OpenAI 호환 형식 (object=list, data=[...]) 반환."""
-    response = client.get("/v1/models")
+    response = dev_client.get("/v1/models")
     assert response.status_code == 200
     body = response.json()
     assert body["object"] == "list"
@@ -33,33 +41,24 @@ def test_list_models_returns_openai_compatible_shape(client: TestClient) -> None
 
 
 def test_list_models_reflects_default_model_env(
-    monkeypatch: pytest.MonkeyPatch,
+    dev_client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """MACRO_LOGBOT_DEFAULT_MODEL env 가 모델 id 로 노출됨."""
     monkeypatch.setenv("MACRO_LOGBOT_DEFAULT_MODEL", "gemini/gemini-1.5-flash")
-    monkeypatch.delenv("MACRO_LOGBOT_API_KEY", raising=False)
-    monkeypatch.setenv("MACRO_LOGBOT_AUTH_REQUIRED", "false")
-    client = TestClient(app)
-    response = client.get("/v1/models")
+    response = dev_client.get("/v1/models")
     assert response.status_code == 200
     assert response.json()["data"][0]["id"] == "gemini/gemini-1.5-flash"
 
 
-def test_list_models_requires_auth_when_key_set(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_list_models_requires_auth_when_key_set(auth_client: TestClient) -> None:
     """API key 설정된 상태에서 인증 없이 호출 → 401."""
-    monkeypatch.setenv("MACRO_LOGBOT_API_KEY", "secret-key")
-    monkeypatch.setenv("MACRO_LOGBOT_AUTH_REQUIRED", "true")
-    client = TestClient(app)
-    response = client.get("/v1/models")
+    response = auth_client.get("/v1/models")
     assert response.status_code == 401
 
 
-def test_list_models_accepts_bearer_auth(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_list_models_accepts_bearer_auth(auth_client: TestClient) -> None:
     """올바른 Bearer key 로 호출 → 200."""
-    monkeypatch.setenv("MACRO_LOGBOT_API_KEY", "secret-key")
-    monkeypatch.setenv("MACRO_LOGBOT_AUTH_REQUIRED", "true")
-    client = TestClient(app)
-    response = client.get("/v1/models", headers={"Authorization": "Bearer secret-key"})
+    response = auth_client.get(
+        "/v1/models", headers={"Authorization": "Bearer secret-key"}
+    )
     assert response.status_code == 200
