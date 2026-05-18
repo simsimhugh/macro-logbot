@@ -10,15 +10,19 @@ from macro_logbot.gateway.models import (
     ChatCompletionRequest,
     ChatCompletionResponse,
     Choice,
+    FunctionCall,
     Message,
+    ToolCall,
     Usage,
 )
 
 __all__ = [
-    "LLMGateway",
     "ChatCompletionRequest",
     "ChatCompletionResponse",
     "Choice",
+    "FunctionCall",
+    "LLMGateway",
     "Message",
+    "ToolCall",
     "Usage",
 ]
