@@ -42,6 +42,27 @@
 - **size estimate**: app.py + client.py ~60 lines + tests ~80 lines
 - **priority**: medium — Open WebUI 통합 PR (feat/openwebui-integ) 시점에 함께
 
+### task-SEC-005 — python-dotenv CVE-2026-28684 회피 (1.2.2+ 상향)
+- **출처**: PR #11 security-reviewer (issuecomment-4480493181) MEDIUM
+- **scope**: `pyproject.toml` 에 `python-dotenv>=1.2.2` explicit pin. 본 PR 안 시도 시 litellm 1.83.7 dependency resolution 충돌 — litellm 상향 (task-SEC-001) 과 함께 처리. 본 PoC 는 .env 직접 사용 없음, blast radius 낮음.
+- **suggested branch**: task-SEC-001 와 묶음 (`chore/litellm-pin-upgrade`)
+- **priority**: medium — task-SEC-001 와 함께
+
+### task-MVP-010 — `read_file` 바이너리/크기 가드 확장
+- **출처**: PR #11 security-reviewer (issuecomment-4480493181) MEDIUM
+- **scope**: `read_file` 의 `_READ_FILE_MAX_BYTES = 2_000_000` (본 PR 안 도입) 외에 (a) 바이너리 파일 magic byte 거절, (b) 스트리밍 read (전체 메모리 로드 회피), (c) `list_directory` `recursive=True` entries max 가드. `task-MVP-006` (Tool 보안 강화) 의 scope 확장 또는 별도.
+- **priority**: medium — 사내 운영 진입 전
+
+### task-SEC-006 — Tool kwargs pydantic schema 강제
+- **출처**: PR #11 security-reviewer (issuecomment-4480493181) INFO
+- **scope**: `tools/registry.py` `execute_tool(**arguments)` 가 LLM 임의 kwarg 받음. tool 별 pydantic Input 모델 정의 + validate. 비현실적 인자 (e.g. `max_results=10**9`) 거절. `task-SEC-003` (LLMGateway kwargs allowlist) 와 별건.
+- **priority**: low — Agent Core 안정화 시점
+
+### task-MVP-011 — gateway/client.py `_extract_tool_calls` dict 경로 테스트
+- **출처**: PR #11 test-engineer (issuecomment-4480495225) WARN
+- **scope**: `tests/test_gateway.py` 에 `_extract_tool_calls({"id":"x","function":{...}})` 단위 테스트 추가. provider edge case 방어 코드 커버.
+- **priority**: low — gateway/client.py coverage 80%+ 회복
+
 ### task-SEC-001 — LiteLLM 3.14 지원 복구 시 1.83.10+ 으로 상향
 - **출처**: PR #8 security-reviewer (issuecomment-4479896415) MEDIUM, 본 PR 안 임시 fix (`>=1.83.7,<2.0`) 후 등록
 - **scope**: `pyproject.toml` 의 `litellm` pin 을 `>=1.83.10,<2.0` 으로 상향. 현재 LiteLLM 1.83.8+ 은 Python <3.14 만 지원해 본 환경에 미가용. LiteLLM 측에서 3.14 지원 복구하거나 사내 Python 정책이 3.13 으로 정해질 때 진행.
@@ -71,6 +92,45 @@
 - **reviewer scope**: §9 메타 변경 (architect+verifier 단독)
 - **size estimate**: docs 5~10 lines
 - **priority**: medium — Stage 3 다음 PR 들이 본 정책 따라 진행되는지 검증 가능해야 함
+
+### task-MVP-001 — LangGraph state graph 마이그레이션
+- **출처**: PR #11 MVP 의도된 단순화 (architect issuecomment-4480360602 PR description)
+- **scope**: `src/macro_logbot/agent/core.py` 의 직접 `while` loop 을 LangGraph `StateGraph` 로 교체. `run_agent` 시그니처 유지하여 호출부 변경 폭 0. spec §5.2 명시.
+- **suggested branch**: `feat/agent-langgraph`
+- **size estimate**: 80~120 lines + dependencies (langgraph)
+- **priority**: medium — Agent Core 안정화 시점
+
+### task-MVP-002 — Session persistence (SQLite, spec §5.4)
+- **출처**: PR #11 MVP 의도된 단순화
+- **scope**: `src/macro_logbot/session/` 에 SQLite 백엔드 추가, `InMemorySessionStore` 를 `SQLiteSessionStore` 로 교체 가능한 protocol/interface 도입. spec §5.4 직접 인용.
+- **suggested branch**: `feat/session-sqlite`
+- **priority**: medium — Open WebUI 운영 진입 시점
+
+### task-MVP-003 — MCP tools 나머지 4개 (spec §5.3)
+- **출처**: PR #11 MVP 단순화 (9개 → 5개)
+- **scope**: `git_log`, `find_test_history`, `get_environment_info`, `retrieve_similar_cases` 추가. KB 통합 PR 과 함께 또는 별도.
+- **suggested branch**: `feat/tools-remaining-4`
+- **priority**: medium — Agent Core 안정화 시점
+
+### task-MVP-004 — /agent/analyze session 통합
+- **출처**: PR #11 MVP 의도된 단순화
+- **scope**: `/agent/analyze` 가 session_id 받아 session messages 누적, 다회차 분석 지원. task-MVP-002 (SessionStore) 후속.
+- **priority**: low — multi-turn analysis 요구 시
+
+### task-MVP-005 — intake parser 다국어 level 지원
+- **출처**: PR #11 MVP 의도된 단순화
+- **scope**: 한국어 등급 (`경고`/`오류`/`치명`) regex 추가. 사내 MACRO 로그 포맷 결정 후 정확한 패턴 매칭.
+- **priority**: low — 사내 MACRO 로그 샘플 확보 후
+
+### task-MVP-006 — Tool 보안 강화 (symlink 우회 등)
+- **출처**: PR #11 MVP 의도된 단순화
+- **scope**: `_safe_resolve` 가 symlink 추적 후 cwd 외부로 가는 경로 차단. `subprocess` argument injection 추가 검증. 사내 운영 진입 전 필수.
+- **priority**: medium — `task-SEC-002` (인증) 와 함께 운영 진입 전
+
+### task-MVP-009 — Tools in-process → MCP 서버 분리 (spec §5.3 표현 정합)
+- **출처**: PR #11 architect (issuecomment-4480360602) COMMENT
+- **scope**: 현재 `tools/builtin.py` 는 in-process Python 함수. spec §5.3 의 "MCP 서버" 표현과 정합 위해 별도 MCP server 프로세스 분리, `tools/registry.py` 가 MCP 클라이언트로 동작.
+- **priority**: low — NFR-3 plugin 확장성 본격 활용 시점
 
 ### task-006 — Python 3.14 휠 가용성 CI matrix (chore)
 - **출처**: PR #3 code-reviewer (issuecomment-4479212053) LOW (정보성이지만 가치 있어 등록)
@@ -118,14 +178,18 @@
 
 ## Priority Order (실행 순서)
 
-1. **task-LG-001** — Message tool_calls round-trip (Agent Core PR 선결)
-2. **task-LG-002** + **task-SEC-003** — LLMGateway base_url/api_key + kwargs allowlist (사내 LLM 통합 PR 선결, 같은 시그니처 건드림)
-3. **task-SEC-002** — /v1/chat/completions 인증 (Open WebUI 통합 PR 선결)
+1. ~~task-LG-001~~ — Message tool_calls round-trip (PR #11 본 PR scope 안 처리 완료) ✅
+2. **task-LG-002** + **task-SEC-003** — LLMGateway base_url/api_key + kwargs allowlist (사내 LLM 통합 PR 선결)
+3. **task-SEC-002** + **task-MVP-006** — /v1/chat/completions 인증 + Tool 보안 강화 (사내 운영 진입 / Open WebUI 통합 PR 선결)
 4. **task-LG-003** — /v1/chat/completions streaming (Open WebUI 통합 PR 시점)
-5. **task-PROCESS-001** — §10.4 §4.3 병렬 호출 검증 항목 (메타 PR)
-6. **task-SEC-001** — LiteLLM pin 상향 (LiteLLM 3.14 지원 또는 Python downgrade 결정 후)
-7. **task-006** — Python 3.14 CI matrix (Stage 3 진척 후)
-8. **deferred 항목들** — 발견 시점에 처리
+5. **task-MVP-001** — LangGraph migration (Agent Core 안정화)
+6. **task-MVP-002** — Session SQLite (Open WebUI 운영 진입)
+7. **task-MVP-003** — MCP tools 나머지 4개 (KB 통합 또는 별도)
+8. **task-PROCESS-001** — §10.4 §4.3 병렬 호출 검증 항목 (메타 PR)
+9. **task-SEC-001** — LiteLLM pin 상향 (LiteLLM 3.14 지원 또는 Python downgrade 결정 후)
+10. **task-MVP-004 / 005 / 009** — 운영·다국어·MCP 분리 (필요 시점)
+11. **task-006** — Python 3.14 CI matrix (Stage 3 진척 후)
+12. **deferred 항목들** — 발견 시점에 처리
 
 ---
 

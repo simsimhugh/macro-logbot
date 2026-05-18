@@ -16,18 +16,58 @@ from __future__ import annotations
 
 import os
 import time
+from typing import Any
 
 import litellm
 
 from macro_logbot.gateway.models import (
     ChatCompletionResponse,
     Choice,
+    FunctionCall,
     Message,
+    ToolCall,
     Usage,
 )
 
 _DEFAULT_MODEL_ENV = "MACRO_LOGBOT_DEFAULT_MODEL"
 _FALLBACK_MODEL = "openai/gpt-4o-mini"
+
+
+def _extract_tool_calls(raw_tool_calls: object) -> list[ToolCall] | None:
+    """LiteLLM tool_calls 응답을 ToolCall 리스트로 정규화.
+
+    LiteLLM 은 provider 에 따라 list[obj] 또는 list[dict] 로 반환할 수 있어
+    양쪽 모두 처리한다.
+    """
+    if not raw_tool_calls:
+        return None
+    result: list[ToolCall] = []
+    for tc in raw_tool_calls:  # type: ignore[attr-defined]
+        if isinstance(tc, dict):
+            fn = tc.get("function", {})
+            result.append(
+                ToolCall(
+                    id=tc.get("id", ""),
+                    type="function",
+                    function=FunctionCall(
+                        name=fn.get("name", ""),
+                        arguments=fn.get("arguments", "") or "",
+                    ),
+                )
+            )
+        else:
+            fn = getattr(tc, "function", None)
+            result.append(
+                ToolCall(
+                    id=getattr(tc, "id", "") or "",
+                    type="function",
+                    function=FunctionCall(
+                        name=getattr(fn, "name", "") or "",
+                        arguments=getattr(fn, "arguments", "") or "",
+                    ),
+                )
+            )
+    return result or None
 
 
 class LLMGateway:
@@ -49,7 +89,10 @@ class LLMGateway:
     ) -> ChatCompletionResponse:
         """LiteLLM acompletion 을 호출하고 결과를 우리 응답 모델로 변환한다."""
         target_model = model or self.default_model
-        raw_messages = [{"role": m.role, "content": m.content} for m in messages]
+        # tool_calls / tool_call_id / name 등 None 이 아닌 모든 필드를 보존.
+        raw_messages: list[dict[str, Any]] = [
+            m.model_dump(exclude_none=True) for m in messages
+        ]
 
         response = await litellm.acompletion(
             model=target_model,
@@ -62,7 +105,10 @@ class LLMGateway:
                 index=c.index,
                 message=Message(
                     role=c.message.role,
-                    content=c.message.content or "",
+                    content=c.message.content or None,
+                    tool_calls=_extract_tool_calls(
+                        getattr(c.message, "tool_calls", None)
+                    ),
                 ),
                 finish_reason=c.finish_reason,
             )

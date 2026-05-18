@@ -1,16 +1,41 @@
 """OpenAI /v1/chat/completions 호환 Pydantic 모델.
 
-Spec reference: docs/design/02-설계문서.md (v1.1) §5.1
+Spec reference: docs/design/02-설계문서.md (v1.1) §5.1 · §5.2
 """
 
 from __future__ import annotations
 
+from typing import Literal
+
 from pydantic import BaseModel, Field
+
+
+class FunctionCall(BaseModel):
+    """OpenAI tool_calls 내 function 객체."""
+
+    name: str
+    # arguments 는 JSON 문자열 (OpenAI 스펙) — agent loop 에서 json.loads.
+    arguments: str
+
+
+class ToolCall(BaseModel):
+    """OpenAI assistant message 의 tool_calls 항목."""
+
+    id: str
+    type: Literal["function"] = "function"
+    function: FunctionCall
 
 
 class Message(BaseModel):
     role: str
-    content: str
+    # tool message 의 경우 content 는 tool 실행 결과 (string).
+    content: str | None = None
+    # assistant 가 tool 호출을 결정한 경우.
+    tool_calls: list[ToolCall] | None = None
+    # role="tool" 메시지가 어느 tool_call 에 대한 응답인지 식별.
+    tool_call_id: str | None = None
+    # 일부 provider 가 function/tool 메시지에 함께 요구.
+    name: str | None = None
 
 
 class ChatCompletionRequest(BaseModel):
@@ -21,6 +46,10 @@ class ChatCompletionRequest(BaseModel):
     # stream=True 은 본 PR 에서 미지원 — endpoint 가 명시적 400 으로 거절.
     # SSE 본기능 지원은 후속 PR (FOLLOWUP task-LG-003).
     stream: bool = False
+    # tools/tool_choice 는 LiteLLM 으로 그대로 passthrough — body.tools 가
+    # 명시되면 app.py 가 raw 경로로 (agent loop 우회) 전달.
+    tools: list[dict[str, object]] | None = None
+    tool_choice: str | dict[str, object] | None = None
 
 
 class Usage(BaseModel):
