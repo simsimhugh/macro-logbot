@@ -7,12 +7,11 @@ run:
 	uvicorn macro_logbot.app:app --reload
 
 test:
-	pytest -v --cov
+	pytest -v --cov=src --cov-report=term-missing
 
 lint:
 	ruff check src/
 	mypy src/
 
 format:
-	black src/ tests/
 	ruff format src/ tests/
