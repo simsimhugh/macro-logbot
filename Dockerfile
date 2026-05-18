@@ -25,6 +25,9 @@ COPY src ./src
 RUN pip install --upgrade pip \
     && pip install .
 
+# build-time import smoke — 의존성 누락/3.14 휠 부재 등을 런타임 전에 즉시 검출.
+RUN python -c "import macro_logbot, macro_logbot.app, macro_logbot.auth"
+
 # non-root user — MVP 보안 baseline.
 RUN useradd --create-home --uid 10001 macrologbot \
     && chown -R macrologbot:macrologbot /app

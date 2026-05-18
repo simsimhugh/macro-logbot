@@ -39,9 +39,10 @@ services:
     depends_on:
       - macro-logbot-backend
     environment:
-      # Open WebUI 는 OPENAI_API_BASE_URL + OPENAI_API_KEY 로 backend 호출.
-      OPENAI_API_BASE_URL: http://macro-logbot-backend:8000/v1
-      OPENAI_API_KEY: ${MACRO_LOGBOT_API_KEY:?MACRO_LOGBOT_API_KEY must be set}
+      # Open WebUI 는 OPENAI_API_BASE_URLS / OPENAI_API_KEYS (복수, 세미콜론 구분)
+      # 로 외부 OpenAI-호환 backend 인식. 단수형은 무시되거나 openai.com fallback.
+      OPENAI_API_BASE_URLS: http://macro-logbot-backend:8000/v1
+      OPENAI_API_KEYS: ${MACRO_LOGBOT_API_KEY:?MACRO_LOGBOT_API_KEY must be set}
       # MVP — 사외 PoC 한정 인증 비활성화 (사내 운영은 SSO 와 통합).
       WEBUI_AUTH: "false"
     ports:

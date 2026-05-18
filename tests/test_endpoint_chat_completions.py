@@ -139,9 +139,10 @@ def test_chat_completions_missing_model(
     assert response.status_code == 422
 
 
-def test_chat_completions_stream_rejected(
+def test_chat_completions_stream_silently_coerced(
     client_with_mock_gateway: TestClient,
 ) -> None:
+    """stream=true 는 silently non-stream 으로 처리됨 (Open WebUI default 호환)."""
     response = client_with_mock_gateway.post(
         "/v1/chat/completions",
         json={
@@ -150,8 +151,10 @@ def test_chat_completions_stream_rejected(
             "stream": True,
         },
     )
-    assert response.status_code == 400
-    assert "streaming not yet supported" in response.json()["detail"]
+    # PR #12 부터 거절(400) 대신 silently coerce → 200 + 비-stream JSON 응답.
+    assert response.status_code == 200
+    body = response.json()
+    assert "choices" in body
 
 
 def test_chat_completions_omits_none_kwargs() -> None:
