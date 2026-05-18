@@ -24,7 +24,7 @@ from macro_logbot.gateway import (
 )
 from macro_logbot.tools.registry import execute_tool, get_openai_tools_schema
 
-MAX_ITERS_DEFAULT = 8
+MAX_ITERS_DEFAULT = 20  # spec §5.2 default
 
 
 @dataclass
@@ -41,18 +41,24 @@ async def run_agent(
     gateway: LLMGateway,
     max_iters: int = MAX_ITERS_DEFAULT,
     model: str | None = None,
+    **generation_kwargs: object,
 ) -> AgentRunResult:
     """Tool-calling agent loop 실행.
 
     messages 는 in-place 로 확장되지 않고 새 리스트로 작업한다 — 호출 측이
     원본 보존을 보장받도록.
+
+    generation_kwargs 는 LLM 호출 시 forward (temperature, max_tokens,
+    tool_choice 등 OpenAI 호환 파라미터).
     """
     working: list[Message] = list(messages)
     tools = get_openai_tools_schema()
     last_response: ChatCompletionResponse | None = None
 
     for iteration in range(1, max_iters + 1):
-        response = await gateway.complete(working, model=model, tools=tools)
+        response = await gateway.complete(
+            working, model=model, tools=tools, **generation_kwargs
+        )
         last_response = response
         if not response.choices:
             return AgentRunResult(

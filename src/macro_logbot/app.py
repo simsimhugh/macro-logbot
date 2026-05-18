@@ -75,7 +75,15 @@ async def chat_completions(
         )
 
     # agent loop — built-in tools 자동 첨부.
-    result = await run_agent(body.messages, gateway, model=body.model)
+    # user-supplied 생성 파라미터(temperature/max_tokens/tool_choice 등) forward.
+    # None 값은 LiteLLM 호환 위해 제외 (PR #8 fix 패턴과 동일).
+    agent_kwargs = body.model_dump(
+        exclude_none=True,
+        exclude={"messages", "model", "stream", "tools"},
+    )
+    result = await run_agent(
+        body.messages, gateway, model=body.model, **agent_kwargs
+    )
     return result.response
 
 

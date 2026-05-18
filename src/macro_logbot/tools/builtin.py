@@ -86,10 +86,12 @@ def read_file(
     path: str,
     start_line: int | None = None,
     end_line: int | None = None,
+    max_lines: int = 200,
 ) -> dict[str, Any]:
     """파일 내용을 (옵션으로 라인 범위 슬라이스 하여) 반환.
 
     start_line / end_line 은 1-indexed, inclusive.
+    max_lines 는 컨텍스트 폭주 가드 — slice 결과가 초과 시 truncate + `truncated=True`.
     """
     safe = _safe_resolve(path)
     if safe is None:
@@ -103,19 +105,23 @@ def read_file(
 
     lines = text.splitlines()
     total = len(lines)
-    if start_line is None and end_line is None:
-        return {"path": str(safe), "content": text, "total_lines": total}
     start_idx = (start_line - 1) if start_line else 0
     end_idx = end_line if end_line else total
     start_idx = max(0, start_idx)
     end_idx = min(total, end_idx)
-    sliced = "\n".join(lines[start_idx:end_idx])
+    sliced = lines[start_idx:end_idx]
+    truncated = False
+    if len(sliced) > max_lines:
+        sliced = sliced[:max_lines]
+        truncated = True
+        end_idx = start_idx + max_lines
     return {
         "path": str(safe),
-        "content": sliced,
+        "content": "\n".join(sliced),
         "total_lines": total,
-        "start_line": start_idx + 1,
-        "end_line": end_idx,
+        "start_line": start_idx + 1 if sliced else None,
+        "end_line": end_idx if sliced else None,
+        "truncated": truncated,
     }
 
 

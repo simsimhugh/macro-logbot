@@ -72,6 +72,8 @@ def test_agent_analyze_happy_path(
     assert record["level"] == "ERROR"
     assert "DB connection failed" in record["message"]
     assert record["traceback"] is not None
+    # raw 는 응답 직렬화에서 자동 제외 (사내 deploy 로그 본문 노출 방지).
+    assert "raw" not in record
 
 
 def test_agent_analyze_requires_log_text(

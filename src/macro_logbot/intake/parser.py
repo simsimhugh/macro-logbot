@@ -16,7 +16,7 @@ from __future__ import annotations
 import re
 from datetime import datetime
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 _HEADER_RE = re.compile(
     r"^(?P<ts>\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}(?:\.\d+)?)"
@@ -34,7 +34,9 @@ class IntakeRecord(BaseModel):
     level: str | None = None
     message: str
     traceback: str | None = None
-    raw: str
+    # raw 는 응답 직렬화에서 자동 제외 (사내 deploy 시 로그 본문 노출 방지) —
+    # 내부 prompt 구성/디버그용으로는 그대로 접근 가능.
+    raw: str = Field(..., exclude=True)
 
 
 def parse_macro_log(text: str) -> IntakeRecord:

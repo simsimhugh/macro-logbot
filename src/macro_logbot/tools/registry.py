@@ -64,7 +64,10 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
     ),
     "read_file": ToolSpec(
         name="read_file",
-        description="파일을 읽어 텍스트로 반환합니다. 라인 범위 옵션 가능.",
+        description=(
+            "파일을 읽어 텍스트로 반환합니다. 라인 범위 옵션 가능. "
+            "기본 max_lines=200 (컨텍스트 가드) — 더 큰 chunk 가 필요하면 명시."
+        ),
         parameters_schema={
             "type": "object",
             "properties": {
@@ -76,6 +79,14 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
                 "end_line": {
                     "type": "integer",
                     "description": "끝 라인 (1-indexed, inclusive)",
+                },
+                "max_lines": {
+                    "type": "integer",
+                    "description": (
+                        "반환할 최대 라인 수 (기본 200). slice 결과가 초과하면"
+                        " truncate 후 truncated=true."
+                    ),
+                    "default": 200,
                 },
             },
             "required": ["path"],

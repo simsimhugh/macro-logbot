@@ -50,8 +50,21 @@ def test_read_file_full(workspace: Path) -> None:
     p = workspace / "a.txt"
     p.write_text("hello\nworld\n", encoding="utf-8")
     result = read_file(str(p))
-    assert result["content"] == "hello\nworld\n"
+    # splitlines 후 "\n".join — trailing newline 제거됨 (의도된 정규화).
+    assert result["content"] == "hello\nworld"
     assert result["total_lines"] == 2
+    assert result["truncated"] is False
+
+
+def test_read_file_max_lines_truncate(workspace: Path) -> None:
+    """max_lines 가드 — 슬라이스 결과가 max 초과 시 truncate + flag=True."""
+    p = workspace / "big.txt"
+    p.write_text("\n".join(f"line{i}" for i in range(1, 501)), encoding="utf-8")
+    result = read_file(str(p), max_lines=50)
+    assert result["truncated"] is True
+    assert result["content"].count("\n") == 49  # 50 lines
+    assert result["end_line"] == 50
+    assert result["total_lines"] == 500
 
 
 def test_read_file_range(workspace: Path) -> None:

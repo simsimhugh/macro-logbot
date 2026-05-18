@@ -169,4 +169,23 @@ async def test_run_agent_max_iters_termination() -> None:
 
 @pytest.mark.asyncio
 async def test_run_agent_default_max_iters_constant() -> None:
-    assert MAX_ITERS_DEFAULT == 8
+    # spec §5.2 default 20
+    assert MAX_ITERS_DEFAULT == 20
+
+
+@pytest.mark.asyncio
+async def test_run_agent_forwards_generation_kwargs() -> None:
+    """temperature/max_tokens 등 generation_kwargs 가 gateway.complete 로 forward 된다."""
+    gw = _mock_gateway([_resp(content="done")])
+    await run_agent(
+        [Message(role="user", content="hi")],
+        gw,
+        model="openai/gpt-4o-mini",
+        temperature=0.7,
+        max_tokens=128,
+    )
+    gw.complete.assert_called_once()  # type: ignore[attr-defined]
+    call_kwargs = gw.complete.call_args.kwargs  # type: ignore[attr-defined]
+    assert call_kwargs["temperature"] == 0.7
+    assert call_kwargs["max_tokens"] == 128
+    assert call_kwargs["model"] == "openai/gpt-4o-mini"

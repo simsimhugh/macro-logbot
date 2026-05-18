@@ -58,4 +58,5 @@ def test_execute_tool_happy(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> 
     monkeypatch.chdir(tmp_path)
     (tmp_path / "x.txt").write_text("hello\n", encoding="utf-8")
     result = execute_tool("read_file", {"path": "x.txt"})
-    assert result.get("content") == "hello\n"
+    # splitlines/join 정규화 — trailing newline 제거.
+    assert result.get("content") == "hello"
