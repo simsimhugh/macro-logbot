@@ -1,0 +1,66 @@
+# macro-logbot MVP — Open WebUI 사외 PoC 통합 layer.
+#
+# 본 manifest 는 사외 demo (개발 호스트) 용. 사내 운영은 별도 manifest 에서
+# 사내 mirror image + 사내 LLM endpoint + reverse proxy (HTTPS termination)
+# 를 포함해 구성한다.
+#
+# 사용법:
+#   1. cp .env.example .env
+#   2. .env 편집 (MACRO_LOGBOT_API_KEY + 사용할 LLM provider key)
+#   3. docker-compose up -d
+#   4. http://localhost:3000 접속
+
+services:
+  macro-logbot-backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: macro-logbot-backend
+    restart: unless-stopped
+    environment:
+      # 인증 — Open WebUI 가 OPENAI_API_KEY 헤더로 같은 값 송신.
+      MACRO_LOGBOT_API_KEY: ${MACRO_LOGBOT_API_KEY:?MACRO_LOGBOT_API_KEY must be set}
+      MACRO_LOGBOT_AUTH_REQUIRED: ${MACRO_LOGBOT_AUTH_REQUIRED:-true}
+      # 기본 모델 + provider keys (host env 에서 inject).
+      MACRO_LOGBOT_DEFAULT_MODEL: ${MACRO_LOGBOT_DEFAULT_MODEL:-gemini/gemini-1.5-flash}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GROQ_API_KEY: ${GROQ_API_KEY:-}
+    ports:
+      - "8000:8000"
+    healthcheck:
+      # backend 가 uvicorn import 완료 후에 open-webui 가 /v1/models 호출하도록
+      # — 첫 부팅 race 방지.
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=2).read()"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 5s
+    networks:
+      - macrologbot-net
+
+  open-webui:
+    image: ghcr.io/open-webui/open-webui:main
+    container_name: open-webui
+    restart: unless-stopped
+    depends_on:
+      macro-logbot-backend:
+        condition: service_healthy
+    environment:
+      # Open WebUI 는 OPENAI_API_BASE_URLS / OPENAI_API_KEYS (복수, 세미콜론 구분)
+      # 로 외부 OpenAI-호환 backend 인식. 단수형은 무시되거나 openai.com fallback.
+      OPENAI_API_BASE_URLS: http://macro-logbot-backend:8000/v1
+      OPENAI_API_KEYS: ${MACRO_LOGBOT_API_KEY:?MACRO_LOGBOT_API_KEY must be set}
+      # MVP — 사외 PoC 한정 인증 비활성화 (사내 운영은 SSO 와 통합).
+      WEBUI_AUTH: "false"
+    ports:
+      - "3000:8080"
+    volumes:
+      - ./.open-webui-data:/app/backend/data
+    networks:
+      - macrologbot-net
+
+networks:
+  macrologbot-net:
+    driver: bridge

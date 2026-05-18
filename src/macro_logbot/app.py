@@ -3,13 +3,16 @@
 Spec reference: docs/design/02-설계문서.md (v1.1) §5.1 External Interfaces
 """
 
+import logging
+import os
 from typing import Literal
 
-from fastapi import APIRouter, Depends, FastAPI, HTTPException
+from fastapi import APIRouter, Depends, FastAPI
 from pydantic import BaseModel
 
 from macro_logbot import __version__
 from macro_logbot.agent import MAX_ITERS_DEFAULT, run_agent
+from macro_logbot.auth import verify_api_key
 from macro_logbot.gateway import (
     ChatCompletionRequest,
     ChatCompletionResponse,
@@ -18,6 +21,8 @@ from macro_logbot.gateway import (
 )
 from macro_logbot.intake import IntakeRecord, parse_macro_log
 from macro_logbot.tools import get_openai_tools_schema
+
+logger = logging.getLogger(__name__)
 
 app = FastAPI(
     title="macro-logbot",
@@ -46,7 +51,31 @@ def get_gateway() -> LLMGateway:
 v1_router = APIRouter(prefix="/v1")
 
 
-@v1_router.post("/chat/completions", response_model=ChatCompletionResponse)
+@v1_router.get(
+    "/models",
+    dependencies=[Depends(verify_api_key)],
+)
+async def list_models() -> dict[str, object]:
+    """OpenAI 호환 모델 목록 — Open WebUI 가 모델 picker 채우려고 호출."""
+    model = os.environ.get("MACRO_LOGBOT_DEFAULT_MODEL", "openai/gpt-4o-mini")
+    return {
+        "object": "list",
+        "data": [
+            {
+                "id": model,
+                "object": "model",
+                "created": 0,
+                "owned_by": "macro-logbot",
+            }
+        ],
+    }
+
+
+@v1_router.post(
+    "/chat/completions",
+    response_model=ChatCompletionResponse,
+    dependencies=[Depends(verify_api_key)],
+)
 async def chat_completions(
     body: ChatCompletionRequest,
     agent: bool = True,
@@ -60,10 +89,15 @@ async def chat_completions(
         tools schema 첨부 + tool 실행 라운드트립 수행.
       - agent=false 이면 raw 호출 (tools 미첨부).
     """
-    # stream=True silent ignore 는 Open WebUI 가 SSE 파싱 실패로 멈출 수 있어
-    # 명시적 400 으로 거절. SSE 본기능 지원은 후속 PR (FOLLOWUP task-LG-003).
+    # Open WebUI 기본 stream=true 송신 → SSE 본구현 없는 본 PR 에서는 거절 대신
+    # silently non-stream 으로 처리 (demo 안전). SSE 본기능 지원은 FOLLOWUP
+    # task-LG-003. 거절했던 PR #8 의 정책을 demo 진입 PR (#12) 부터 완화.
+    # body 자체는 mutate 하지 않고 다운스트림 logging/audit 의도 보존을 위해
+    # local var 만 사용 (CR LOW finding 반영).
     if body.stream:
-        raise HTTPException(status_code=400, detail="streaming not yet supported")
+        logger.warning(
+            "stream=True downgraded to non-stream (SSE not implemented — task-LG-003)"
+        )
 
     # raw passthrough: 호출자가 tools 를 직접 명시했거나 agent=false 인 경우.
     if body.tools is not None or not agent:
@@ -121,7 +155,11 @@ _ANALYZE_SYSTEM_PROMPT = (
 )
 
 
-@app.post("/agent/analyze", response_model=AgentAnalyzeResponse)
+@app.post(
+    "/agent/analyze",
+    response_model=AgentAnalyzeResponse,
+    dependencies=[Depends(verify_api_key)],
+)
 async def agent_analyze(
     body: AgentAnalyzeRequest,
     gateway: LLMGateway = Depends(get_gateway),  # noqa: B008

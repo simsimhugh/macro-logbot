@@ -58,6 +58,21 @@
 - **scope**: `tools/registry.py` `execute_tool(**arguments)` 가 LLM 임의 kwarg 받음. tool 별 pydantic Input 모델 정의 + validate. 비현실적 인자 (e.g. `max_results=10**9`) 거절. `task-SEC-003` (LLMGateway kwargs allowlist) 와 별건.
 - **priority**: low — Agent Core 안정화 시점
 
+### task-SEC-007 — 운영 manifest 진입 시 `_auth_required()` default fail-closed
+- **출처**: PR #12 security-reviewer (issuecomment-4482964138) HIGH
+- **scope**: `src/macro_logbot/auth.py:29-32` `_auth_required()` 의 default 를 `true` 로 변경 (fail-closed). 현재 docker-compose.yml 의 `:-true` mitigation 으로 demo 안전하나, `.env` 명시 `false` 시 통과. 운영 manifest 진입 시 코드 default 자체를 fail-closed 로 뒤집고 dev 모드 진입을 startup ERROR 로 가시화.
+- **suggested branch**: `chore/auth-fail-closed-default`
+- **priority**: **high** — 사내 운영 진입 전 필수 (task-SEC-002 와 묶음)
+
+### task-SEC-008 — `auth.py` token 비교 `hmac.compare_digest` 적용
+- **출처**: PR #12 security-reviewer (issuecomment-4482964138) MEDIUM — **본 PR 안 처리 완료**, follow-up 등록 불요. 확인용 마커.
+
+### task-OPS-001 — Dockerfile multi-stage build (이미지 크기 + 공격 표면 감소)
+- **출처**: PR #12 architect (issuecomment-4480701169) COMMENT-1 + security-reviewer L-9
+- **scope**: `Dockerfile` 를 builder + runtime 2-stage 로 분리, build-essential 을 runtime image 에서 제거. 이미지 100MB+ 감소 + gcc 등 공격 표면 축소.
+- **suggested branch**: `chore/dockerfile-multistage`
+- **priority**: medium — 운영 image 진입 전
+
 ### task-MVP-011 — gateway/client.py `_extract_tool_calls` dict 경로 테스트
 - **출처**: PR #11 test-engineer (issuecomment-4480495225) WARN
 - **scope**: `tests/test_gateway.py` 에 `_extract_tool_calls({"id":"x","function":{...}})` 단위 테스트 추가. provider edge case 방어 코드 커버.
