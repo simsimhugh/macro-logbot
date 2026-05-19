@@ -138,12 +138,16 @@
 - **처리 PR**: PR #18 (`feat/agent-langgraph`) — `src/macro_logbot/agent/core.py` 가 LangGraph `StateGraph` + 3 노드 (llm_call / route / execute_tools). `run_agent` 시그니처 100% 유지, 호출부 변경 0.
 - **잔여**: spec §5.2 의 `intake` / `crystallize_report` / `followup` 3 노드는 task-MVP-001-x 후속.
 
-### task-MVP-001-x — spec §5.2 잔여 3 노드 (intake / crystallize_report / followup)
-- **출처**: PR #18 의도된 단순화 (3/6 노드만)
-- **scope**: LangGraph `StateGraph` 에 `intake` (Log Event 수신·세션 초기화), `crystallize_report` (최종 답변 → 구조화 리포트), `followup` (사용자 추가 메시지 → loop 재진입) 노드 추가. spec §5.2 6 노드 완성.
-- **suggested branch**: `feat/agent-langgraph-nodes`
+### ~~task-MVP-001-x~~ — spec §5.2 잔여 3 노드 (intake / crystallize_report / finalize) ✅ **PR #23 머지**
+- **처리 PR**: PR #23 (`feat/agent-graph-full`) — `intake` / `crystallize_report` / `finalize` 3 노드 추가, spec §5.2 6 노드 완성 (single-turn). `Report` / `Location` Pydantic 모델 도입. `AgentRunResult.report` 필드 추가. `/agent/analyze` 응답에 `report` / `session_id` 필드 포함.
+- **잔여**: `crystallize_report` 의 LLM 추가 호출 정확 추출 → task-MVP-001-y. multi-turn follow-up (`followup` 노드) → task-MVP-004.
+
+### task-MVP-001-y — `crystallize_report` LLM 추가 호출로 정확 JSON 추출
+- **출처**: PR #23 의도된 단순화 — MVP 로 last assistant message 본문 그대로 복사
+- **scope**: `_crystallize_report_node` 에서 LLM 추가 호출 (structured output 또는 prompt engineering) 으로 `root_cause` / `fix_hint` / `location` 를 본문에서 정확하게 JSON 추출. 또는 LiteLLM structured output (`response_format=Report`) 강제. `confidence` 도 LLM 평가 기반으로 산출.
+- **suggested branch**: `feat/crystallize-llm-extract`
 - **reviewer scope**: 일반 (전체 reviewer cycle)
-- **priority**: medium — Open WebUI 통합 시점 (multi-turn follow-up 대화)
+- **priority**: medium — PoC 채점 품질 향상 시점 (task-POC-001 이후)
 
 ### ~~task-MVP-002~~ — Session persistence (SQLite, spec §5.4) ✅ **PR #20 머지**
 - **처리 PR**: PR #20 (`feat/session-sqlite`) — `SQLiteSessionStore` + `SessionStore` Protocol 도입. `src/macro_logbot/session/store.py`. messages 직렬화 (단일 table). `InMemorySessionStore` 유지 (fallback/test).
@@ -238,6 +242,7 @@
 
 ### task-MVP-004 — /agent/analyze session 통합 + SessionStore.update semantic 통일 + KB singleton thread-safety
 - **출처**: PR #11 MVP 의도된 단순화 + PR #20 code-reviewer WARN-4 (LOW) + PR #21 code-reviewer WARN-2 (MED)
+- **note**: PR #23 (`feat/agent-graph-full`) 으로 graph 6 노드 완성 (`Report` 구조 + `session_id=null` placeholder 도입). session_id 통합 진입 가능.
 - **scope**:
   - `/agent/analyze` 가 session_id 받아 session messages 누적, 다회차 분석 지원. task-MVP-002 완료, 본 task 진입 가능.
   - **PR #20 code-r WARN-4 (LOW)**: SessionStore.update 의 "존재하지 않는 id" 동작이 InMemory (upsert) vs SQLite (silent no-op) 로 다름 — Protocol docstring 에 명시 후 endpoint 통합 시점에 통일 결정 (옵션 A: 두 backend 모두 `KeyError` raise, 옵션 B: 두 backend 모두 upsert 의미). 현 단위 테스트 `test_sqlite_store_update_nonexistent_is_silent_noop` 가 현재 계약 명문화.

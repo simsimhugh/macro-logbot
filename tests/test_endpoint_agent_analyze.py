@@ -9,7 +9,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from fastapi.testclient import TestClient
 
-from macro_logbot.agent.core import AgentRunResult
+from macro_logbot.agent.core import AgentRunResult, Report
 from macro_logbot.app import app, get_gateway
 from macro_logbot.gateway import LLMGateway
 from macro_logbot.gateway.models import (
@@ -53,6 +53,13 @@ def test_agent_analyze_happy_path(
         response=_final_response("원인: DB 연결 실패. 조치: ..."),
         iterations=2,
         messages=[],
+        report=Report(
+            root_cause="원인: DB 연결 실패. 조치: ...",
+            location=None,
+            fix_hint="원인: DB 연결 실패. 조치: ...",
+            confidence=0.5,
+            reasoning_summary="원인: DB 연결 실패. 조치: ...",
+        ),
     )
     log_text = (
         "2026-05-19 14:30:01 ERROR: DB connection failed\n"
@@ -76,6 +83,16 @@ def test_agent_analyze_happy_path(
     assert "raw" not in record
     # final answer 도달 (tool_calls 없는 응답) — terminated_reason="final".
     assert body["terminated_reason"] == "final"
+    # report 필드 존재 및 구조 검증.
+    assert "report" in body
+    assert body["report"] is not None
+    assert "root_cause" in body["report"]
+    assert "fix_hint" in body["report"]
+    assert "confidence" in body["report"]
+    assert "reasoning_summary" in body["report"]
+    assert body["report"]["confidence"] == 0.5
+    # session_id 는 task-MVP-004 에서 채워질 자리 — 현재 null.
+    assert body["session_id"] is None
 
 
 def test_agent_analyze_max_iters_terminates_with_flag(
@@ -142,7 +159,7 @@ def test_agent_analyze_no_choices_returns_empty_analysis(
         choices=[],
         usage=Usage(prompt_tokens=0, completion_tokens=0, total_tokens=0),
     )
-    fake = AgentRunResult(response=empty_resp, iterations=1, messages=[])
+    fake = AgentRunResult(response=empty_resp, iterations=1, messages=[], report=None)
     with patch("macro_logbot.app.run_agent", new=AsyncMock(return_value=fake)):
         response = client_with_mock_gateway.post(
             "/agent/analyze",
@@ -150,3 +167,55 @@ def test_agent_analyze_no_choices_returns_empty_analysis(
         )
     assert response.status_code == 200
     assert response.json()["analysis"] == ""
+
+
+def test_agent_analyze_response_report_with_location(
+    client_with_mock_gateway: TestClient,
+) -> None:
+    """report 에 location 이 포함된 경우 직렬화 구조를 검증한다."""
+    from macro_logbot.agent.core import Location
+
+    fake = AgentRunResult(
+        response=_final_response("원인: app/main.py:99 에서 오류"),
+        iterations=1,
+        messages=[],
+        report=Report(
+            root_cause="원인: app/main.py:99 에서 오류",
+            location=Location(file="app/main.py", line=99),
+            fix_hint="app/main.py:99 수정",
+            confidence=0.5,
+            reasoning_summary="원인: app/main.py:99 에서 오류",
+        ),
+    )
+    with patch("macro_logbot.app.run_agent", new=AsyncMock(return_value=fake)):
+        response = client_with_mock_gateway.post(
+            "/agent/analyze",
+            json={"log_text": "2026-05-19 10:00:00 ERROR: crash"},
+        )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["report"] is not None
+    loc = body["report"]["location"]
+    assert loc is not None
+    assert loc["file"] == "app/main.py"
+    assert loc["line"] == 99
+
+
+def test_agent_analyze_response_report_none_when_no_report(
+    client_with_mock_gateway: TestClient,
+) -> None:
+    """report=None 인 AgentRunResult 에서 응답 report 필드도 null 이다."""
+    fake = AgentRunResult(
+        response=_final_response("분석 결과"),
+        iterations=1,
+        messages=[],
+        report=None,
+    )
+    with patch("macro_logbot.app.run_agent", new=AsyncMock(return_value=fake)):
+        response = client_with_mock_gateway.post(
+            "/agent/analyze",
+            json={"log_text": "2026-05-19 10:00:00 INFO: ok"},
+        )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["report"] is None

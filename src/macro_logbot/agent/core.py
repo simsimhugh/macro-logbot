@@ -2,47 +2,78 @@
 
 Spec reference: docs/design/02-설계문서.md (v1.1) §5.2
 
-흐름 (LangGraph state graph):
-  - entry: `llm_call` 노드 — tools schema 첨부하여 gateway.complete 호출,
+흐름 (LangGraph state graph — 6 노드 완성, PR #23):
+  - entry: `intake` 노드 — raw log 텍스트 파싱, system 컨텍스트 prepend.
+  - `llm_call` 노드 — tools schema 첨부하여 gateway.complete 호출,
     응답 assistant message 를 state.messages 에 추가.
   - conditional edge `_route_after_llm`:
       - assistant_msg.tool_calls 가 있고 iter ≤ max_iters → `execute_tools`
-      - 아니면 (final answer 또는 max_iters 도달) → END
+      - 아니면 (final answer 또는 max_iters 도달) → `crystallize_report`
   - `execute_tools` 노드 — tool_calls 를 실행 (asyncio.to_thread), 결과를
     tool role message 로 state.messages 에 추가 → 다시 `llm_call` 로 (loop).
-
-본 PR 은 spec §5.2 6 노드 중 핵심 3 (`llm_call` / `route` / `execute_tools`)
-만 구현 — 현재 동작 그대로 LangGraph 로 표현. intake / crystallize_report /
-followup 은 호출 측 책임 또는 후속 task-MVP-001-x.
+  - `crystallize_report` 노드 — last assistant message 를 구조화 Report 로 변환.
+  - `finalize` 노드 — cleanup/metric/log 발행 후 END. MVP no-op.
 """
 
 from __future__ import annotations
 
 import asyncio
 import json
-from dataclasses import dataclass
+import re
+from dataclasses import dataclass, field
 from typing import TypedDict, cast
 
 from langgraph.graph import END, StateGraph
 from langgraph.graph.state import CompiledStateGraph
+from pydantic import BaseModel
 
 from macro_logbot.gateway import (
     ChatCompletionResponse,
     LLMGateway,
     Message,
 )
+from macro_logbot.intake.parser import parse_macro_log
 from macro_logbot.tools.registry import execute_tool, get_openai_tools_schema
 
 MAX_ITERS_DEFAULT = 20  # spec §5.2 default
 
+# spec §5.5 Location — file/function/line 구조 (KB 연동은 task-KB-002).
+_LOCATION_RE = re.compile(r"([\w./-]+\.py):(\d+)")
+
+
+class Location(BaseModel):
+    """파일 위치 — spec §5.5 KB Location."""
+
+    file: str
+    line: int
+
+
+class Report(BaseModel):
+    """crystallize_report 노드 출력 — 구조화 분석 결과.
+
+    MVP 단순화 (task-MVP-001-y 로 개선 예정):
+      - root_cause / reasoning_summary: last assistant message 본문 그대로 복사.
+      - location: 첫 *.py:N 매칭, 없으면 None.
+      - confidence: 0.5 고정 placeholder.
+      - fix_hint: last assistant message 본문 그대로 (LLM 추가 호출 생략).
+    LLM 추가 호출로 정확 JSON 추출은 task-MVP-001-y.
+    """
+
+    root_cause: str
+    location: Location | None = None
+    fix_hint: str
+    confidence: float = 0.5
+    reasoning_summary: str
+
 
 @dataclass
 class AgentRunResult:
-    """Agent loop 결과 — 마지막 응답 + 사용된 iter 수."""
+    """Agent loop 결과 — 마지막 응답 + 사용된 iter 수 + 구조화 리포트."""
 
     response: ChatCompletionResponse
     iterations: int
     messages: list[Message]
+    report: Report | None = field(default=None)
 
 
 class AgentState(TypedDict):
@@ -51,15 +82,54 @@ class AgentState(TypedDict):
     `_gateway` / `_model` / `_generation_kwargs` 는 노드 함수에서 closure 대신
     state 를 통해 전달 (LangGraph 표준). MVP 상 in-memory 만 가정 — checkpoint
     serialization 은 follow-up task-MVP-001-x.
+
+    `report` 는 crystallize_report 노드가 채움 (None → Report).
     """
 
     messages: list[Message]
     iteration: int
     max_iters: int
     last_response: ChatCompletionResponse | None
+    report: Report | None
     _model: str | None
     _generation_kwargs: dict[str, object]
     _gateway: LLMGateway
+
+
+async def _intake_node(state: AgentState) -> AgentState:
+    """마지막 user message 를 파싱해 system 컨텍스트 prepend (entry point).
+
+    - `state.messages[-1]` 이 user role 이면 `parse_macro_log` 로 파싱.
+    - 파싱 결과를 system message 로 messages 앞에 추가.
+    - 빈 로그(빈 문자열 / user message 없음) 이면 no-op.
+    """
+    msgs = state["messages"]
+    # last user message 추출.
+    last_user = next(
+        (m for m in reversed(msgs) if m.role == "user" and m.content),
+        None,
+    )
+    if last_user is None or not last_user.content:
+        return state
+
+    record = parse_macro_log(last_user.content)
+    # 파싱 성공 여부와 무관하게 system 힌트 생성 (실패 시 level/ts=None).
+    ts_str = record.timestamp.isoformat() if record.timestamp else "unknown"
+    level_str = record.level or "unknown"
+    hint = f"[INTAKE] level={level_str}, time={ts_str}, hint={record.message[:120]}"
+    system_msg = Message(role="system", content=hint)
+
+    # 이미 intake system 메시지가 있으면 중복 추가 방지 (재진입 방어).
+    first_is_intake = (
+        msgs
+        and msgs[0].role == "system"
+        and bool(msgs[0].content)
+        and msgs[0].content.startswith("[INTAKE]")  # type: ignore[union-attr]
+    )
+    if first_is_intake:
+        return state
+
+    return {**state, "messages": [system_msg, *msgs]}
 
 
 async def _llm_call_node(state: AgentState) -> AgentState:
@@ -115,30 +185,79 @@ async def _execute_tools_node(state: AgentState) -> AgentState:
     return {**state, "messages": [*state["messages"], *tool_messages]}
 
 
+async def _crystallize_report_node(state: AgentState) -> AgentState:
+    """last assistant message → 구조화 Report 추출 (graph 종료 직전).
+
+    MVP 단순화:
+      - last assistant message 본문을 root_cause / reasoning_summary / fix_hint 에 복사.
+      - location: 첫 *.py:N regex 매칭, 없으면 None.
+      - confidence: 0.5 고정 (placeholder).
+    LLM 추가 호출로 정확 JSON 추출은 task-MVP-001-y.
+    """
+    # last assistant message 본문 추출.
+    last_assistant_content = ""
+    for m in reversed(state["messages"]):
+        if m.role == "assistant" and m.content:
+            last_assistant_content = m.content
+            break
+
+    # location: 첫 *.py:N 매칭.
+    location: Location | None = None
+    loc_match = _LOCATION_RE.search(last_assistant_content)
+    if loc_match:
+        location = Location(file=loc_match.group(1), line=int(loc_match.group(2)))
+
+    report = Report(
+        root_cause=last_assistant_content,
+        location=location,
+        fix_hint=last_assistant_content,
+        confidence=0.5,
+        reasoning_summary=last_assistant_content,
+    )
+    return {**state, "report": report}
+
+
+async def _finalize_node(state: AgentState) -> AgentState:
+    """cleanup / metric / log 발행 후 END. MVP no-op — state 그대로 반환."""
+    return state
+
+
 def _route_after_llm(state: AgentState) -> str:
-    """tool_calls 가 있고 iter ≤ max_iters 이면 execute_tools, 아니면 END."""
+    """tool_calls 가 있고 iter ≤ max_iters 이면 execute_tools, 아니면 crystallize_report."""
     if state["iteration"] >= state["max_iters"]:
-        return "end"
+        return "crystallize_report"
     if not state["messages"]:
-        return "end"
+        return "crystallize_report"
     last = state["messages"][-1]
     if last.role == "assistant" and last.tool_calls:
         return "execute_tools"
-    return "end"
+    return "crystallize_report"
 
 
 def _build_graph() -> CompiledStateGraph[AgentState, None, AgentState, AgentState]:
-    """LangGraph StateGraph 컴파일 — module-level 1회만 호출 (비용 절약)."""
+    """LangGraph StateGraph 컴파일 — module-level 1회만 호출 (비용 절약).
+
+    흐름:
+      intake → llm_call → conditional:
+        - tool_calls? → execute_tools → llm_call (loop)
+        - no  → crystallize_report → finalize → END
+    """
     g = StateGraph(AgentState)
+    g.add_node("intake", _intake_node)
     g.add_node("llm_call", _llm_call_node)
     g.add_node("execute_tools", _execute_tools_node)
-    g.set_entry_point("llm_call")
+    g.add_node("crystallize_report", _crystallize_report_node)
+    g.add_node("finalize", _finalize_node)
+    g.set_entry_point("intake")
+    g.add_edge("intake", "llm_call")
     g.add_conditional_edges(
         "llm_call",
         _route_after_llm,
-        {"execute_tools": "execute_tools", "end": END},
+        {"execute_tools": "execute_tools", "crystallize_report": "crystallize_report"},
     )
     g.add_edge("execute_tools", "llm_call")
+    g.add_edge("crystallize_report", "finalize")
+    g.add_edge("finalize", END)
     return g.compile()
 
 
@@ -165,6 +284,7 @@ async def run_agent(
         "iteration": 0,
         "max_iters": max_iters,
         "last_response": None,
+        "report": None,
         "_model": model,
         "_generation_kwargs": dict(generation_kwargs),
         "_gateway": gateway,
@@ -176,4 +296,5 @@ async def run_agent(
         response=last_response,
         iterations=min(final_state["iteration"], max_iters),
         messages=final_state["messages"],
+        report=final_state.get("report"),
     )

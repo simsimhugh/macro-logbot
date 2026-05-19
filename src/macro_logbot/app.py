@@ -11,7 +11,7 @@ from fastapi import APIRouter, Depends, FastAPI
 from pydantic import BaseModel
 
 from macro_logbot import __version__
-from macro_logbot.agent import MAX_ITERS_DEFAULT, run_agent
+from macro_logbot.agent import MAX_ITERS_DEFAULT, Report, run_agent
 from macro_logbot.auth import verify_api_key
 from macro_logbot.gateway import (
     ChatCompletionRequest,
@@ -140,12 +140,18 @@ class AgentAnalyzeResponse(BaseModel):
     terminated_reason:
       - "final": agent loop 가 final answer (tool_calls 없음) 으로 정상 종료
       - "max_iters": max_iters 도달 — analysis 가 빈 문자열일 수 있음 (호출자가 가시화)
+
+    report: crystallize_report 노드가 추출한 구조화 리포트 (MVP: last assistant 복사).
+      None 이면 LLM 응답이 없었던 edge case.
+    session_id: task-MVP-004 에서 채워질 자리 — 현재 null 고정.
     """
 
     analysis: str
     record: IntakeRecord
     iterations: int
     terminated_reason: Literal["final", "max_iters"]
+    report: Report | None = None
+    session_id: str | None = None
 
 
 _ANALYZE_SYSTEM_PROMPT = (
@@ -200,6 +206,8 @@ async def agent_analyze(
         record=record,
         iterations=result.iterations,
         terminated_reason=terminated_reason,
+        report=result.report,
+        session_id=None,  # task-MVP-004 에서 채워질 자리
     )
 
 
