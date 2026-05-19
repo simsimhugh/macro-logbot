@@ -26,13 +26,14 @@
 - **size estimate**: models.py ~20 lines + client.py ~10 lines + tests ~50 lines
 - **priority**: **high** — Agent Core PR (feat/agent-core) 시작 전 선결
 
-### task-LG-002 — LLMGateway base_url/api_key override (사내 LLM 통합 선결)
+### ~~task-LG-002 — LLMGateway base_url/api_key override (사내 LLM 통합 선결)~~
 - **출처**: PR #8 architect (issuecomment-4479740071) WARN
 - **scope**: `LLMGateway.__init__` 에 `base_url: str | None = None`, `api_key: str | None = None`, `custom_llm_provider: str | None = None` 인자 추가 + 대응 env `MACRO_LOGBOT_LLM_BASE_URL` · `MACRO_LOGBOT_LLM_API_KEY` 흡수 + `acompletion` 호출 시 forward. spec §7.3 직접 인용.
 - **suggested branch**: `feat/gateway-internal-llm-hooks`
 - **reviewer scope**: 일반 (전체 reviewer cycle)
 - **size estimate**: client.py ~30 lines + tests ~40 lines
 - **priority**: **high** — 사내 LLM endpoint 통합 PR 시작 전 선결
+- **처리 완료**: 본 PR 안 처리 완료 (`feat/gateway-internal-llm-hooks`). 확인용 마커.
 
 ### task-LG-003 — /v1/chat/completions streaming (SSE) 지원
 - **출처**: PR #8 architect (issuecomment-4479740071) WARN — 본 PR 에서는 400 으로 임시 거절
@@ -101,11 +102,12 @@
 - **size estimate**: app.py + middleware ~50 lines + tests ~80 lines
 - **priority**: **high** — 사내 운영 진입 / Open WebUI 통합 PR 선결
 
-### task-SEC-003 — LLMGateway.complete kwargs allowlist
+### ~~task-SEC-003 — LLMGateway.complete kwargs allowlist~~
 - **출처**: PR #8 security-reviewer (issuecomment-4479896415) LOW
 - **scope**: `LLMGateway.complete(**kwargs)` 자유 패스스루 → allowlist (`temperature`, `max_tokens`, `top_p`, `stop`, `tools`, `tool_choice` 등) 외 kwargs `ValueError`. `task-LG-002` (base_url/api_key override) 작업 시 동일 시그니처를 건드리므로 함께 도입 권고.
 - **suggested branch**: task-LG-002 와 묶음 (`feat/gateway-internal-llm-hooks`)
 - **priority**: medium — task-LG-002 시점에 함께
+- **처리 완료**: 본 PR 안 처리 완료 (`feat/gateway-internal-llm-hooks`). 확인용 마커.
 
 ### task-PROCESS-001 — §10.4 검증 항목에 §4.3 병렬 호출 준수 추가
 - **출처**: PR #9 architect (issuecomment-4479796124) COMMENT + verifier (issuecomment-4479834661) follow-up 권고
@@ -239,7 +241,7 @@
 ## Priority Order (실행 순서)
 
 1. ~~task-LG-001~~ — Message tool_calls round-trip (PR #11 본 PR scope 안 처리 완료) ✅
-2. **task-LG-002** + **task-SEC-003** — LLMGateway base_url/api_key + kwargs allowlist (사내 LLM 통합 PR 선결)
+2. ~~**task-LG-002** + **task-SEC-003**~~ — LLMGateway base_url/api_key + kwargs allowlist ✅ `feat/gateway-internal-llm-hooks` 본 PR 완료
 3. **task-SEC-002** + **task-MVP-006** — /v1/chat/completions 인증 + Tool 보안 강화 (사내 운영 진입 / Open WebUI 통합 PR 선결)
 4. **task-LG-003** — /v1/chat/completions streaming (Open WebUI 통합 PR 시점)
 5. **task-MVP-001** — LangGraph migration (Agent Core 안정화)
