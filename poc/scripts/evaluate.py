@@ -281,7 +281,7 @@ def write_comparison(date_dir: Path, results: list[dict[str, Any]]) -> Path:
     lines.append("")
     if not has_judge:
         lines.append(
-            "> 1-B/2-A/2-B Claude judge 채점: `--judge claude-haiku-4-5` 옵션 사용"
+            "> 1-B/2-A/2-B LLM judge 채점: `--judge groq/llama-3.3-70b-versatile` 옵션 사용"
         )
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
     return path
@@ -333,11 +333,12 @@ def main(argv: list[str] | None = None) -> int:
         ),
     )
     parser.add_argument(
-        "--anthropic-api-key",
-        default=os.environ.get("ANTHROPIC_API_KEY", ""),
+        "--judge-api-key",
+        default="",
         help=(
-            "Anthropic API key (--judge claude-haiku-4-5 사용 시 필요."
-            " 기본 env ANTHROPIC_API_KEY)"
+            "Judge LLM API key. 미지정 시 모델 provider 별 env 사용 — "
+            "claude-* → ANTHROPIC_API_KEY, gemini/* → GEMINI_API_KEY, "
+            "groq/* → GROQ_API_KEY."
         ),
     )
     args = parser.parse_args(argv)
@@ -354,16 +355,27 @@ def main(argv: list[str] | None = None) -> int:
     judge_api_key: str | None = None
     if args.judge != "none":
         judge_model = args.judge
-        if judge_model.startswith("claude") and not args.anthropic_api_key:
+        # provider 별 default env 매핑 — LiteLLM 식별자 prefix 로 분기.
+        # else "" 분기는 argparse choices 가 _JUDGE_MODELS 강제하므로 사실상
+        # 도달 불가 (defensive — provider 추가 후 whitelist 갱신 누락 시 안전망).
+        if judge_model.startswith("claude"):
+            env_var = "ANTHROPIC_API_KEY"
+        elif judge_model.startswith("gemini/"):
+            env_var = "GEMINI_API_KEY"
+        elif judge_model.startswith("groq/"):
+            env_var = "GROQ_API_KEY"
+        else:
+            env_var = ""
+        # API key 는 process env 수정 없이 LiteLLM 호출에 직접 전달 (sec WARN-2).
+        # subprocess (trigger.py) 가 dict(os.environ) 으로 상속하는 누출 표면 회피.
+        judge_api_key = args.judge_api_key or (os.environ.get(env_var, "") if env_var else "")
+        if not judge_api_key:
+            hint = f" 또는 {env_var}" if env_var else ""
             print(
-                "error: --judge claude-* 사용 시 --anthropic-api-key 또는 ANTHROPIC_API_KEY 필요",
+                f"error: --judge {judge_model} 사용 시 --judge-api-key{hint} 필요",
                 file=sys.stderr,
             )
             return 2
-        # API key 는 process env 수정 없이 LiteLLM 호출에 직접 전달 (sec WARN-2).
-        # subprocess (trigger.py) 가 dict(os.environ) 으로 상속하는 누출 표면 회피.
-        if args.anthropic_api_key:
-            judge_api_key = args.anthropic_api_key
 
     date_dir = (
         Path(args.reports_dir) / _dt.datetime.now(_dt.UTC).strftime("%Y-%m-%d")

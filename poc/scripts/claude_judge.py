@@ -21,7 +21,11 @@ from typing import Any
 import litellm
 
 # 지원되는 judge 모델 목록 — argparse choices 와 단일 source (code-r WARN-1).
-_JUDGE_MODELS = ("claude-haiku-4-5", "gemini/gemini-2.5-flash-lite")
+_JUDGE_MODELS = (
+    "claude-haiku-4-5",
+    "gemini/gemini-2.5-flash-lite",
+    "groq/llama-3.3-70b-versatile",
+)
 
 # JSON 강제 system prompt 공통 접두어.
 _JSON_SYSTEM_PREFIX = (
@@ -126,7 +130,7 @@ def judge_root_cause(
     Args:
         ground_truth: error_catalog 의 ground_truth.root_cause 문자열.
         response:     에이전트가 반환한 분석 텍스트 (analysis 필드 또는 report.root_cause).
-        model:        LiteLLM 모델 식별자 (예: "claude-haiku-4-5").
+        model:        LiteLLM 모델 식별자 (예: "groq/llama-3.3-70b-versatile").
 
     Returns:
         {"score": float, "reasoning": str}
