@@ -75,6 +75,23 @@
 - **reviewer scope**: 일반 (보안 중요)
 - **priority**: medium — 사내 운영 진입 전 (task-LG-002 / task-SEC-007 와 묶음)
 
+### task-SEC-010 — Message content length cap + DoS 가드
+- **출처**: PR #20 security-reviewer WARN-MED-1 (A03) + WARN-LOW-2 (A04)
+- **scope**: `src/macro_logbot/gateway/models.py` `Message.content` 에 `Field(max_length=1_000_000)` 추가. 거대 LLM 응답 (악성 / 오작동) 또는 user-controlled tool output blob 이 row 에 들어가 SQLite query latency / disk fill 유발하는 표면 차단. Pydantic v2 ValidationError 가 자동으로 거절 → 직렬화 단계 도달 X. **arguments / tool result 의 길이도 동일 cap 고려**.
+- **suggested branch**: `feat/message-length-cap`
+- **reviewer scope**: 일반
+- **priority**: medium — 사내 운영 진입 전 (task-MVP-006 운영 보안 패키지와 묶음)
+
+### task-SEC-011 — 시크릿 echo 차단 (LLM 응답 / tool output 안 시크릿 노출 방어)
+- **출처**: PR #20 security-reviewer WARN-MED-2 (A02 + A09)
+- **scope**: 다층 방어:
+  - (a) tool layer (PR #19 `read_file` / `grep_codebase` / `search_logs`) 가 `.env`, `secrets/`, `*.key`, `*.pem`, `id_rsa*` 등 시크릿 파일 path allowlist 차단 (task-MVP-006 의 path 보안 강화에 흡수 가능).
+  - (b) LLM 응답에 우연히 포함된 시크릿 redact — 출력 단계에서 regex 매칭 (API key 패턴 `[A-Za-z0-9]{32,}`, AWS access key `AKIA...`, GitHub PAT `ghp_...` 등) 시 `***REDACTED***` 치환.
+  - (c) (운영 배포 시) SQLCipher 또는 DB-level encryption-at-rest 검토 — task-OPS-001 multi-stage 와 함께.
+- **suggested branch**: `feat/secret-redaction`
+- **reviewer scope**: 일반 (보안 중요)
+- **priority**: medium — 사내 운영 진입 전 (사외 PoC 영향 적음)
+
 ### task-OPS-001 — Dockerfile multi-stage build (이미지 크기 + 공격 표면 감소)
 - **출처**: PR #12 architect (issuecomment-4480701169) COMMENT-1 + security-reviewer L-9
 - **scope**: `Dockerfile` 를 builder + runtime 2-stage 로 분리, build-essential 을 runtime image 에서 제거. 이미지 100MB+ 감소 + gcc 등 공격 표면 축소.
@@ -132,8 +149,8 @@
 - **처리 PR**: PR #20 (`feat/session-sqlite`) — `SQLiteSessionStore` + `SessionStore` Protocol 도입. `src/macro_logbot/session/store.py`. messages 직렬화 (단일 table). `InMemorySessionStore` 유지 (fallback/test).
 - **잔여**: `tool_history` / `follow_up_messages` / `report` 컬럼 확장 → task-MVP-002-x. endpoint 통합 → task-MVP-004.
 
-### task-MVP-002-x — Session 확장 컬럼 (event_id / status / tool_history / follow_up_messages / report)
-- **출처**: PR #20 의도된 단순화 (messages 만 직렬화, spec §5.4 5개 컬럼 미구현) + architect WARN-2/4 (LOW)
+### task-MVP-002-x — Session 확장 컬럼 (event_id / status / tool_history / follow_up_messages / report) + 코드/테스트 잔여
+- **출처**: PR #20 의도된 단순화 + architect WARN-2/4 (LOW) + code-reviewer WARN-3 (LOW) + test-engineer WARN-2/3/4 (MED/LOW)
 - **scope**: `sessions` 테이블에 spec §5.4 line 199~205 의 잔여 5개 필드 추가:
   - `event_id TEXT` — Log Event 와의 1:N 관계 키 (spec §5.4 line 201).
   - `status TEXT` — 분석 진행 상태 (`intake/analyzing/reported/followup` — §5.2 노드 상태와 연동).
@@ -141,6 +158,10 @@
   - `follow_up_messages_json TEXT` — 1차 리포트 이후 대화.
   - `report_json TEXT` — `{ root_cause, related_code_refs[], confidence, reasoning_summary }`.
   - **arch WARN-4 (LOW)**: WAL mode 설정 (`PRAGMA journal_mode=WAL`) 을 매 connection 마다가 아닌 첫 init 1회로 최적화 (idempotent 라 안전, 단순한 마이크로 최적화).
+  - **code-r WARN-3 (LOW)**: Protocol/구현 메서드의 `id: str` 인자가 built-in `id()` 를 가림. `session_id: str` 으로 통일 (외부 caller 0 이라 무위험, 본 task 컬럼 추가와 함께 묶음).
+  - **test WARN-2 (MED)**: plain Message (`role/content` 만, tool_calls=None) round-trip 단위 테스트 추가 — fetched 후 `tool_calls is None`, `tool_call_id is None`, `name is None` 명시 assert. Pydantic 모델 변경 시 회귀 방어.
+  - **test WARN-3 (LOW)**: `test_sqlite_store_persistence` 의 "프로세스 재시작 시뮬레이션" 주석을 "같은 프로세스 내 두 인스턴스 간 데이터 가시성 검증 (프로세스 격리는 별도 통합 테스트)" 로 정정.
+  - **test WARN-4 (LOW)**: `test_sqlite_store_protocol` 에서 `mem_store` 도 실제 create/get/delete 호출 추가 (현재 isinstance 만).
 - **suggested branch**: `feat/session-columns`
 - **reviewer scope**: 일반 (전체 reviewer cycle)
 - **priority**: medium — multi-turn 분석 리포트 저장 필요 시점
@@ -180,9 +201,11 @@
 - **reviewer scope**: test-engineer 단독 가능 (test-only PR, src 변경 없음 — code-r WARN-6 fix 가 src 포함시 일반 cycle)
 - **priority**: medium — 사내 운영 진입 전 운영 분기 검증 필요
 
-### task-MVP-004 — /agent/analyze session 통합
-- **출처**: PR #11 MVP 의도된 단순화
-- **scope**: `/agent/analyze` 가 session_id 받아 session messages 누적, 다회차 분석 지원. task-MVP-002 완료, 본 task 진입 가능.
+### task-MVP-004 — /agent/analyze session 통합 + SessionStore.update semantic 통일
+- **출처**: PR #11 MVP 의도된 단순화 + PR #20 code-reviewer WARN-4 (LOW)
+- **scope**:
+  - `/agent/analyze` 가 session_id 받아 session messages 누적, 다회차 분석 지원. task-MVP-002 완료, 본 task 진입 가능.
+  - **code-r WARN-4 (LOW)**: SessionStore.update 의 "존재하지 않는 id" 동작이 InMemory (upsert) vs SQLite (silent no-op) 로 다름 — Protocol docstring 에 명시 후 endpoint 통합 시점에 통일 결정 (옵션 A: 두 backend 모두 `KeyError` raise, 옵션 B: 두 backend 모두 upsert 의미). 현 단위 테스트 `test_sqlite_store_update_nonexistent_is_silent_noop` 가 현재 계약 명문화.
 - **priority**: low — multi-turn analysis 요구 시
 
 ### task-MVP-005 — intake parser 다국어 level 지원

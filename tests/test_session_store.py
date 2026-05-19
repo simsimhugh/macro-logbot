@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -140,6 +141,33 @@ def test_sqlite_store_protocol(tmp_path: Path) -> None:
     assert sqlite_store.get(s.id) is not None
     sqlite_store.update(s)
     assert sqlite_store.delete(s.id) is True
+
+
+def test_sqlite_store_update_nonexistent_is_silent_noop(tmp_path: Path) -> None:
+    """존재하지 않는 id 에 update() 호출 — silent no-op (SQLite rowcount=0).
+
+    InMemorySessionStore 는 upsert 의미라 두 backend 가 다름. Protocol docstring
+    이 이를 명시 (task-MVP-004 시점 통일 예정). 본 테스트는 SQLite 의 현재 계약을
+    명문화 + branch coverage 확보.
+    """
+    from macro_logbot.session.store import Session as _Session
+
+    store = SQLiteSessionStore(tmp_path / "sessions.db")
+    ghost = _Session(id="ghost-id")
+    ghost.messages.append(Message(role="user", content="phantom"))
+    # 예외 없이 통과해야 하고 get 결과도 None.
+    store.update(ghost)
+    assert store.get("ghost-id") is None
+
+
+def test_sqlite_store_db_file_permission(tmp_path: Path) -> None:
+    """DB 파일이 owner-only 권한 (0o600) 으로 강제 — 시크릿 echo 방어 (security WARN-MED-3)."""
+    db_path = tmp_path / "sessions.db"
+    SQLiteSessionStore(db_path)
+    # POSIX 환경에서만 의미 — 권한 mask 검증.
+    if os.name == "posix":
+        mode = db_path.stat().st_mode & 0o777
+        assert mode == 0o600, f"expected 0o600, got {oct(mode)}"
 
 
 def test_sqlite_store_tool_calls_round_trip(tmp_path: Path) -> None:
