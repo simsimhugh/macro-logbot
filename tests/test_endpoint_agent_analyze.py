@@ -571,16 +571,20 @@ def test_singleton_thread_safety_double_checked_lock() -> None:
 
 @pytest.mark.asyncio
 async def test_agent_state_includes_session_id_when_passed() -> None:
-    """run_agent(session_id='x') 호출 시 state['session_id'] == 'x' 가 보장된다."""
+    """run_agent(session_id='x', event_id='e') 호출 시 graph state 에 보존됨 명시 검증.
+
+    architect WARN-1 (MED): 단순 결과 검증으로는 initial_state 채움 라인이 누락돼도
+    통과 — covenant 미보호. graph 의 모든 노드가 `{**state, ...}` 로 새 state 반환
+    하므로 final_state 에 session_id/event_id 가 살아있어야 정합.
+    """
     import time
     from unittest.mock import AsyncMock
 
-    from macro_logbot.agent.core import run_agent
+    from macro_logbot.agent.core import _GRAPH, AgentState
     from macro_logbot.gateway import (
         ChatCompletionResponse,
         Choice,
         LLMGateway,
-        Message,
         Usage,
     )
     from macro_logbot.gateway.models import Message as GwMessage
@@ -604,12 +608,23 @@ async def test_agent_state_includes_session_id_when_passed() -> None:
     gw.default_model = "openai/gpt-4o-mini"
     gw.complete = AsyncMock(return_value=final_resp)  # type: ignore[method-assign]
 
-    result = await run_agent(
-        [Message(role="user", content="hi")],
-        gw,
-        session_id="test-session-x",
-    )
+    initial_state: AgentState = {
+        "messages": [GwMessage(role="user", content="hi")],
+        "iteration": 0,
+        "max_iters": 20,
+        "last_response": None,
+        "report": None,
+        "session_id": "test-session-x",
+        "event_id": "evt-001",
+        "_model": None,
+        "_generation_kwargs": {},
+        "_gateway": gw,
+    }
+    final_state = await _GRAPH.ainvoke(initial_state)
 
-    # run_agent 결과가 정상 반환되어야 함.
-    assert result.iterations == 1
-    assert result.response.choices[0].message.content == "ok"
+    # graph 6 노드 통과 후에도 session_id / event_id 가 state 에 보존 — covenant 검증.
+    assert final_state["session_id"] == "test-session-x"
+    assert final_state["event_id"] == "evt-001"
+    # 결과 자체도 정상.
+    assert final_state["last_response"] is not None
+    assert final_state["iteration"] == 1

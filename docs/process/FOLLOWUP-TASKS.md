@@ -269,6 +269,16 @@
   - `pending_tool_calls: list[ToolCall]` / `tool_results: list[ToolResult]` → spec §5.2 잠정 필드, LangGraph node 함수 시그니처와 중복 — 구현 미정.
   - `event: LogEvent` → `event_id: str | None` MVP 단순화, LogEvent.id 통합은 task-MVP-005 (intake 한국어) 후.
 
+### task-MVP-004-y — singleton thread-safety LOW 보강 + pre-existing flaky test fix
+- **출처**: PR #26 architect WARN-2 (LOW) + WARN-3 (LOW) + PR #20 머지 후 pre-existing flaky (main 에서도 fail)
+- **scope**:
+  - **arch WARN-2 (LOW)**: `_get_kb_store` 의 `os.getenv("MACRO_LOGBOT_KB_PATH")` 가 lock 밖 (line 58). thread A 가 path 읽고 lock 진입 직전 thread B 가 env unset → A 가 stale path 로 init. 운영 시 env 동적 변경 없으니 영향 미미하나, lock 안 재확인 또는 docstring 에 "env 는 process lifetime 불변" 명문화.
+  - **arch WARN-3 (LOW)**: `_reset_singletons_for_test()` 가 lock 없이 None 대입. pytest single-threaded 환경 OK, 단 `pytest-xdist` / thread fixture 사용 시 race. docstring 에 "main thread / 테스트 셋업 전용" 명문화.
+  - **pre-existing flaky** (`tests/test_session_store.py::test_update_refreshes_updated_at`): Pydantic v2 `Field(default_factory=_now)` 가 callable reference 캐시 — `monkeypatch.setattr(store_module, "_now", ...)` 우회. test 가 실 시간 vs monkeypatch 시간 비교라 실패. 해결: `time.sleep(0.01)` + monkeypatch 제거, 또는 `Session.__init__` 에서 `_now()` 명시 호출 (Pydantic Field 우회), 또는 `freezegun` 도입.
+- **suggested branch**: `chore/singleton-and-flaky-test-fix`
+- **reviewer scope**: 일반 (변경 작음)
+- **priority**: low — pytest 빨간색 1건 잔존 (`-q` 결과 154 passed + 1 failed) 이지만 main 머지 자체엔 영향 X. 사용자 보고 시 noise.
+
 ### task-MVP-005 — intake parser 다국어 level 지원
 - **출처**: PR #11 MVP 의도된 단순화
 - **scope**: 한국어 등급 (`경고`/`오류`/`치명`) regex 추가. 사내 MACRO 로그 포맷 결정 후 정확한 패턴 매칭.
