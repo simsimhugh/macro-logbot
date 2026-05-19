@@ -2,6 +2,36 @@
 
 사내 에이전트 AI 플랫폼. 첫 번째 사용 사례는 사내 테스트 플랫폼 **MACRO**에서 발생하는 에러의 **자율 원인 분석**입니다. Claude Code와 유사하게 LLM이 도구(코드 검색·로그 조회 등)를 자율적으로 다중 호출하며 단서를 모아 결론을 도출합니다.
 
+## 빠른 시작 (Ubuntu 22.04)
+
+### 1단계 — 사전 설치 (한 번만)
+
+```bash
+sudo apt update && sudo apt install -y docker.io docker-compose-v2 git
+sudo usermod -aG docker $USER
+# logout 후 재로그인 필요
+```
+
+### 2단계 — clone + .env 설정
+
+```bash
+git clone https://github.com/simsimhugh/macro-logbot.git
+cd macro-logbot
+cp .env.example .env
+nano .env   # MACRO_LOGBOT_API_KEY + LLM key 설정
+```
+
+### 3단계 — 기동
+
+```bash
+docker compose up -d --build
+# 또는 원샷 스크립트: ./scripts/deploy.sh
+```
+
+기동 후 `http://localhost:3000` (Open WebUI) 접속, `http://localhost:8000/health` 헬스 체크.
+
+사외/사내 차이는 `.env` 4개 변수 swap 뿐 — 자세한 내용은 **[배포 가이드](docs/operations/DEPLOYMENT.md)** 참조.
+
 ## 현재 단계
 
 ```
