@@ -213,7 +213,12 @@ async def agent_analyze(
     if body.session_id:
         session = session_store.get(body.session_id)
         if session is None:
-            # 알 수 없는 id — 새 session 으로 안전하게 생성 (404 대신).
+            # 알 수 없는 id — 새 session 으로 안전하게 생성 (404 대신, IDOR 회피).
+            # 보안 감사 위해 WARN 로깅 (security WARN-4) — id 앞 8자만 (full 노출 회피).
+            logger.warning(
+                "session_id %s... not found — issuing new session",
+                body.session_id[:8],
+            )
             session = session_store.create()
     else:
         session = session_store.create()
@@ -263,10 +268,16 @@ async def agent_analyze(
     )
 
     # --- KB auto-archive (env 활성화 + report 존재 시) ---
+    # KB write 는 analytics side effect — 실패해도 분석 응답 자체는 200 유지
+    # (code-r WARN-2: disk full / permission / schema drift 등이 endpoint 응답
+    # 계약 본체에 영향 주면 안 됨).
     if os.getenv("MACRO_LOGBOT_KB_AUTO_ARCHIVE") == "true" and result.report:
         kb_store = _get_kb_store()
         if kb_store is not None:
-            _kb_auto_archive(kb_store, result.report)
+            try:
+                _kb_auto_archive(kb_store, result.report)
+            except Exception as exc:
+                logger.warning("KB auto-archive failed (non-fatal): %s", exc)
 
     return AgentAnalyzeResponse(
         analysis=analysis,
@@ -295,5 +306,6 @@ def _kb_auto_archive(kb_store: SQLiteKBStore, report: Report) -> None:
 
 
 # 미사용 import 방어 — get_openai_tools_schema 는 외부 모듈에서 import 가능하도록
-# 재노출 목적. (linter 가 unused 로 잡지 않게 __all__ 명시.)
-__all__ = ["app", "get_gateway", "get_openai_tools_schema", "_get_session_store", "_get_kb_store"]
+# 재노출 목적. underscore prefix getter 는 internal 의미 + patch.object 가 __all__ 무관
+# 하게 동작하므로 export 에서 제외 (code-r WARN-6).
+__all__ = ["app", "get_gateway", "get_openai_tools_schema"]

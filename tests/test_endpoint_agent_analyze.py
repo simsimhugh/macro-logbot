@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sqlite3
 import time
 from collections.abc import Iterator
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -444,3 +445,88 @@ def test_agent_analyze_kb_auto_archive_disabled_default(
         )
     assert response.status_code == 200
     mock_kb.add.assert_not_called()
+
+
+def test_agent_analyze_unknown_session_id_creates_new_session(
+    client_with_mock_gateway: TestClient,
+) -> None:
+    """존재하지 않는 session_id 전송 — 404 대신 새 session 생성 fallback (IDOR 회피).
+
+    test-e WARN-1 + sec WARN-4 — branch coverage 보강.
+    """
+    import macro_logbot.app as app_module
+    from macro_logbot.session import InMemorySessionStore
+
+    fake = AgentRunResult(
+        response=_final_response("ok"),
+        iterations=1,
+        messages=[],
+        report=None,
+    )
+    mem_store = InMemorySessionStore()
+    with (
+        patch("macro_logbot.app.run_agent", new=AsyncMock(return_value=fake)),
+        patch.object(app_module, "_session_store", mem_store),
+    ):
+        response = client_with_mock_gateway.post(
+            "/agent/analyze",
+            json={
+                "log_text": "2026-05-19 10:00:00 ERROR: orphan",
+                "session_id": "nonexistent-uuid-deadbeef",
+            },
+        )
+    assert response.status_code == 200
+    body = response.json()
+    # 전달한 id 와 다른 새 id 가 반환 — fallback create.
+    assert body["session_id"] != "nonexistent-uuid-deadbeef"
+    assert len(body["session_id"]) == 36  # uuid4 length
+
+
+def test_agent_analyze_kb_archive_failure_keeps_200(
+    client_with_mock_gateway: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """KB.add 실패 (disk full / permission 등) → endpoint 는 여전히 200 반환.
+
+    code-r WARN-2 + test-e WARN-2 — KB 는 analytics side effect, 응답 계약 본체에
+    영향 X. exception 은 logger.warning 후 swallow.
+    """
+    import macro_logbot.app as app_module
+    from macro_logbot.agent.core import Location
+    from macro_logbot.session import InMemorySessionStore
+
+    monkeypatch.setenv("MACRO_LOGBOT_KB_AUTO_ARCHIVE", "true")
+    monkeypatch.setenv("MACRO_LOGBOT_KB_PATH", "/tmp/test_kb_failure.db")
+
+    fake_report = Report(
+        root_cause="disk-full test",
+        location=Location(file="src/x.py", line=1),
+        fix_hint="x",
+        confidence=0.5,
+        reasoning_summary="x",
+    )
+    fake = AgentRunResult(
+        response=_final_response("ok"),
+        iterations=1,
+        messages=[],
+        report=fake_report,
+    )
+
+    # mock KB 의 add 가 OperationalError raise — endpoint 가 swallow 해야 200.
+    failing_kb = MagicMock()
+    failing_kb.add.side_effect = sqlite3.OperationalError("disk full")
+    mem_store = InMemorySessionStore()
+    with (
+        patch("macro_logbot.app.run_agent", new=AsyncMock(return_value=fake)),
+        patch.object(app_module, "_session_store", mem_store),
+        patch.object(app_module, "_get_kb_store", return_value=failing_kb),
+    ):
+        response = client_with_mock_gateway.post(
+            "/agent/analyze",
+            json={"log_text": "2026-05-19 10:00:00 ERROR: x"},
+        )
+    # KB 실패에도 200 + report 정상 반환.
+    assert response.status_code == 200
+    body = response.json()
+    assert body["report"]["root_cause"] == "disk-full test"
+    failing_kb.add.assert_called_once()
