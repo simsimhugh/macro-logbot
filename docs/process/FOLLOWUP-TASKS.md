@@ -262,14 +262,27 @@
 - **처리 PR**: PR #24 (`feat/session-endpoint-kb-archive`) — `/agent/analyze` 가 optional `session_id` 받아 `SQLiteSessionStore` 에서 messages 로드 → graph 실행 → messages 저장 → 응답에 `session_id` 반환. `SQLiteSessionStore.update` 가 upsert (INSERT OR REPLACE) 로 변경 — `InMemorySessionStore` 와 동일 의미. `test_sqlite_store_update_nonexistent_is_upsert` 테스트로 계약 명문화.
 - **잔여**: singleton thread-safety (`_get_session_store` / `_get_kb_store` lock 보호 + `reset_*` helper) → task-MVP-004-x. `AgentState` 에 `session_id` / `event` / `pending_tool_calls` / `tool_results` 4 필드 추가 → task-MVP-004-x.
 
-### task-MVP-004-x — singleton thread-safety + AgentState session_id/event 필드 추가
-- **출처**: PR #21 code-reviewer WARN-2 (MED) + PR #23 architect WARN-4 (LOW) — PR #24 잔여
+### ~~task-MVP-004-x~~ — singleton thread-safety + AgentState session_id/event_id 필드 추가 ✅ **PR #26 머지**
+- **처리 PR**: PR #26 (`feat/singleton-thread-safety-and-agentstate`) — `_get_session_store` / `_get_kb_store` double-checked locking (`threading.Lock`) 적용. `_reset_singletons_for_test()` helper 추가 (테스트 격리). `AgentState` 에 `session_id: str | None` + `event_id: str | None` 추가. `run_agent` 시그니처 확장 (backward-compat). `/agent/analyze` 가 `session_id=session.id` 를 graph state 로 전달.
+- **잔여**:
+  - principal scoping (session IDOR owner 확인) → task-SEC-002 묶음.
+  - `pending_tool_calls: list[ToolCall]` / `tool_results: list[ToolResult]` → spec §5.2 잠정 필드, LangGraph node 함수 시그니처와 중복 — 구현 미정.
+  - `event: LogEvent` → `event_id: str | None` MVP 단순화, LogEvent.id 통합은 task-MVP-005 (intake 한국어) 후.
+
+### task-MVP-004-y — singleton thread-safety LOW 보강 + session_id covenant + pre-existing flaky test fix
+- **출처**: PR #26 architect WARN-2/3 (LOW) + code-reviewer WARN-1/2/4 (MED/LOW) + security WARN-3/4/5 (MED/LOW) + test-engineer WARN-2 (LOW) + PR #20 머지 후 pre-existing flaky
 - **scope**:
-  - `_get_session_store` / `_get_kb_store` module-level singleton 에 `threading.Lock` init 보호 + 명시적 `reset_session_store()` / `reset_kb_store()` helper (테스트 격리). FastAPI lifespan startup DI 도 선택지.
-  - `AgentState` 에 spec §5.2 line 134-143 의 `session_id: str | None` / `event: LogEvent | None` / `pending_tool_calls: list[ToolCall]` / `tool_results: list[ToolResult]` 4 필드 추가. endpoint 가 session_id 채워서 전달.
-- **suggested branch**: `feat/session-state-fields`
-- **reviewer scope**: 일반 (전체 reviewer cycle)
-- **priority**: medium — 운영 동시성 + multi-turn AgentState 완성 시점
+  - **arch WARN-2 + code-r WARN-1 (MED)**: `_get_kb_store` env read 가 lock 밖 — thread A stale path race. lock 안 재확인 또는 docstring 에 "env 는 process lifetime 불변" 명문화.
+  - **arch WARN-3 (LOW)**: `_reset_singletons_for_test()` 가 lock 없이 None 대입. docstring 에 "main thread / 테스트 셋업 전용" 명문화.
+  - **code-r WARN-2 (MED)**: `run_agent()` 의 initial_state 채움 라인 (`"session_id": session_id`, `"event_id": event_id`) 누락 회귀 방어 unit test. mock `_llm_call_node` 가 받은 state 캡쳐 → session_id 확인.
+  - **code-r WARN-4 / test WARN-2 (LOW)**: `threading.Barrier(10)` 추가됐지만 lock 제거 시 fail 보장 (mutant test) 까진 검증 X. PEP 703 free-threaded 환경 대비.
+  - **sec WARN-3 (MED)**: agent 노드 함수가 `state["session_id"]` 를 LLM prompt 로 echo 하지 않게 명시 covenant — 주석 + sanitizer (crystallize_report 에서 root_cause 에 session_id 매칭 시 redact). 또는 RunContext 별도 분리.
+  - **sec WARN-4 (LOW)**: `session_id[:8]` 부분 로깅 충돌 (uuid4 first 32 bit birthday ~65k) — 12자 또는 HMAC-truncated.
+  - **sec WARN-5 (LOW)**: `event_id` covenant 문서화 (LogEvent.id 통합 시점에 sanitizer 동시 적용).
+  - **pre-existing flaky** (`tests/test_session_store.py::test_update_refreshes_updated_at`): Pydantic v2 `Field(default_factory=_now)` 가 callable reference 캐시 — `monkeypatch.setattr(store_module, "_now", ...)` 우회. 해결: `time.sleep(0.01)` + monkeypatch 제거, 또는 `Session.__init__` 에서 `_now()` 명시 호출, 또는 `freezegun` 도입.
+- **suggested branch**: `chore/singleton-and-flaky-test-fix`
+- **reviewer scope**: 일반
+- **priority**: low — pytest deselect 1건 잔존 + 보안 covenant 는 노드 함수가 session_id read 안 하면 0 위험.
 
 ### task-MVP-005 — intake parser 다국어 level 지원
 - **출처**: PR #11 MVP 의도된 단순화

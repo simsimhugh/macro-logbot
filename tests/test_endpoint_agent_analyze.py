@@ -5,6 +5,7 @@ from __future__ import annotations
 import sqlite3
 import time
 from collections.abc import Iterator
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -40,20 +41,20 @@ def _final_response(content: str) -> ChatCompletionResponse:
 
 @pytest.fixture(autouse=True)
 def reset_app_singletons() -> Iterator[None]:
-    """각 테스트 전후로 app 모듈 레벨 singleton 을 InMemorySessionStore 로 초기화.
+    """각 테스트 전후로 app 모듈 레벨 singleton 을 초기화.
 
+    _reset_singletons_for_test() 를 사용해 monkeypatch internal 의존 없이
+    격리 보장 (code-r WARN-3 from PR #25).
     실제 SQLite DB 생성 없이 테스트 격리 보장.
     """
     import macro_logbot.app as app_module
     from macro_logbot.session import InMemorySessionStore
 
-    prev_session = app_module._session_store
-    prev_kb = app_module._kb_store
+    app_module._reset_singletons_for_test()
+    # _get_session_store() 가 호출되기 전에 InMemorySessionStore 로 pre-set.
     app_module._session_store = InMemorySessionStore()  # type: ignore[assignment]
-    app_module._kb_store = None
     yield
-    app_module._session_store = prev_session
-    app_module._kb_store = prev_kb
+    app_module._reset_singletons_for_test()
 
 
 @pytest.fixture
@@ -530,3 +531,113 @@ def test_agent_analyze_kb_archive_failure_keeps_200(
     body = response.json()
     assert body["report"]["root_cause"] == "disk-full test"
     failing_kb.add.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# task-MVP-004-x: singleton thread-safety + AgentState session_id
+# ---------------------------------------------------------------------------
+
+
+def test_singleton_thread_safety_double_checked_lock(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """10 thread 동시 호출 + threading.Barrier 강제 동시 진입 시 인스턴스 1개만 생성.
+
+    test-e WARN-1 fix: SQLite 파일을 tmp_path 안에 격리 (`.macro-logbot-sessions.db` cwd
+    오염 방지). teardown 보장.
+    code-r WARN-4 (LOW) 부분 보강: `threading.Barrier(10)` 으로 동시 진입 시점 동기화 —
+    GIL 의존 줄여 race 재현력 ↑.
+    """
+    import threading
+
+    import macro_logbot.app as app_module
+    from macro_logbot.session import SQLiteSessionStore
+
+    # SQLite 파일 격리 + 환경 정리.
+    monkeypatch.setenv("MACRO_LOGBOT_SESSION_DB", str(tmp_path / "test.db"))
+    app_module._reset_singletons_for_test()
+
+    results: list[SQLiteSessionStore] = []
+    results_lock = threading.Lock()
+    barrier = threading.Barrier(10)  # 동시 진입 강제.
+
+    def call_get() -> None:
+        barrier.wait()  # 10 thread 가 동시 진입 시점 동기화.
+        store = app_module._get_session_store()
+        with results_lock:
+            results.append(store)
+
+    threads = [threading.Thread(target=call_get) for _ in range(10)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    assert len(results) == 10
+    first = results[0]
+    assert all(r is first for r in results), (
+        f"singleton 위반 — {len({id(r) for r in results})} 개 인스턴스 생성됨"
+    )
+    # teardown — singleton 다시 None 으로 (다음 테스트 격리).
+    app_module._reset_singletons_for_test()
+
+
+@pytest.mark.asyncio
+async def test_agent_state_includes_session_id_when_passed() -> None:
+    """run_agent(session_id='x', event_id='e') 호출 시 graph state 에 보존됨 명시 검증.
+
+    architect WARN-1 (MED): 단순 결과 검증으로는 initial_state 채움 라인이 누락돼도
+    통과 — covenant 미보호. graph 의 모든 노드가 `{**state, ...}` 로 새 state 반환
+    하므로 final_state 에 session_id/event_id 가 살아있어야 정합.
+    """
+    import time
+    from unittest.mock import AsyncMock
+
+    from macro_logbot.agent.core import _GRAPH, AgentState
+    from macro_logbot.gateway import (
+        ChatCompletionResponse,
+        Choice,
+        LLMGateway,
+        Usage,
+    )
+    from macro_logbot.gateway.models import Message as GwMessage
+
+    final_resp = ChatCompletionResponse(
+        id="chatcmpl-sid",
+        object="chat.completion",
+        created=int(time.time()),
+        model="openai/gpt-4o-mini",
+        choices=[
+            Choice(
+                index=0,
+                message=GwMessage(role="assistant", content="ok"),
+                finish_reason="stop",
+            )
+        ],
+        usage=Usage(prompt_tokens=1, completion_tokens=1, total_tokens=2),
+    )
+
+    gw = LLMGateway.__new__(LLMGateway)
+    gw.default_model = "openai/gpt-4o-mini"
+    gw.complete = AsyncMock(return_value=final_resp)  # type: ignore[method-assign]
+
+    initial_state: AgentState = {
+        "messages": [GwMessage(role="user", content="hi")],
+        "iteration": 0,
+        "max_iters": 20,
+        "last_response": None,
+        "report": None,
+        "session_id": "test-session-x",
+        "event_id": "evt-001",
+        "_model": None,
+        "_generation_kwargs": {},
+        "_gateway": gw,
+    }
+    final_state = await _GRAPH.ainvoke(initial_state)
+
+    # graph 6 노드 통과 후에도 session_id / event_id 가 state 에 보존 — covenant 검증.
+    assert final_state["session_id"] == "test-session-x"
+    assert final_state["event_id"] == "evt-001"
+    # 결과 자체도 정상.
+    assert final_state["last_response"] is not None
+    assert final_state["iteration"] == 1

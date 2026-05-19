@@ -78,6 +78,12 @@ class AgentState(TypedDict):
     serialization 은 follow-up task-MVP-001-x.
 
     `report` 는 crystallize_report 노드가 채움 (None → Report).
+
+    `session_id` — endpoint 가 채워서 전달 (spec §5.2 line 134). agent loop /
+    followup 노드가 향후 활용. None 이면 단독 호출 (비-session 컨텍스트).
+
+    `event_id` — Log Event 와의 1:N 관계 키 (spec §5.2 line 135, `event` 필드의
+    MVP 단순화 표기). None 이면 미연결 (task-MVP-005 intake 한국어 후 통합 예정).
     """
 
     messages: list[Message]
@@ -85,6 +91,8 @@ class AgentState(TypedDict):
     max_iters: int
     last_response: ChatCompletionResponse | None
     report: Report | None
+    session_id: str | None
+    event_id: str | None
     _model: str | None
     _generation_kwargs: dict[str, object]
     _gateway: LLMGateway
@@ -275,6 +283,8 @@ async def run_agent(
     gateway: LLMGateway,
     max_iters: int = MAX_ITERS_DEFAULT,
     model: str | None = None,
+    session_id: str | None = None,
+    event_id: str | None = None,
     **generation_kwargs: object,
 ) -> AgentRunResult:
     """Tool-calling agent loop 실행 (LangGraph state graph).
@@ -284,6 +294,9 @@ async def run_agent(
 
     generation_kwargs 는 LLM 호출 시 forward (temperature, max_tokens,
     tool_choice 등 OpenAI 호환 파라미터).
+
+    session_id — endpoint 가 채워서 전달 (spec §5.2). None 이면 단독 호출.
+    event_id   — Log Event 와의 1:N 관계 키 (MVP 미사용, task-MVP-005 후 통합).
     """
     initial_state: AgentState = {
         "messages": list(messages),
@@ -291,6 +304,8 @@ async def run_agent(
         "max_iters": max_iters,
         "last_response": None,
         "report": None,
+        "session_id": session_id,
+        "event_id": event_id,
         "_model": model,
         "_generation_kwargs": dict(generation_kwargs),
         "_gateway": gateway,
