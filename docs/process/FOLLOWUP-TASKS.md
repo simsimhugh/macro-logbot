@@ -117,12 +117,16 @@
 - **size estimate**: docs 5~10 lines
 - **priority**: medium — Stage 3 다음 PR 들이 본 정책 따라 진행되는지 검증 가능해야 함
 
-### task-MVP-001 — LangGraph state graph 마이그레이션
-- **출처**: PR #11 MVP 의도된 단순화 (architect issuecomment-4480360602 PR description)
-- **scope**: `src/macro_logbot/agent/core.py` 의 직접 `while` loop 을 LangGraph `StateGraph` 로 교체. `run_agent` 시그니처 유지하여 호출부 변경 폭 0. spec §5.2 명시.
-- **suggested branch**: `feat/agent-langgraph`
-- **size estimate**: 80~120 lines + dependencies (langgraph)
-- **priority**: medium — Agent Core 안정화 시점
+### ~~task-MVP-001~~ — LangGraph state graph 마이그레이션 ✅ **PR #18 머지**
+- **처리 PR**: PR #18 (`feat/agent-langgraph`) — `src/macro_logbot/agent/core.py` 가 LangGraph `StateGraph` + 3 노드 (llm_call / route / execute_tools). `run_agent` 시그니처 100% 유지, 호출부 변경 0.
+- **잔여**: spec §5.2 의 `intake` / `crystallize_report` / `followup` 3 노드는 task-MVP-001-x 후속.
+
+### task-MVP-001-x — spec §5.2 잔여 3 노드 (intake / crystallize_report / followup)
+- **출처**: PR #18 의도된 단순화 (3/6 노드만)
+- **scope**: LangGraph `StateGraph` 에 `intake` (Log Event 수신·세션 초기화), `crystallize_report` (최종 답변 → 구조화 리포트), `followup` (사용자 추가 메시지 → loop 재진입) 노드 추가. spec §5.2 6 노드 완성.
+- **suggested branch**: `feat/agent-langgraph-nodes`
+- **reviewer scope**: 일반 (전체 reviewer cycle)
+- **priority**: medium — Open WebUI 통합 시점 (multi-turn follow-up 대화)
 
 ### task-MVP-002 — Session persistence (SQLite, spec §5.4)
 - **출처**: PR #11 MVP 의도된 단순화
@@ -244,7 +248,7 @@
 2. ~~**task-LG-002** + **task-SEC-003**~~ — LLMGateway base_url/api_key + kwargs allowlist ✅ `feat/gateway-internal-llm-hooks` 본 PR 완료
 3. **task-SEC-002** + **task-MVP-006** — /v1/chat/completions 인증 + Tool 보안 강화 (사내 운영 진입 / Open WebUI 통합 PR 선결)
 4. **task-LG-003** — /v1/chat/completions streaming (Open WebUI 통합 PR 시점)
-5. **task-MVP-001** — LangGraph migration (Agent Core 안정화)
+5. ~~task-MVP-001~~ — LangGraph migration (PR #18 머지 완료) ✅
 6. **task-MVP-002** — Session SQLite (Open WebUI 운영 진입)
 7. **task-MVP-003** — MCP tools 나머지 4개 (KB 통합 또는 별도)
 8. **task-PROCESS-001** — §10.4 §4.3 병렬 호출 검증 항목 (메타 PR)
