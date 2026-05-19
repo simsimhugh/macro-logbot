@@ -14,6 +14,12 @@ ARG PIP_TRUSTED_HOST=""
 
 FROM ${BASE_IMAGE} AS runtime
 
+# Docker ARG scope: FROM 이전 ARG (global) 는 FROM line 안에서만 유효 —
+# stage 안에서 ENV/RUN 에 참조하려면 stage 안에서 재선언 필수.
+# APT_MIRROR / PIP_TRUSTED_HOST 는 사용 직전 (line 26, 47) 재선언돼서 동작 중.
+# PIP_INDEX_URL 만 누락되어 있어 ENV 가 빈 값으로 expand 되던 문제 (PR #29 잔존).
+ARG PIP_INDEX_URL=https://pypi.org/simple
+
 ENV PIP_INDEX_URL=${PIP_INDEX_URL} \
     PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
