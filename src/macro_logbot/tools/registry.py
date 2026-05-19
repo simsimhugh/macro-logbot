@@ -140,6 +140,11 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
             "properties": {
                 "pattern": {"type": "string", "description": "검색 패턴"},
                 "log_dir": {"type": "string", "description": "로그 디렉토리 경로"},
+                "max_results": {
+                    "type": "integer",
+                    "description": "반환할 최대 매칭 수",
+                    "default": 50,
+                },
             },
             "required": ["pattern", "log_dir"],
         },

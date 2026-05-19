@@ -14,6 +14,7 @@ Spec reference: docs/design/02-설계문서.md (v1.1) §5.3
 from __future__ import annotations
 
 import platform
+import re
 import subprocess
 import sys
 from importlib import metadata
@@ -25,6 +26,9 @@ _SUBPROCESS_TIMEOUT_SEC = 15
 
 # read_file 메모리 가드 — 거대 파일/바이너리 OOM 방지.
 _READ_FILE_MAX_BYTES = 2_000_000
+
+# git --oneline 출력의 hash 부분 검증 (4~40자 hex). control char/빈줄/오염 차단.
+_GIT_HASH_RE = re.compile(r"[0-9a-f]{4,40}")
 
 
 def _safe_resolve(path: str) -> Path | None:
@@ -69,6 +73,7 @@ def grep_codebase(
         return {"error": completed.stderr.strip() or "grep failed"}
 
     matches: list[dict[str, Any]] = []
+    truncated = False
     for line in completed.stdout.splitlines():
         # 형식: "<file>:<lineno>:<text>"
         parts = line.split(":", 2)
@@ -81,10 +86,8 @@ def grep_codebase(
             continue
         matches.append({"file": file_path, "line": line_no_int, "text": text})
         if len(matches) >= max_results:
+            truncated = True
             break
-    truncated = len(matches) >= max_results and (
-        completed.stdout.count("\n") > max_results
-    )
     return {"matches": matches, "truncated": truncated}
 
 
@@ -277,6 +280,9 @@ def git_log(
     Returns:
       {"commits": [{"hash": str, "message": str}, ...], "truncated": bool}
       혹은 {"error": str}.
+
+    Note: `truncated` 는 commit 개수가 limit 에 도달했음을 의미하며, 실제로 더 많은
+    commit 이 존재하는지 여부와는 별개 (정확히 limit 건만 있는 repo 도 True).
     """
     cmd = ["git", "log", "--oneline", f"-n{limit}"]
     if path is not None:
@@ -299,14 +305,14 @@ def git_log(
 
     commits: list[dict[str, Any]] = []
     for line in completed.stdout.splitlines():
-        # --oneline 형식: "<hash> <message>"
+        # --oneline 형식: "<hash> <message>" — single space 구분.
         parts = line.split(" ", 1)
-        if not parts:
+        commit_hash = parts[0] if parts else ""
+        if not _GIT_HASH_RE.fullmatch(commit_hash):
+            # hash 패턴 위반 (빈 줄, control char 포함 등) 은 skip.
             continue
-        commit_hash = parts[0]
         message = parts[1] if len(parts) > 1 else ""
         commits.append({"hash": commit_hash, "message": message})
-    # git log -n<limit> 이 이미 상한 적용 — truncated=True 면 더 있을 수 있음.
     truncated = len(commits) >= limit
     return {"commits": commits, "truncated": truncated}
 
@@ -319,6 +325,9 @@ def find_test_history(
 
     사외 PoC 환경엔 사내 MACRO test DB 가 없으므로 빈 test_runs 반환.
     사내 운영 진입 시 후속 PR (task-MVP-003-x) 에서 실제 DB 연동.
+
+    `limit` 인자는 인터페이스 호환용 — mock 단계에서는 무시됨 (실제 DB
+    연동 PR 에서 적용).
 
     Returns:
       {"test_id": str, "test_runs": [], "note": str} 혹은 {"error": str}.
@@ -375,6 +384,9 @@ def retrieve_similar_cases(
     """과거 유사 에러 분석 사례 — KB (spec §5.5) 미구현 placeholder.
 
     KB 구현 PR 후 실제 검색 로직 추가 (task-MVP-003-x).
+
+    `top_k` 인자는 인터페이스 호환용 — placeholder 단계에서는 무시됨 (KB
+    실구현 PR 에서 적용).
 
     Returns:
       {"error_signature": str, "similar_cases": [], "note": str} 혹은 {"error": str}.
