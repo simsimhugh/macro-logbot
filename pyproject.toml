@@ -64,3 +64,4 @@ exclude = ["tests/"]
 asyncio_mode = "auto"
 testpaths = ["tests"]
 addopts = "-v"
+pythonpath = ["src"]

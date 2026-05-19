@@ -45,9 +45,8 @@ class SessionStore(Protocol):
     def update(self, session: Session) -> None:
         """기존 Session 의 messages/updated_at 을 영속화.
 
-        존재하지 않는 id 에 대한 동작은 backend 마다 다르다 — InMemory 는 upsert,
-        SQLite 는 silent no-op. 두 의미를 통일하는 작업은 task-MVP-004 (endpoint
-        session 통합) 시점.
+        존재하지 않는 id 에 대해서도 upsert 의미 — InMemory/SQLite 두 backend 동일.
+        (task-MVP-004 PR #24 에서 통일.)
         """
         ...
 
@@ -161,14 +160,21 @@ class SQLiteSessionStore:
         )
 
     def update(self, session: Session) -> None:
+        """기존 Session 의 messages/updated_at 을 영속화.
+
+        존재하지 않는 id 에 대해서도 upsert (INSERT OR REPLACE) 로 동작 —
+        InMemorySessionStore 와 동일한 의미. task-MVP-004 통일 (PR #24).
+        """
         session.updated_at = _now()
         with self._connect() as conn:
             conn.execute(
-                "UPDATE sessions SET messages_json=?, updated_at=? WHERE id=?",
+                "INSERT OR REPLACE INTO sessions"
+                " (id, messages_json, created_at, updated_at) VALUES (?,?,?,?)",
                 (
-                    _serialize_messages(session.messages),
-                    session.updated_at.isoformat(),
                     session.id,
+                    _serialize_messages(session.messages),
+                    session.created_at.isoformat(),
+                    session.updated_at.isoformat(),
                 ),
             )
             conn.commit()
