@@ -58,8 +58,20 @@ python poc/scripts/evaluate.py --cases E001,E002,E003,E004,E005
 - **traceback 캡처**: `subprocess.run(..., stderr=PIPE)` 로 capture, exit code 비-0 일 때 traceback 본문이 stderr 에 있다고 가정.
 - **case 간 cooldown**: Gemini free tier 5 RPM 제한 — 기본 60s. 모델 변경 시 `--rate-limit-cooldown 0`.
 
+## 한계 (architect WARN, task-POC-002/005 후속)
+
+- **1-A file 매칭 false-positive**: 5 case 의 `ground_truth.file` 이 모두 `snake.py` → LLM 이 "snake.py 어딘가" 라고만 답해도 0.4 자동 통과. task-POC-002 (5→10 확장, 다른 file path 포함) 전까지 baseline 변별력 한계.
+- **endpoint vs spec §9.4**: `evaluate.py` 가 `POST /agent/analyze` 단일 호출. spec §9.4 의 `POST /events` + polling 흐름은 task-MVP-004 (session 통합) 후 task-POC-005 에서 마이그레이션.
+- **1-A 만으론 spec §10.2 baseline 판정 불가**: 본 PR 은 4단계 채점 중 1-A 만 자동. full/partial 자율해결률 정량 측정은 task-POC-001 (Claude judge) 후.
+
+## demo runbook (사용자)
+
+- Gemini free tier **5 RPM** → 5 case 측정 시 `--rate-limit-cooldown 60` × 4 = 약 4분 sleep. demo 직전 dry-run 필수.
+- 모델 변경 (Groq Llama / Claude Haiku 등 RPM 더 큰) 시 `--rate-limit-cooldown 0` 명시.
+
 ## 후속
 
 - task-POC-001: 1-B/2-A/2-B Claude judge 채점.
 - task-POC-002: 카탈로그 5 → 10 확장 (E006~E010).
 - task-POC-003: 4 모델 매트릭스 (`--model` 다중 swap + 비교 리포트).
+- task-POC-005: `evaluate.py` 를 spec §9.4 endpoint 흐름으로 마이그레이션 (task-MVP-004 후).

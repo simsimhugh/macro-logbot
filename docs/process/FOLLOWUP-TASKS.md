@@ -187,6 +187,12 @@
 - **size estimate**: conftest.py 수정 ~20 lines
 - **priority**: medium — CI 통과 안정성에 직결
 
+### task-POC-005 — evaluate.py 를 spec §9.4 endpoint 흐름 (POST /events + polling) 으로 마이그레이션
+- **출처**: PR #14 architect (issuecomment-4484079642) WARN-1
+- **scope**: `poc/scripts/evaluate.py` 가 현재 `POST /agent/analyze` 단일 호출. spec `docs/design/02-설계문서.md` §9.4 + `docs/process/04-PoC-운영가이드.md` §5.3 는 `POST /events` → session_id polling → `GET /sessions/<id>/report` 흐름. **task-MVP-004 (session 통합) 완료 후** evaluate.py 마이그레이션, 또는 단기적으로 04-PoC-운영가이드 §5.3 endpoint 명세를 현행 MVP 와 일치하게 annotation.
+- **suggested branch**: `feat/poc-events-endpoint` (task-MVP-004 후) 또는 `docs/poc-guide-endpoint-annotation` (단기)
+- **priority**: medium — task-MVP-004 와 묶음
+
 ---
 
 ## Deferred (INFO/COMMENT 등급 — 즉시 처리 불필요, 발견 시점에 처리)
