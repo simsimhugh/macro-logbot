@@ -4,33 +4,23 @@
 
 ## 빠른 시작 (Ubuntu 22.04)
 
-### 1단계 — 사전 설치 (한 번만)
+> **상세 가이드는 [배포 가이드 (DEPLOYMENT.md)](docs/operations/DEPLOYMENT.md)** 단일 출처. 본 README 는 요약만 — 사전 설치 명령 / 트러블슈팅 / 사외-사내 비교표는 DEPLOYMENT.md 참조 (변경 시 한 곳만 수정).
 
-```bash
-sudo apt update && sudo apt install -y docker.io docker-compose-v2 git
-sudo usermod -aG docker $USER
-# logout 후 재로그인 필요
-```
+1. **사전 설치** — Docker Engine + Compose v2 plugin + git → DEPLOYMENT.md §1단계.
+2. **clone + `.env` 작성**:
+   ```bash
+   git clone https://github.com/simsimhugh/macro-logbot.git
+   cd macro-logbot && cp .env.example .env
+   nano .env   # MACRO_LOGBOT_API_KEY + LLM key
+   ```
+3. **기동**:
+   ```bash
+   docker compose up -d --build       # 또는 ./scripts/deploy.sh
+   ```
 
-### 2단계 — clone + .env 설정
+확인: `http://localhost:3000` (Open WebUI), `curl http://localhost:8000/health`.
 
-```bash
-git clone https://github.com/simsimhugh/macro-logbot.git
-cd macro-logbot
-cp .env.example .env
-nano .env   # MACRO_LOGBOT_API_KEY + LLM key 설정
-```
-
-### 3단계 — 기동
-
-```bash
-docker compose up -d --build
-# 또는 원샷 스크립트: ./scripts/deploy.sh
-```
-
-기동 후 `http://localhost:3000` (Open WebUI) 접속, `http://localhost:8000/health` 헬스 체크.
-
-사외/사내 차이는 `.env` 4개 변수 swap 뿐 — 자세한 내용은 **[배포 가이드](docs/operations/DEPLOYMENT.md)** 참조.
+사외/사내 차이는 `.env` 4개 변수 swap 뿐 (코드 변경 0).
 
 ## 현재 단계
 

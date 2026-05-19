@@ -36,11 +36,27 @@ Python, pip, Node.js 등 **호스트에 별도 설치 불필요**.
 
 ## 1단계 — 사전 설치 (호스트에 한 번만)
 
+Ubuntu 22.04 LTS (jammy) 의 archive 에는 `docker-compose-v2` / `docker-compose-plugin` 패키지가 없으므로 **Docker 공식 repo** 를 추가한다.
+
 ```bash
-sudo apt update && sudo apt install -y docker.io docker-compose-v2 git
+# (a) Docker 공식 GPG key + apt repo 등록
+sudo apt update && sudo apt install -y ca-certificates curl git
+sudo install -m 0755 -d /etc/apt/keyrings
+sudo curl -fsSL https://download.docker.com/linux/ubuntu/gpg \
+  -o /etc/apt/keyrings/docker.asc
+sudo chmod a+r /etc/apt/keyrings/docker.asc
+echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] \
+https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo "$VERSION_CODENAME") stable" \
+  | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+sudo apt update
+
+# (b) Docker Engine + Compose v2 plugin 설치
+sudo apt install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
 sudo usermod -aG docker $USER
 # 반드시 logout 후 재로그인 (또는 newgrp docker) — 이후 sudo 없이 docker 사용 가능
 ```
+
+> **사내 망 변형**: `download.docker.com` 차단 시 사내 mirror 의 docker repo 또는 사내 IT 가 제공하는 사전 설치 절차 사용. 아래 명령 모두 사내 mirror 경로로 치환 가능.
 
 설치 확인:
 
@@ -88,6 +104,9 @@ nano .env          # 아래 .env 작성 가이드 참고
 | `MACRO_LOGBOT_LLM_PROVIDER` | (미설정) | `openai` / `anthropic` / custom | LiteLLM custom_provider |
 | `MACRO_LOGBOT_DEFAULT_MODEL` | `gemini/gemini-2.5-flash-lite` | `<사내-모델-이름>` | 기본 LLM 모델 |
 | `GEMINI_API_KEY` | `<발급 key>` (사외 PoC 용) | (미설정 — 사내 endpoint 사용) | Gemini API key |
+| `OPENAI_API_KEY` | (사외 PoC, 사용 시) | (미설정) | OpenAI API key — `MACRO_LOGBOT_DEFAULT_MODEL=openai/gpt-4o-mini` 등 사용 시 |
+| `ANTHROPIC_API_KEY` | (사외 PoC, 사용 시) | (미설정) | Anthropic API key — Claude 모델 사용 시 |
+| `GROQ_API_KEY` | (사외 PoC, 사용 시) | (미설정) | Groq API key — Llama 3.3 등 사용 시 (14,400 RPD free) |
 
 ### 사외 PoC 최소 설정 예시
 
@@ -120,7 +139,7 @@ MACRO_LOGBOT_DEFAULT_MODEL=internal/llm-model
 
 ```bash
 curl http://localhost:8000/health
-# 정상: {"status":"ok","auth_required":true,"model":"gemini/gemini-2.5-flash-lite"}
+# 정상: {"status":"ok","version":"0.0.1"}
 ```
 
 ### LLM 응답 확인
