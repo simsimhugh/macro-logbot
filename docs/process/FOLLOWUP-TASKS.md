@@ -397,6 +397,17 @@
 - **suggested branch**: `docs/sec-env-and-judge-boundary`
 - **priority**: low — 사외 PoC 영향 0, 사내 진입 시점에 묶음 처리.
 
+### task-INFRA-002 — Default model identifier source-of-truth 정합
+- **출처**: PR #33 architect WARN-MED (issuecomment-4489144902).
+- **scope**: `MACRO_LOGBOT_DEFAULT_MODEL` default 값이 3 곳에서 stale (PR #20 잔존):
+  - `docker-compose.yml:30` — `${MACRO_LOGBOT_DEFAULT_MODEL:-gemini/gemini-1.5-flash}` → `gemini-2.5-flash-lite`
+  - `README.md:87` — `.env` 가이드 `gemini/gemini-1.5-flash` → `gemini-2.5-flash-lite`
+  - `src/macro_logbot/app.py:108` — `/v1/models` endpoint fallback `openai/gpt-4o-mini` → `gemini-2.5-flash-lite`
+  - 영향: user 가 `.env` 미설정 시 docker-compose 가 존재하지 않는 1.5-flash 로 부팅, Open WebUI 모델 picker 도 `gpt-4o-mini` 표시 (실제 호출 모델과 불일치).
+- **장기 (LOW)**: `DEFAULT_MODEL` 상수를 `src/macro_logbot/config.py` 단일 모듈로 추출 → evaluate.py/app.py/compose default 가 import.
+- **suggested branch**: `fix/default-model-source-of-truth`
+- **priority**: medium — 본 PR #33 의 짝꿍, 같은 sprint 안 처리 권고.
+
 ---
 
 ## Deferred (INFO/COMMENT 등급 — 즉시 처리 불필요, 발견 시점에 처리)
