@@ -34,16 +34,41 @@ python poc/scripts/evaluate.py --cases E001,E002,E003,E004,E005
 
 5. **결과**: `poc/reports/<YYYY-MM-DD>/{<case>.json,comparison.md}`.
 
-## 채점 범위 (본 PR)
+## 채점 범위
 
-| 단계 | 평가 항목 | 비중 | 채점자 | 본 PR |
+| 단계 | 평가 항목 | 비중 | 채점자 | 상태 |
 |---|---|---|---|---|
 | 1-A | file:line substring 매칭 | 25% | 결정론 스크립트 | ✅ `evaluate.py` |
-| 1-B | root_cause 의미 매칭 | 25% | Claude judge | ❌ task-POC-001 |
-| 2-A | follow-up 도구 적절성 | 25% | Claude judge | ❌ task-POC-001 |
-| 2-B | follow-up 수정 방향 정합성 | 25% | Claude judge | ❌ task-POC-001 |
+| 1-B | root_cause 의미 매칭 | 25% | LLM judge | ✅ `claude_judge.py` (PR #27) |
+| 2-A | 도구 호출 적절성 | 25% | LLM judge | ⚠️ interim — 1차 분석 기반 (PR #27) |
+| 2-B | 수정 방향 정합성 | 25% | LLM judge | ⚠️ interim — 1차 분석 기반 (PR #27) |
 
-본 PR 의 `evaluate.py` 는 1-A 만 자동 — file 이름과 line 번호의 substring 매칭 + `root_cause_keywords` 의 substring 매칭으로 0~1 naive score 계산. 본격 채점은 후속.
+`evaluate.py --judge claude-haiku-4-5` 옵션으로 1-A ~ 2-B 4단계 전체 채점 가능. judge 없이 실행 시 1-A 만 (기존 동작 유지).
+
+> **⚠️ interim 의미** (architect WARN-1 PR #27): spec §6.2 (`docs/process/04-PoC-운영가이드.md`) 의 2-A/2-B 는 본래 **follow-up 대화 (Q1/Q2/Q3) 답변** 을 채점 대상으로 정의. 본 PR 은 1차 `/agent/analyze` 응답만으로 모든 4 항목을 채점한다 — 즉 2-A/2-B 는 "1차 분석에서 도구 호출이 적절했는가" + "1차 분석 안의 fix_hint 가 정합한가" 의 interim 의미. follow-up Q1/Q2/Q3 자동 호출 + 진짜 채점은 **`task-POC-001-x`** (endpoint multi-turn 통합 후) 로 분리. 본격 baseline 측정 시점에 2-A/2-B 의미 재확인 필요.
+
+### 측정 실패 처리 (architect WARN-2 PR #27)
+
+`claude_judge` 호출이 JSON parse 실패 또는 LiteLLM call 실패 시 해당 항목은 `score=None` + `error` 필드. `naive_score_total` 평균은 유효 항목만 사용 (denominator 조정). `scored_axes` 필드에 유효 항목 수 표기 (4 가 정상, <4 이면 일부 측정 실패).
+
+### 결정성 (architect WARN-3 PR #27)
+
+judge 호출은 `temperature=0 + seed=42` — best-effort 결정성. LiteLLM provider 별 batch hashing 영향으로 같은 입력에 score variance 가능 (특히 0.5 ↔ 1.0). 본격 baseline 측정 시 동일 case **N=3 run 후 median** 권고.
+
+### 측정 명령 예시
+
+```bash
+# 1-A 만 (judge 없음 — 기본)
+python poc/scripts/evaluate.py --cases E001 --api-key $MACRO_LOGBOT_API_KEY
+
+# 4단계 전체 채점 (Claude Haiku judge)
+python poc/scripts/evaluate.py --cases E001 --judge claude-haiku-4-5 \
+    --anthropic-api-key sk-ant-...
+
+# Gemini judge 사용 시
+python poc/scripts/evaluate.py --cases E001,E002,E003 \
+    --judge gemini/gemini-2.5-flash-lite
+```
 
 ## case 추가
 

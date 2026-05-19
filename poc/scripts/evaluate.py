@@ -7,13 +7,10 @@ Spec ref: docs/process/04-PoC-운영가이드.md §5.3 + §6, docs/design/02-설
     2. inject.inject(case, workdir) — error 주입
     3. trigger.trigger(workdir) → traceback 캡처
     4. POST <api>/agent/analyze with traceback + Bearer auth → response JSON
-    5. response.analysis vs ground_truth → 결정론 채점 (1-A only — file/line substring 매칭)
-    6. case 결과 dump → poc/reports/<YYYY-MM-DD>/<case>.json
-    7. (선택) case 간 cooldown — Gemini 5 RPM 회피
-
-본 PR scope:
-    - 1-A 결정론 채점만 (file:line substring + 카테고리/keyword 단순 매칭).
-    - 1-B/2-A/2-B Claude judge 는 task-POC-001 후속.
+    5. response.analysis vs ground_truth → 결정론 채점 (1-A)
+    6. (선택) --judge 지정 시 LLM judge 로 1-B/2-A/2-B 채점
+    7. case 결과 dump → poc/reports/<YYYY-MM-DD>/<case>.json
+    8. (선택) case 간 cooldown — Gemini 5 RPM 회피
 """
 
 from __future__ import annotations
@@ -35,6 +32,12 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
+from claude_judge import (  # noqa: E402
+    _JUDGE_MODELS,
+    judge_fix_direction,
+    judge_root_cause,
+    judge_tool_appropriateness,
+)
 from inject import inject  # noqa: E402
 from trigger import trigger  # noqa: E402
 
@@ -121,14 +124,53 @@ def score_1a(analysis: str, ground_truth: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+# judge 모델 화이트리스트는 claude_judge._JUDGE_MODELS 가 단일 source — argparse choices 에 활용.
+
+
+def run_judge(
+    ground_truth: dict[str, Any],
+    analysis_text: str,
+    tool_calls: list[dict[str, Any]],
+    judge_model: str,
+    judge_api_key: str | None = None,
+) -> dict[str, Any]:
+    """1-B/2-A/2-B LLM judge 채점. 결과 dict 반환.
+
+    judge_api_key 명시 시 LiteLLM 호출에 직접 전달 — process env 미수정
+    (sec WARN-2: setdefault 가 subprocess 환경 누출 회피).
+
+    Returns:
+        {
+          "score_1b": {"score": float | None, "reasoning": str, ...},
+          "score_2a": {...}, "score_2b": {...},
+        }
+    """
+    root_cause_gt = str(ground_truth.get("root_cause") or "")
+    fix_hint_gt = str(ground_truth.get("fix_hint") or "")
+    expected_tools: list[str] = list(ground_truth.get("expected_tool_calls") or [])
+
+    score_1b = judge_root_cause(root_cause_gt, analysis_text, judge_model, api_key=judge_api_key)
+    score_2a = judge_tool_appropriateness(
+        expected_tools, tool_calls, judge_model, api_key=judge_api_key
+    )
+    score_2b = judge_fix_direction(fix_hint_gt, analysis_text, judge_model, api_key=judge_api_key)
+
+    return {"score_1b": score_1b, "score_2a": score_2a, "score_2b": score_2b}
+
+
 def evaluate_case(
     case_id: str,
     api_url: str,
     api_key: str,
     model: str | None,
     timeout: int = DEFAULT_HTTP_TIMEOUT,
+    judge_model: str | None = None,
+    judge_api_key: str | None = None,
 ) -> dict[str, Any]:
-    """단일 case 실행 — inject → trigger → POST /agent/analyze → 채점."""
+    """단일 case 실행 — inject → trigger → POST /agent/analyze → 채점.
+
+    judge_model 지정 시 1-A 채점 후 LLM judge (1-B/2-A/2-B) 도 실행.
+    """
     workdir = Path(tempfile.mkdtemp(prefix=f"poc-{case_id}-"))
     started_at = _dt.datetime.now(_dt.UTC).isoformat()
     case_meta = inject(case_id, workdir)
@@ -145,17 +187,36 @@ def evaluate_case(
     analysis_text = ""
     if "analysis" in backend_response:
         analysis_text = str(backend_response.get("analysis") or "")
-    score = score_1a(analysis_text, case_meta.get("ground_truth", {}))
-    return {
+    ground_truth = case_meta.get("ground_truth", {})
+    score = score_1a(analysis_text, ground_truth)
+    result: dict[str, Any] = {
         "case_id": case_id,
         "started_at": started_at,
         "model": model or "default",
         "trigger_exit_code": exit_code,
         "traceback": stderr_text,
         "backend_response": backend_response,
-        "ground_truth": case_meta.get("ground_truth", {}),
+        "ground_truth": ground_truth,
         "score_1a": score,
     }
+    if judge_model:
+        tool_calls: list[dict[str, Any]] = []
+        if isinstance(backend_response.get("tool_calls"), list):
+            tool_calls = backend_response["tool_calls"]
+        judge_scores = run_judge(
+            ground_truth, analysis_text, tool_calls, judge_model, judge_api_key=judge_api_key
+        )
+        result.update(judge_scores)
+        # naive_score_total — 측정 실패 (score=None) 항목 제외 후 유효 항목만 평균
+        # (architect WARN-2: 측정 실패와 진짜 0 점을 구분 — 체계적 하향 편향 회피).
+        valid_scores: list[float] = [score["naive_score_0_to_1"]]
+        for key in ("score_1b", "score_2a", "score_2b"):
+            raw = judge_scores[key].get("score")
+            if raw is not None:
+                valid_scores.append(float(raw))
+        result["naive_score_total"] = round(sum(valid_scores) / len(valid_scores), 3)
+        result["scored_axes"] = len(valid_scores)  # 4 가 정상, < 4 면 일부 측정 실패.
+    return result
 
 
 def write_report(date_dir: Path, case_id: str, result: dict[str, Any]) -> Path:
@@ -168,33 +229,56 @@ def write_report(date_dir: Path, case_id: str, result: dict[str, Any]) -> Path:
 
 
 def write_comparison(date_dir: Path, results: list[dict[str, Any]]) -> Path:
-    """모든 case 의 요약 표를 comparison.md 로 저장."""
+    """모든 case 의 요약 표를 comparison.md 로 저장.
+
+    judge 채점 결과가 있으면 1-A/1-B/2-A/2-B/total 컬럼 확장.
+    """
     path = date_dir / "comparison.md"
+    has_judge = any("score_1b" in r for r in results)
+
+    if has_judge:
+        header = "| case | 1-A | 1-B | 2-A | 2-B | total |"
+        separator = "|---|---|---|---|---|---|"
+    else:
+        header = "| case | file_match | line_match | keyword_hits | 1-A |"
+        separator = "|---|---|---|---|---|"
+
     lines = [
         "# macro-logbot PoC 평가 결과",
         "",
         f"date: {date_dir.name}",
         "",
-        "## 1-A 결정론 채점 (file:line substring + keyword 매칭)",
+        "## 채점 결과 (spec §10.1 4단계 가중 합산)",
         "",
-        "| case | file_match | line_match | keyword_hits | naive_score |",
-        "|---|---|---|---|---|",
+        header,
+        separator,
     ]
     for res in results:
+        cid = res.get("case_id", "?")
         if "score_1a" not in res:
-            lines.append(
-                f"| {res.get('case_id', '?')} | — | — | — | (trigger failed) |"
-            )
+            if has_judge:
+                lines.append(f"| {cid} | — | — | — | — | (trigger failed) |")
+            else:
+                lines.append(f"| {cid} | — | — | — | (trigger failed) |")
             continue
         s = res["score_1a"]
-        lines.append(
-            f"| {res['case_id']} | {s['file_match']} | {s['line_match']}"
-            f" | {s['keyword_hits']} | {s['naive_score_0_to_1']} |"
-        )
+        s1a = s["naive_score_0_to_1"]
+        if has_judge:
+            s1b = res.get("score_1b", {}).get("score", "—")
+            s2a = res.get("score_2a", {}).get("score", "—")
+            s2b = res.get("score_2b", {}).get("score", "—")
+            total = res.get("naive_score_total", "—")
+            lines.append(f"| {cid} | {s1a} | {s1b} | {s2a} | {s2b} | {total} |")
+        else:
+            lines.append(
+                f"| {cid} | {s['file_match']} | {s['line_match']}"
+                f" | {s['keyword_hits']} | {s1a} |"
+            )
     lines.append("")
-    lines.append(
-        "> 1-B/2-A/2-B Claude judge 채점은 별도 — task-POC-001 (`docs/process/FOLLOWUP-TASKS.md`)"
-    )
+    if not has_judge:
+        lines.append(
+            "> 1-B/2-A/2-B Claude judge 채점: `--judge claude-haiku-4-5` 옵션 사용"
+        )
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
     return path
 
@@ -234,6 +318,24 @@ def main(argv: list[str] | None = None) -> int:
         default=str(REPORTS_ROOT),
         help=f"리포트 root (기본 {REPORTS_ROOT})",
     )
+    parser.add_argument(
+        "--judge",
+        default="none",
+        choices=("none", *_JUDGE_MODELS),
+        help=(
+            "LLM judge 모델 (1-B/2-A/2-B 채점). none 이면 1-A 만 (기본 none). "
+            "주의: 현 2-A/2-B 는 1차 /agent/analyze 응답 기반 interim 채점 — "
+            "spec §6.2 의 follow-up Q1/Q2/Q3 자동 호출 구현은 task-POC-001-x."
+        ),
+    )
+    parser.add_argument(
+        "--anthropic-api-key",
+        default=os.environ.get("ANTHROPIC_API_KEY", ""),
+        help=(
+            "Anthropic API key (--judge claude-haiku-4-5 사용 시 필요."
+            " 기본 env ANTHROPIC_API_KEY)"
+        ),
+    )
     args = parser.parse_args(argv)
 
     if not args.api_key:
@@ -244,6 +346,21 @@ def main(argv: list[str] | None = None) -> int:
         print("error: --cases 가 비어 있음", file=sys.stderr)
         return 2
 
+    judge_model: str | None = None
+    judge_api_key: str | None = None
+    if args.judge != "none":
+        judge_model = args.judge
+        if judge_model.startswith("claude") and not args.anthropic_api_key:
+            print(
+                "error: --judge claude-* 사용 시 --anthropic-api-key 또는 ANTHROPIC_API_KEY 필요",
+                file=sys.stderr,
+            )
+            return 2
+        # API key 는 process env 수정 없이 LiteLLM 호출에 직접 전달 (sec WARN-2).
+        # subprocess (trigger.py) 가 dict(os.environ) 으로 상속하는 누출 표면 회피.
+        if args.anthropic_api_key:
+            judge_api_key = args.anthropic_api_key
+
     date_dir = (
         Path(args.reports_dir) / _dt.datetime.now(_dt.UTC).strftime("%Y-%m-%d")
     )
@@ -251,7 +368,15 @@ def main(argv: list[str] | None = None) -> int:
     results: list[dict[str, Any]] = []
     for idx, case_id in enumerate(case_ids):
         print(f"=== {case_id} ({idx + 1}/{len(case_ids)}) ===")
-        result = evaluate_case(case_id, args.api_url, args.api_key, model, args.http_timeout)
+        result = evaluate_case(
+            case_id,
+            args.api_url,
+            args.api_key,
+            model,
+            args.http_timeout,
+            judge_model=judge_model,
+            judge_api_key=judge_api_key,
+        )
         report_path = write_report(date_dir, case_id, result)
         print(f"  -> {report_path}")
         results.append(result)
