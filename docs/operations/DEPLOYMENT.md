@@ -99,6 +99,8 @@ nano .env          # 아래 .env 작성 가이드 참고
 | `BASE_IMAGE` | `python:3.14-slim` (기본값) | `<사내-registry>/python:3.14-slim` | Dockerfile base image |
 | `PIP_INDEX_URL` | `https://pypi.org/simple` (기본값) | `https://<사내-pypi>/simple` | pip 패키지 mirror |
 | `OPEN_WEBUI_IMAGE` | `ghcr.io/open-webui/open-webui:main` (기본값) | `<사내-registry>/open-webui:main` | Open WebUI 컨테이너 image |
+| `APT_MIRROR` | (미설정 — Debian 공식) | `http://<사내-apt-mirror>` | Dockerfile 의 `apt sources.list` 교체 — `build-essential` 등 OS 패키지 사내 mirror |
+| `PIP_TRUSTED_HOST` | (미설정) | `<사내-pypi-host>` | pip `--trusted-host` — 사내 HTTP mirror / self-signed CA 환경 인증서 검증 우회 |
 | `MACRO_LOGBOT_LLM_BASE_URL` | (미설정 — 각 provider SDK 직접) | `https://<사내-llm-endpoint>` | 사내 LLM endpoint |
 | `MACRO_LOGBOT_LLM_API_KEY` | (미설정) | `<사내 API key>` | 사내 LLM 인증 key |
 | `MACRO_LOGBOT_LLM_PROVIDER` | (미설정) | `openai` / `anthropic` / custom | LiteLLM custom_provider |
@@ -125,6 +127,8 @@ MACRO_LOGBOT_AUTH_REQUIRED=true
 BASE_IMAGE=registry.internal.corp/python:3.14-slim
 PIP_INDEX_URL=https://pypi.internal.corp/simple
 OPEN_WEBUI_IMAGE=registry.internal.corp/open-webui:main
+APT_MIRROR=http://apt.internal.corp/debian
+PIP_TRUSTED_HOST=pypi.internal.corp
 MACRO_LOGBOT_LLM_BASE_URL=https://llm.internal.corp/v1
 MACRO_LOGBOT_LLM_API_KEY=<사내 LLM key>
 MACRO_LOGBOT_LLM_PROVIDER=openai
@@ -157,6 +161,25 @@ curl -X POST http://localhost:8000/v1/chat/completions \
 1. 브라우저에서 `http://localhost:3000` 접속.
 2. Settings → Connections → OpenAI API → URL: `http://macro-logbot-backend:8000/v1`, Key: `MACRO_LOGBOT_API_KEY` 값.
 3. 모델 선택 → 채팅 시작.
+
+### multi-turn 데모 CLI (PR #28 — task-MVP-004 활용)
+
+`scripts/demo_session.py` 가 첫 분석 → 같은 session_id 로 follow-up 대화를 ENABLE.
+
+```bash
+# 1. PoC case 자동 inject + trigger + 분석
+.venv/bin/python scripts/demo_session.py --case E001
+
+# 2. 직접 로그 분석
+.venv/bin/python scripts/demo_session.py --log "$(cat /tmp/error.log)"
+
+# 3. 단순 prompt
+.venv/bin/python scripts/demo_session.py --prompt "안녕"
+```
+
+흐름: 첫 호출에서 `session_id` 발급 → REPL (`You>` 프롬프트) → 같은 session_id 로 follow-up. Ctrl+C 또는 빈 입력으로 종료.
+
+`MACRO_LOGBOT_API_KEY` 환경변수 또는 `--api-key` 명시 필요.
 
 ---
 
