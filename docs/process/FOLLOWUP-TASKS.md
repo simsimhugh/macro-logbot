@@ -128,11 +128,16 @@
 - **reviewer scope**: 일반 (전체 reviewer cycle)
 - **priority**: medium — Open WebUI 통합 시점 (multi-turn follow-up 대화)
 
-### task-MVP-002 — Session persistence (SQLite, spec §5.4)
-- **출처**: PR #11 MVP 의도된 단순화
-- **scope**: `src/macro_logbot/session/` 에 SQLite 백엔드 추가, `InMemorySessionStore` 를 `SQLiteSessionStore` 로 교체 가능한 protocol/interface 도입. spec §5.4 직접 인용.
-- **suggested branch**: `feat/session-sqlite`
-- **priority**: medium — Open WebUI 운영 진입 시점
+### ~~task-MVP-002~~ — Session persistence (SQLite, spec §5.4) ✅ **PR #20 머지**
+- **처리 PR**: PR #20 (`feat/session-sqlite`) — `SQLiteSessionStore` + `SessionStore` Protocol 도입. `src/macro_logbot/session/store.py`. messages 직렬화 (단일 table). `InMemorySessionStore` 유지 (fallback/test).
+- **잔여**: `tool_history` / `follow_up_messages` / `report` 컬럼 확장 → task-MVP-002-x. endpoint 통합 → task-MVP-004.
+
+### task-MVP-002-x — Session 확장 컬럼 (tool_history / follow_up_messages / report)
+- **출처**: PR #20 의도된 단순화 (messages 만 직렬화, spec §5.4 4개 컬럼 미구현)
+- **scope**: `sessions` 테이블에 `tool_history_json`, `follow_up_messages_json`, `report_json` 컬럼 추가. spec §5.4 데이터 모델 완성. 정규화 또는 JSON column 확장 선택.
+- **suggested branch**: `feat/session-columns`
+- **reviewer scope**: 일반 (전체 reviewer cycle)
+- **priority**: medium — multi-turn 분석 리포트 저장 필요 시점
 
 ### ~~task-MVP-003~~ — MCP tools 나머지 4개 (spec §5.3) ✅ **PR #19 머지**
 - **처리 PR**: PR #19 (`feat/tools-remaining-4`) — `git_log`, `find_test_history`, `get_environment_info`, `retrieve_similar_cases` 4 함수 + 4 ToolSpec 추가, spec §5.3 9 tools 인터페이스 완성. 출력 키도 spec §5.3 표 (`test_runs[]`, `similar_cases[]`) 와 정합.
@@ -164,7 +169,7 @@
 
 ### task-MVP-004 — /agent/analyze session 통합
 - **출처**: PR #11 MVP 의도된 단순화
-- **scope**: `/agent/analyze` 가 session_id 받아 session messages 누적, 다회차 분석 지원. task-MVP-002 (SessionStore) 후속.
+- **scope**: `/agent/analyze` 가 session_id 받아 session messages 누적, 다회차 분석 지원. task-MVP-002 완료, 본 task 진입 가능.
 - **priority**: low — multi-turn analysis 요구 시
 
 ### task-MVP-005 — intake parser 다국어 level 지원
