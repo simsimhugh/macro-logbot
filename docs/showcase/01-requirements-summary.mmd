@@ -1,0 +1,21 @@
+%%{init: {"theme":"default", "themeVariables": {"fontFamily": "Noto Sans CJK KR, sans-serif", "fontSize": "28px", "actorFontSize": "30px", "messageFontSize": "26px", "noteFontSize": "26px"}}}%%
+sequenceDiagram
+    autonumber
+    participant MACRO as MACRO 플랫폼
+    participant Bot as macro-logbot
+    participant LLM as LLM
+    participant Code as 사내 코드베이스
+    participant User as 사용자
+
+    MACRO->>Bot: 에러 로그 전송
+
+    loop 자율 분석
+        Bot->>LLM: 분석 + 도구 목록
+        LLM-->>Bot: 도구 호출 결정
+        Bot->>Code: 코드 검색 / 읽기
+        Code-->>Bot: 결과
+    end
+
+    Bot-->>User: 분석 리포트
+    User->>Bot: 추가 질문
+    Bot-->>User: 답변

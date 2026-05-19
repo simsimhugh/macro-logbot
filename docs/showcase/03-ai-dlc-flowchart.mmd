@@ -1,0 +1,23 @@
+%%{init: {"theme":"default", "themeVariables": {"fontFamily": "Noto Sans CJK KR, sans-serif", "fontSize": "28px", "actorFontSize": "30px", "messageFontSize": "26px"}}}%%
+sequenceDiagram
+    autonumber
+    participant Main as Orchestrator
+    participant Exec as 코드 작성 AI
+    participant Rev as 리뷰 AI<br/>(4종 병렬)
+    participant Ver as 판정 AI
+    participant GH as GitHub
+
+    Main->>Exec: 작업 부여
+    Exec->>GH: 코드 + PR 생성
+
+    Main->>Rev: 병렬 리뷰
+    Note right of Rev: 아키텍처<br/>코드 품질<br/>보안<br/>테스트
+    Rev->>GH: 코멘트 + 평가
+
+    Main->>Ver: 종합 판정
+
+    alt 통과
+        Ver->>GH: 자동 머지
+    else 미달
+        Ver->>Exec: 재작업
+    end

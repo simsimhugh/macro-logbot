@@ -1,0 +1,36 @@
+%%{init: {"theme":"default", "themeVariables": {"fontFamily": "Noto Sans CJK KR, sans-serif", "fontSize": "28px", "nodeFontSize": "28px", "edgeLabelBackground":"#fff"}}}%%
+flowchart LR
+    subgraph 사외환경
+        GH["사외 GitHub"]
+        FREE["무료 LLM"]
+    end
+
+    subgraph 사내환경
+        MACRO["MACRO"]
+        LLM["사내 LLM"]
+        CB[("사내 코드베이스")]
+        USER["사용자"]
+
+        subgraph deploy["macro-logbot"]
+            LI["Log Intake"]
+            UI["Open WebUI"]
+            AC["Agent Core<br/>(LangGraph)"]
+            LG["LLM Gateway<br/>(LiteLLM)"]
+            TS["Tool System<br/>(MCP)"]
+            SC["Session<br/>(SQLite)"]
+            KB[("Knowledge Base")]
+        end
+    end
+
+    MACRO -->|"에러 이벤트"| LI
+    LI --> AC
+    USER <-->|"대화"| UI
+    UI --> AC
+    AC <--> LG
+    LG <--> LLM
+    LG -.->|"env swap"| FREE
+    AC <--> TS
+    TS <--> CB
+    AC <--> SC
+    AC <--> KB
+    GH -.->|"단방향 clone"| deploy
