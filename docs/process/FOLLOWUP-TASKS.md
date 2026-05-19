@@ -187,9 +187,12 @@
 - **reviewer scope**: 일반 (전체 reviewer cycle)
 - **priority**: medium — `find_test_history` 는 사내 운영 진입 시점
 
-### task-KB-001 — KB Phase 2 벡터 임베딩 (RAG / case-based reasoning)
-- **출처**: PR #21 의도된 단순화 (Phase 1 keyword LIKE 만) — spec §5.5 Phase 2 선택 항목
-- **scope**: `SQLiteKBStore.search` 를 벡터 임베딩으로 업그레이드. sentence-transformers 또는 sqlite-vec / pgvector 평가 후 retrieval scoring 개선. `verified-master` source 가중치 우선 부여. Phase 1 LIKE fallback 유지.
+### task-KB-001 — KB Phase 2 벡터 임베딩 (RAG / case-based reasoning) + WARN-1/2 보강
+- **출처**: PR #21 의도된 단순화 (Phase 1 keyword LIKE 만) — spec §5.5 Phase 2 선택 항목 + PR #21 architect WARN-1/2 (MED)
+- **scope**:
+  - `SQLiteKBStore.search` 를 벡터 임베딩으로 업그레이드. sentence-transformers 또는 sqlite-vec / pgvector 평가 후 retrieval scoring 개선. Phase 1 LIKE fallback 유지.
+  - **architect WARN-1 (MED)**: spec §5.5 의 `verified-master` 우선 부여 — `ORDER BY CASE source WHEN 'verified-master' THEN 0 WHEN 'production' THEN 1 ELSE 2 END, confidence DESC` 적용. 동일 confidence 케이스의 source tie-break 결정.
+  - **architect WARN-2 (MED)**: Phase 1 LIKE 검색의 정규화 layer 추가 — signature token split + OR 매칭 (예: `AttributeError:NoneType.x_access` → `AttributeError` + `NoneType` + `x_access` 각각 substring), 또는 별도 `category` + `error_type` 컬럼 분리. 운영 단계에서 정확한 동일 정규화 표식 매칭이 거의 무력화되는 문제 해소.
 - **suggested branch**: `feat/kb-vector-search`
 - **reviewer scope**: 일반 (전체 reviewer cycle — 신규 외부 dep 포함)
 - **priority**: low — PoC validation 후 (KB 누적 케이스 충분해진 시점)

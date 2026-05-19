@@ -22,6 +22,14 @@ def _now() -> datetime:
     return datetime.now(UTC)
 
 
+class Location(BaseModel):
+    """ArchivedCase.location — spec §5.5 line 220 의 file/function/line 3-키 강제."""
+
+    file: str
+    function: str
+    line: int
+
+
 class ArchivedCase(BaseModel):
     """분석 완료된 에러 케이스 아카이브 — spec §5.5 line 216~225."""
 
@@ -30,9 +38,10 @@ class ArchivedCase(BaseModel):
     error_signature: str
     category: str
     root_cause: str
-    location: dict[str, Any]
+    location: Location
     fix_hint: str
-    confidence: float
+    # confidence 는 spec §5.5 정합 [0, 1] — Pydantic 차원에서 강제 (음수/2.5 거절).
+    confidence: float = Field(ge=0.0, le=1.0)
     source: Literal["poc", "production", "verified-master"]
     tags: list[str] = []
     related_code_refs: list[str] = []
@@ -77,13 +86,12 @@ CREATE TABLE IF NOT EXISTS archived_cases (
 """
 
 
-def _serialize_location(location: dict[str, Any]) -> str:
-    return json.dumps(location)
+def _serialize_location(location: Location) -> str:
+    return location.model_dump_json()
 
 
-def _deserialize_location(raw: str) -> dict[str, Any]:
-    result: dict[str, Any] = json.loads(raw)
-    return result
+def _deserialize_location(raw: str) -> Location:
+    return Location.model_validate_json(raw)
 
 
 def _serialize_list(items: list[str]) -> str:

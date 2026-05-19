@@ -49,7 +49,12 @@ def test_add_and_get(tmp_path: Path) -> None:
     assert fetched.error_signature == "AttributeError:NoneType.x_access"
     assert fetched.category == "runtime/none-access"
     assert fetched.root_cause == "x 가 None 인 상태에서 x_access 호출"
-    assert fetched.location == {"file": "src/app.py", "function": "main", "line": 42}
+    # location 은 Location BaseModel — dict 비교 시 model_dump 사용.
+    assert fetched.location.model_dump() == {
+        "file": "src/app.py",
+        "function": "main",
+        "line": 42,
+    }
     assert fetched.fix_hint == "None 체크 추가 또는 Optional 타입 명시"
     assert fetched.confidence == pytest.approx(0.9)
     assert fetched.source == "poc"
@@ -147,3 +152,35 @@ def test_kb_store_protocol_isinstance(tmp_path: Path) -> None:
     """SQLiteKBStore 가 runtime_checkable KBStore Protocol 을 충족."""
     store = SQLiteKBStore(tmp_path / "kb.db")
     assert isinstance(store, KBStore)
+
+
+# ---------------------------------------------------------------------------
+# ArchivedCase Pydantic validation (architect WARN-3)
+# ---------------------------------------------------------------------------
+
+
+def test_archived_case_confidence_range_validation() -> None:
+    """confidence 가 [0, 1] 범위 밖이면 ValidationError — spec §5.5 정합."""
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError):
+        _make_case(confidence=1.5)
+    with pytest.raises(ValidationError):
+        _make_case(confidence=-0.1)
+
+
+def test_archived_case_location_keys_enforced() -> None:
+    """location 은 Location BaseModel (file/function/line 3 키 강제)."""
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError):
+        ArchivedCase(
+            case_id="invalid-loc",
+            error_signature="X",
+            category="c",
+            root_cause="r",
+            location={"foo": "bar"},  # type: ignore[arg-type]
+            fix_hint="h",
+            confidence=0.5,
+            source="poc",
+        )
