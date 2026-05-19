@@ -9,7 +9,7 @@ import threading
 from typing import Literal
 from uuid import uuid4
 
-from fastapi import APIRouter, Depends, FastAPI
+from fastapi import APIRouter, Depends, FastAPI, Response
 from pydantic import BaseModel
 
 from macro_logbot import __version__
@@ -95,6 +95,19 @@ def get_gateway() -> LLMGateway:
     return LLMGateway()
 
 
+def _set_fallback_headers(response: Response, chat_resp: ChatCompletionResponse) -> None:
+    """ChatCompletionResponse 의 fallback 메타데이터를 HTTP 응답 헤더로 노출.
+
+    task-AGENT-009-b: PrivateAttr 는 body 직렬화에서 제외되므로
+    SIEM/admin 모니터링용으로 헤더에만 노출. OpenAI 호환 body 무변경.
+    None 이면 헤더 미설정 (정상 경로).
+    """
+    if chat_resp._fallback_used is not None:
+        response.headers["X-MacroLogBot-Fallback-Used"] = chat_resp._fallback_used
+    if chat_resp._fallback_pattern is not None:
+        response.headers["X-MacroLogBot-Fallback-Pattern"] = chat_resp._fallback_pattern
+
+
 # Spec §5.1 — Open WebUI 호환 OpenAI 형식 backend 라우터
 v1_router = APIRouter(prefix="/v1")
 
@@ -126,6 +139,7 @@ async def list_models() -> dict[str, object]:
 )
 async def chat_completions(
     body: ChatCompletionRequest,
+    response: Response,
     agent: bool = True,
     gateway: LLMGateway = Depends(get_gateway),  # noqa: B008
 ) -> ChatCompletionResponse:
@@ -153,11 +167,13 @@ async def chat_completions(
             exclude_none=True,
             exclude={"messages", "model", "stream"},
         )
-        return await gateway.complete(
+        chat_resp = await gateway.complete(
             messages=body.messages,
             model=body.model,
             **optional_kwargs,
         )
+        _set_fallback_headers(response, chat_resp)
+        return chat_resp
 
     # agent loop — built-in tools 자동 첨부.
     # user-supplied 생성 파라미터(temperature/max_tokens/tool_choice 등) forward.
@@ -169,6 +185,7 @@ async def chat_completions(
     result = await run_agent(
         body.messages, gateway, model=body.model, **agent_kwargs
     )
+    _set_fallback_headers(response, result.response)
     return result.response
 
 
@@ -230,6 +247,7 @@ _ANALYZE_SYSTEM_PROMPT = (
 )
 async def agent_analyze(
     body: AgentAnalyzeRequest,
+    response: Response,
     gateway: LLMGateway = Depends(get_gateway),  # noqa: B008
 ) -> AgentAnalyzeResponse:
     """MACRO 에러 로그를 받아 agent loop 으로 분석하고 결과 반환.
@@ -312,6 +330,7 @@ async def agent_analyze(
             except Exception as exc:
                 logger.warning("KB auto-archive failed (non-fatal): %s", exc)
 
+    _set_fallback_headers(response, result.response)
     return AgentAnalyzeResponse(
         analysis=analysis,
         record=record,
