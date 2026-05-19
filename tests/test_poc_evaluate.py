@@ -192,3 +192,279 @@ def test_main_judge_missing_api_key_returns_2(tmp_path: Path) -> None:
             )
     assert rc == 2
     assert "GROQ_API_KEY" in buf.getvalue()
+
+
+# ---------------------------------------------------------------------------
+# spec §10.4 — temperature=0 / seed=42 payload (task-EVAL-001)
+# ---------------------------------------------------------------------------
+
+
+def test_call_backend_payload_includes_temperature_and_seed(tmp_path: Path) -> None:
+    """call_backend POST payload 에 temperature=0, seed=42 포함 검증."""
+    import urllib.request
+    from unittest.mock import MagicMock
+
+    captured: dict[str, Any] = {}
+
+    class _FakeResp:
+        def read(self) -> bytes:
+            return b'{"analysis": "ok"}'
+
+        def __enter__(self) -> "_FakeResp":
+            return self
+
+        def __exit__(self, *_: object) -> None:
+            pass
+
+    def _fake_urlopen(req: Any, timeout: int = 0) -> _FakeResp:
+        import json
+        captured["payload"] = json.loads(req.data.decode("utf-8"))
+        return _FakeResp()
+
+    with patch.object(urllib.request, "urlopen", side_effect=_fake_urlopen):
+        evaluate_mod.call_backend(
+            "http://localhost:8000", "test-key", "some traceback", "test-model"
+        )
+
+    assert captured["payload"]["temperature"] == 0
+    assert captured["payload"]["seed"] == 42
+
+
+def test_call_backend_session_id_included_when_provided(tmp_path: Path) -> None:
+    """session_id 전달 시 payload 에 포함됨 검증."""
+    import urllib.request
+
+    captured: dict[str, Any] = {}
+
+    class _FakeResp:
+        def read(self) -> bytes:
+            return b'{"analysis": "ok"}'
+
+        def __enter__(self) -> "_FakeResp":
+            return self
+
+        def __exit__(self, *_: object) -> None:
+            pass
+
+    def _fake_urlopen(req: Any, timeout: int = 0) -> _FakeResp:
+        import json
+        captured["payload"] = json.loads(req.data.decode("utf-8"))
+        return _FakeResp()
+
+    with patch.object(urllib.request, "urlopen", side_effect=_fake_urlopen):
+        evaluate_mod.call_backend(
+            "http://localhost:8000", "test-key", "traceback", None, session_id="sess-xyz"
+        )
+
+    assert captured["payload"]["session_id"] == "sess-xyz"
+
+
+def test_call_backend_no_session_id_when_none() -> None:
+    """session_id=None 이면 payload 에 session_id 키 없음."""
+    import urllib.request
+
+    captured: dict[str, Any] = {}
+
+    class _FakeResp:
+        def read(self) -> bytes:
+            return b'{"analysis": "ok"}'
+
+        def __enter__(self) -> "_FakeResp":
+            return self
+
+        def __exit__(self, *_: object) -> None:
+            pass
+
+    def _fake_urlopen(req: Any, timeout: int = 0) -> _FakeResp:
+        import json
+        captured["payload"] = json.loads(req.data.decode("utf-8"))
+        return _FakeResp()
+
+    with patch.object(urllib.request, "urlopen", side_effect=_fake_urlopen):
+        evaluate_mod.call_backend(
+            "http://localhost:8000", "test-key", "traceback", None
+        )
+
+    assert "session_id" not in captured["payload"]
+
+
+# ---------------------------------------------------------------------------
+# spec §10.1 — 4-channel 25%×4 total scoring (task-EVAL-001)
+# ---------------------------------------------------------------------------
+
+
+def test_evaluate_case_total_scoring_25pct_each(tmp_path: Path) -> None:
+    """judge 모드 시 total = 0.25·1A + 0.25·1B + 0.25·2A + 0.25·2B."""
+    from unittest.mock import MagicMock
+
+    fake_backend: dict[str, Any] = {"analysis": "snake.py line 90 AttributeError"}
+    fake_judge: dict[str, Any] = {
+        "score_1b": {"score": 0.8, "reasoning": "ok"},
+        "score_2a": {"score": 0.6, "reasoning": "ok"},
+        "score_2b": {"score": 0.4, "reasoning": "ok"},
+    }
+
+    with (
+        patch.object(evaluate_mod, "inject", return_value={
+            "ground_truth": {
+                "location": {"file": "snake.py", "line": 90},
+                "root_cause_keywords": ["AttributeError"],
+            }
+        }),
+        patch.object(evaluate_mod, "trigger", return_value=(0, "traceback text")),
+        patch.object(evaluate_mod, "call_backend", return_value=fake_backend),
+        patch.object(evaluate_mod, "run_judge", return_value=fake_judge),
+    ):
+        result = evaluate_mod.evaluate_case(
+            "E001",
+            "http://localhost:8000",
+            "test-key",
+            "test-model",
+            judge_model="groq/llama-3.3-70b-versatile",
+            judge_api_key="gsk_test",
+        )
+
+    s1a = result["score_1a"]["naive_score_0_to_1"]
+    expected_total = round(0.25 * s1a + 0.25 * 0.8 + 0.25 * 0.6 + 0.25 * 0.4, 3)
+    assert result["naive_score_total"] == expected_total
+    assert result["scored_axes"] == 4
+
+
+def test_evaluate_case_total_scoring_partial_judge_failure(tmp_path: Path) -> None:
+    """judge score=None 항목은 0 으로 처리, scored_axes < 4 기록."""
+    fake_backend: dict[str, Any] = {"analysis": ""}
+    fake_judge: dict[str, Any] = {
+        "score_1b": {"score": 0.5, "reasoning": "ok"},
+        "score_2a": {"score": None, "reasoning": "judge failed"},
+        "score_2b": {"score": 0.4, "reasoning": "ok"},
+    }
+
+    with (
+        patch.object(evaluate_mod, "inject", return_value={"ground_truth": {}}),
+        patch.object(evaluate_mod, "trigger", return_value=(0, "traceback")),
+        patch.object(evaluate_mod, "call_backend", return_value=fake_backend),
+        patch.object(evaluate_mod, "run_judge", return_value=fake_judge),
+    ):
+        result = evaluate_mod.evaluate_case(
+            "E001",
+            "http://localhost:8000",
+            "test-key",
+            "test-model",
+            judge_model="groq/llama-3.3-70b-versatile",
+            judge_api_key="gsk_test",
+        )
+
+    # scored_axes = 3 (2A 실패)
+    assert result["scored_axes"] == 3
+    # total = 0.25*0 + 0.25*0.5 + 0.25*0 + 0.25*0.4 = 0.225
+    assert result["naive_score_total"] == round(0.25 * 0.0 + 0.25 * 0.5 + 0.25 * 0.0 + 0.25 * 0.4, 3)
+
+
+# ---------------------------------------------------------------------------
+# spec §10.6 — --continue-session (task-EVAL-001)
+# ---------------------------------------------------------------------------
+
+
+def test_main_continue_session_threads_session_id(tmp_path: Path) -> None:
+    """--continue-session: 첫 case 응답 session_id 가 후속 case 에 전달됨."""
+    call_count = 0
+    recorded_session_ids: list[str | None] = []
+
+    def _fake_evaluate_case(
+        case_id: str,
+        api_url: str,
+        api_key: str,
+        model: str | None,
+        timeout: int,
+        *,
+        judge_model: str | None = None,
+        judge_api_key: str | None = None,
+        session_id: str | None = None,
+    ) -> dict[str, Any]:
+        nonlocal call_count
+        call_count += 1
+        recorded_session_ids.append(session_id)
+        return {
+            "case_id": case_id,
+            "started_at": "2026-01-01T00:00:00+00:00",
+            "backend_response": {"session_id": "sess-from-backend"},
+            "score_1a": {
+                "file_match": False,
+                "line_match": False,
+                "keyword_hits": 0,
+                "naive_score_0_to_1": 0.0,
+            },
+        }
+
+    env = {**os.environ, "MACRO_LOGBOT_API_KEY": "test-key"}
+    with (
+        patch.dict(os.environ, env, clear=True),
+        patch.object(evaluate_mod, "evaluate_case", side_effect=_fake_evaluate_case),
+        patch.object(evaluate_mod, "write_report", return_value=tmp_path / "x.json"),
+        patch.object(evaluate_mod, "write_comparison", return_value=tmp_path / "c.md"),
+    ):
+        rc = evaluate_mod.main(
+            [
+                "--cases", "E001,E002",
+                "--api-key", "test-key",
+                "--rate-limit-cooldown", "0",
+                "--reports-dir", str(tmp_path),
+                "--continue-session",
+            ]
+        )
+
+    assert rc == 0
+    assert call_count == 2
+    # 첫 case: session_id=None
+    assert recorded_session_ids[0] is None
+    # 두 번째 case: 첫 응답의 session_id echo
+    assert recorded_session_ids[1] == "sess-from-backend"
+
+
+def test_main_no_continue_session_default(tmp_path: Path) -> None:
+    """--continue-session 미지정 시 session_id=None 유지."""
+    recorded_session_ids: list[str | None] = []
+
+    def _fake_evaluate_case(
+        case_id: str,
+        api_url: str,
+        api_key: str,
+        model: str | None,
+        timeout: int,
+        *,
+        judge_model: str | None = None,
+        judge_api_key: str | None = None,
+        session_id: str | None = None,
+    ) -> dict[str, Any]:
+        recorded_session_ids.append(session_id)
+        return {
+            "case_id": case_id,
+            "started_at": "2026-01-01T00:00:00+00:00",
+            "backend_response": {"session_id": "sess-ignored"},
+            "score_1a": {
+                "file_match": False,
+                "line_match": False,
+                "keyword_hits": 0,
+                "naive_score_0_to_1": 0.0,
+            },
+        }
+
+    env = {**os.environ, "MACRO_LOGBOT_API_KEY": "test-key"}
+    with (
+        patch.dict(os.environ, env, clear=True),
+        patch.object(evaluate_mod, "evaluate_case", side_effect=_fake_evaluate_case),
+        patch.object(evaluate_mod, "write_report", return_value=tmp_path / "x.json"),
+        patch.object(evaluate_mod, "write_comparison", return_value=tmp_path / "c.md"),
+    ):
+        rc = evaluate_mod.main(
+            [
+                "--cases", "E001,E002",
+                "--api-key", "test-key",
+                "--rate-limit-cooldown", "0",
+                "--reports-dir", str(tmp_path),
+            ]
+        )
+
+    assert rc == 0
+    # 두 case 모두 session_id=None (cumulative off)
+    assert all(sid is None for sid in recorded_session_ids)

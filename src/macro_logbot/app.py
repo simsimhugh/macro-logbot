@@ -198,6 +198,8 @@ class AgentAnalyzeRequest(BaseModel):
     log_text: str
     model: str | None = None
     session_id: str | None = None
+    temperature: float | None = None  # PoC 결정론 측정 (spec §10.4 seed=42)
+    seed: int | None = None
 
 
 class AgentAnalyzeResponse(BaseModel):
@@ -293,8 +295,15 @@ async def agent_analyze(
     # (PR #23 test-e WARN-1: hardcoded MAX_ITERS_DEFAULT 비교 vs run_agent 호출 시
     # 사용한 max_iters 가 어긋날 수 있는 위험 제거).
     max_iters = MAX_ITERS_DEFAULT
+    # temperature/seed 는 None 이면 forward 제외 (LiteLLM 기본값 유지).
+    _gen_kwargs: dict[str, object] = {}
+    if body.temperature is not None:
+        _gen_kwargs["temperature"] = body.temperature
+    if body.seed is not None:
+        _gen_kwargs["seed"] = body.seed
     result = await run_agent(
-        messages, gateway, max_iters=max_iters, model=body.model, session_id=session.id
+        messages, gateway, max_iters=max_iters, model=body.model, session_id=session.id,
+        **_gen_kwargs,
     )
 
     # --- session messages 갱신 저장 ---
