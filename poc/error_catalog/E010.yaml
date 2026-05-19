@@ -1,0 +1,31 @@
+id: E010
+title: "UnicodeEncodeError in render_status — explicit ascii encode"
+category: runtime
+target_file: snake.py
+target_function: render_status
+injection_diff: |
+  --- a/snake.py
+  +++ b/snake.py
+  @@ -119,4 +119,6 @@ class SnakeGame:
+       def render_status(self) -> str:
+           """score line — UI/log 둘 다에서 사용."""
+  -        return "score: " + str(self.score)
+  +        # bug: 한글 문자열을 ascii 로 명시적 인코딩 → UnicodeEncodeError.
+  +        status = "점수: " + str(self.score)
+  +        return status.encode("ascii").decode("ascii")
+trigger: "python snake.py --headless --auto-play 5"
+ground_truth:
+  root_cause: "render_status 가 한글 '점수: ' 를 포함한 문자열을 .encode('ascii') 로 인코딩 시도 — UnicodeEncodeError: 'ascii' codec can't encode characters in position 0-1: ordinal not in range(128)"
+  root_cause_keywords:
+    - "UnicodeEncodeError"
+    - "encode"
+    - "ascii"
+    - "render_status"
+  location:
+    file: snake.py
+    function: render_status
+    line: 121
+  fix_hint: "render_status 를 ASCII 안전 문자열 'score: ' + str(self.score) 로 유지하거나 encode('utf-8') 로 수정"
+  expected_tool_calls:
+    - grep_codebase
+    - read_file

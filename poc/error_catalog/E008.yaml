@@ -1,0 +1,35 @@
+id: E008
+title: "Infinite loop in spawn_food — break condition missing"
+category: runtime
+target_file: snake.py
+target_function: spawn_food
+injection_diff: |
+  --- a/snake.py
+  +++ b/snake.py
+  @@ -71,8 +71,8 @@ class SnakeGame:
+       def spawn_food(self) -> None:
+           """랜덤 빈 셀에 food 위치 설정."""
+           while True:
+               fx = self.rng.randint(0, GRID_WIDTH - 1)
+               fy = self.rng.randint(0, GRID_HEIGHT - 1)
+               if not self.occupies(fx, fy):
+  -                self.food = (fx, fy)
+  -                return
+  +                # bug: return 제거 → 무한 루프.
+  +                self.food = (fx, fy)
+trigger: "python snake.py --headless --auto-play 5"
+ground_truth:
+  root_cause: "spawn_food 에서 빈 셀을 찾은 후 return 이 누락되어 while True 루프가 종료되지 않음 — timeout 또는 무한 실행"
+  root_cause_keywords:
+    - "infinite loop"
+    - "spawn_food"
+    - "return"
+    - "timeout"
+  location:
+    file: snake.py
+    function: spawn_food
+    line: 73
+  fix_hint: "self.food = (fx, fy) 다음에 return 문 추가하여 루프 탈출"
+  expected_tool_calls:
+    - grep_codebase
+    - read_file

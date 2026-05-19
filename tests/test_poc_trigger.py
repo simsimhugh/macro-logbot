@@ -39,7 +39,12 @@ def test_original_snake_runs_clean(tmp_path: Path) -> None:
 
 
 def test_all_injected_cases_raise(tmp_path: Path) -> None:
-    """모든 catalog case 가 injection 후 traceback 발생 (trigger rc=0)."""
+    """모든 catalog case 가 injection 후 에러 발생 (trigger rc=0 또는 2).
+
+    rc=0: traceback 캡처 성공.
+    rc=2: timeout (E008 infinite-loop case 의 정상 결과).
+    rc=1 (clean exit) 만 실패로 처리.
+    """
     cases = sorted(p.stem for p in CATALOG_DIR.glob("E*.yaml"))
     failures: list[str] = []
     for case_id in cases:
@@ -47,9 +52,10 @@ def test_all_injected_cases_raise(tmp_path: Path) -> None:
         sub.mkdir()
         inject_mod.inject(case_id, sub)
         exit_code, stderr = trigger_mod.trigger(sub, timeout=30)
-        # trigger rc=0 = "process raised exception (good)".
-        if exit_code != 0:
+        if exit_code == 1:
+            # clean exit = injection produced no error (false negative).
             failures.append(f"{case_id}: trigger rc={exit_code}, stderr={stderr[:200]}")
-        elif "Traceback" not in stderr and "Error" not in stderr:
+        elif exit_code == 0 and "Traceback" not in stderr and "Error" not in stderr:
             failures.append(f"{case_id}: no traceback marker in stderr={stderr[:200]}")
+        # rc=2 (timeout) is acceptable — E008 infinite-loop case.
     assert not failures, "\n".join(failures)

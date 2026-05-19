@@ -175,11 +175,15 @@ def evaluate_case(
     started_at = _dt.datetime.now(_dt.UTC).isoformat()
     case_meta = inject(case_id, workdir)
     exit_code, stderr_text = trigger(workdir)
-    if exit_code != 0:
+    # rc=0: traceback 캡쳐 성공. rc=1: clean exit, injection 실패. rc=2: timeout
+    # (infinite loop = injection 성공, stderr partial 또는 timeout 메시지) — 측정 진행.
+    # architect WARN-HIGH PR #30: E008 (spawn_food infinite loop) 같은 case 가 rc=2 인데
+    # 이전엔 측정 실패로 처리됨 — backend 분석 못 받음. rc=1 만 fail.
+    if exit_code == 1:
         return {
             "case_id": case_id,
             "started_at": started_at,
-            "error": "trigger failed (clean exit or timeout — no traceback captured)",
+            "error": "trigger failed (clean exit — no injection effect captured)",
             "trigger_exit_code": exit_code,
             "trigger_stderr": stderr_text,
         }

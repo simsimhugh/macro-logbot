@@ -1,0 +1,34 @@
+id: E006
+title: "Reversed if condition — NameError on undefined flag in step"
+category: logic
+target_file: snake.py
+target_function: step
+injection_diff: |
+  --- a/snake.py
+  +++ b/snake.py
+  @@ -123,8 +123,9 @@ class SnakeGame:
+       def step(self, action: str) -> None:
+           """한 tick 진행. action: UP/DOWN/LEFT/RIGHT."""
+  -        if not self.alive:
+  -            return
+  +        # bug: 조건 반전 + 잘못된 변수명 — alive 대신 존재하지 않는 is_dead 참조.
+  +        if self.is_dead:
+  +            return
+           # 반대 방향 입력 무시 (전형적 snake rule).
+           opposite = {"UP": "DOWN", "DOWN": "UP", "LEFT": "RIGHT", "RIGHT": "LEFT"}
+trigger: "python snake.py --headless --auto-play 5"
+ground_truth:
+  root_cause: "step 메서드에서 self.alive 대신 존재하지 않는 self.is_dead 를 참조 — AttributeError: 'SnakeGame' object has no attribute 'is_dead'"
+  root_cause_keywords:
+    - "AttributeError"
+    - "is_dead"
+    - "step"
+    - "alive"
+  location:
+    file: snake.py
+    function: step
+    line: 126
+  fix_hint: "self.is_dead 를 self.alive 로 수정하고 조건을 'if not self.alive:' 로 복원"
+  expected_tool_calls:
+    - grep_codebase
+    - read_file

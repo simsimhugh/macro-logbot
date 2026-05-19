@@ -1,0 +1,32 @@
+id: E007
+title: "ZeroDivisionError in update_position tick normalisation"
+category: runtime
+target_file: snake.py
+target_function: update_position
+injection_diff: |
+  --- a/snake.py
+  +++ b/snake.py
+  @@ -86,6 +86,8 @@ class SnakeGame:
+       def update_position(self) -> None:
+           """방향에 따라 head 와 body 를 한 칸 이동."""
+           dx, dy = DIRECTIONS[self.direction]
+  +        # bug: 0으로 나누기 — ticks 가 0 인 첫 tick 에 ZeroDivisionError.
+  +        _ = self.score // self.ticks
+           new_x = self.head.x + dx
+           new_y = self.head.y + dy
+trigger: "python snake.py --headless --auto-play 5"
+ground_truth:
+  root_cause: "update_position 에서 self.score // self.ticks 계산 시 첫 tick 에 self.ticks=0 — ZeroDivisionError: integer division or modulo by zero"
+  root_cause_keywords:
+    - "ZeroDivisionError"
+    - "division"
+    - "update_position"
+    - "ticks"
+  location:
+    file: snake.py
+    function: update_position
+    line: 90
+  fix_hint: "불필요한 self.score // self.ticks 라인 제거 또는 self.ticks > 0 가드 추가"
+  expected_tool_calls:
+    - grep_codebase
+    - read_file
