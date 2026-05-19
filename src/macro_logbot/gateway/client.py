@@ -36,7 +36,7 @@ from macro_logbot.gateway.models import (
 logger = logging.getLogger(__name__)
 
 _DEFAULT_MODEL_ENV = "MACRO_LOGBOT_DEFAULT_MODEL"
-_FALLBACK_MODEL = "openai/gpt-4o-mini"
+_FALLBACK_MODEL = "gemini/gemini-2.5-flash-lite"
 
 # 사내 LLM endpoint env (task-LG-002 / spec §7.3).
 # arg > env > None 우선순위로 LLMGateway.__init__ 에서 흡수.

@@ -27,7 +27,7 @@ services:
       MACRO_LOGBOT_API_KEY: ${MACRO_LOGBOT_API_KEY:?MACRO_LOGBOT_API_KEY must be set}
       MACRO_LOGBOT_AUTH_REQUIRED: ${MACRO_LOGBOT_AUTH_REQUIRED:-true}
       # 기본 모델 + provider keys (host env 에서 inject).
-      MACRO_LOGBOT_DEFAULT_MODEL: ${MACRO_LOGBOT_DEFAULT_MODEL:-gemini/gemini-1.5-flash}
+      MACRO_LOGBOT_DEFAULT_MODEL: ${MACRO_LOGBOT_DEFAULT_MODEL:-gemini/gemini-2.5-flash-lite}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}

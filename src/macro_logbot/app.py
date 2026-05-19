@@ -105,7 +105,7 @@ v1_router = APIRouter(prefix="/v1")
 )
 async def list_models() -> dict[str, object]:
     """OpenAI 호환 모델 목록 — Open WebUI 가 모델 picker 채우려고 호출."""
-    model = os.environ.get("MACRO_LOGBOT_DEFAULT_MODEL", "openai/gpt-4o-mini")
+    model = os.environ.get("MACRO_LOGBOT_DEFAULT_MODEL", "gemini/gemini-2.5-flash-lite")
     return {
         "object": "list",
         "data": [
