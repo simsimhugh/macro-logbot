@@ -134,11 +134,18 @@
 - **suggested branch**: `feat/session-sqlite`
 - **priority**: medium — Open WebUI 운영 진입 시점
 
-### task-MVP-003 — MCP tools 나머지 4개 (spec §5.3)
-- **출처**: PR #11 MVP 단순화 (9개 → 5개)
-- **scope**: `git_log`, `find_test_history`, `get_environment_info`, `retrieve_similar_cases` 추가. KB 통합 PR 과 함께 또는 별도.
-- **suggested branch**: `feat/tools-remaining-4`
-- **priority**: medium — Agent Core 안정화 시점
+### ~~task-MVP-003~~ — MCP tools 나머지 4개 (spec §5.3) ✅ **PR #19 머지**
+- **처리 PR**: PR #19 (`feat/tools-remaining-4`) — `git_log`, `find_test_history`, `get_environment_info`, `retrieve_similar_cases` 4 함수 + 4 ToolSpec 추가, spec §5.3 9 tools 인터페이스 완성.
+- **잔여**: `find_test_history` 는 사외 PoC mock (`{"runs": []}`), `retrieve_similar_cases` 는 KB §5.5 미구현 placeholder (`{"cases": []}`) — 실제 연동은 task-MVP-003-x.
+
+### task-MVP-003-x — `find_test_history` 사내 DB 연동 + `retrieve_similar_cases` KB 통합
+- **출처**: PR #19 의도된 단순화 (mock + placeholder)
+- **scope**:
+  - `find_test_history` — 사내 MACRO test DB 접속 client 도입 + 실제 test_id 별 run history 반환. 사내 운영 진입 시점.
+  - `retrieve_similar_cases` — spec §5.5 Knowledge Base (`archived_cases` 테이블) 구현 후 keyword/signature 매칭 (Phase 1) 또는 벡터 임베딩 (Phase 2) 검색 로직 통합.
+- **suggested branch**: `feat/tools-real-integration` (또는 KB PR 과 묶음)
+- **reviewer scope**: 일반 (전체 reviewer cycle)
+- **priority**: medium — `find_test_history` 는 사내 운영 진입 시점, `retrieve_similar_cases` 는 KB §5.5 PR 후
 
 ### task-MVP-004 — /agent/analyze session 통합
 - **출처**: PR #11 MVP 의도된 단순화
@@ -250,7 +257,7 @@
 4. **task-LG-003** — /v1/chat/completions streaming (Open WebUI 통합 PR 시점)
 5. ~~task-MVP-001~~ — LangGraph migration (PR #18 머지 완료) ✅
 6. **task-MVP-002** — Session SQLite (Open WebUI 운영 진입)
-7. **task-MVP-003** — MCP tools 나머지 4개 (KB 통합 또는 별도)
+7. ~~task-MVP-003~~ — MCP tools 나머지 4개 (PR #19 머지 완료) ✅ — 잔여 mock/placeholder 실연동은 **task-MVP-003-x**
 8. **task-PROCESS-001** — §10.4 §4.3 병렬 호출 검증 항목 (메타 PR)
 9. **task-SEC-001** — LiteLLM pin 상향 (LiteLLM 3.14 지원 또는 Python downgrade 결정 후)
 10. **task-MVP-004 / 005 / 009** — 운영·다국어·MCP 분리 (필요 시점)

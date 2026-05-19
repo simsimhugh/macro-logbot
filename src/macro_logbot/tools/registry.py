@@ -11,10 +11,14 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict
 
 from macro_logbot.tools.builtin import (
+    find_test_history,
+    get_environment_info,
     git_blame,
+    git_log,
     grep_codebase,
     list_directory,
     read_file,
+    retrieve_similar_cases,
     search_logs,
 )
 
@@ -140,6 +144,92 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
             "required": ["pattern", "log_dir"],
         },
         executor=search_logs,
+    ),
+    "git_log": ToolSpec(
+        name="git_log",
+        description=(
+            "git 커밋 히스토리 — 파일 또는 전체. 최근 N건 oneline 형식."
+        ),
+        parameters_schema={
+            "type": "object",
+            "properties": {
+                "path": {
+                    "type": "string",
+                    "description": "파일 경로 (선택). 미지정 시 전체 repo log.",
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": "반환 최대 commit 수",
+                    "default": 20,
+                },
+            },
+            "required": [],
+        },
+        executor=git_log,
+    ),
+    "find_test_history": ToolSpec(
+        name="find_test_history",
+        description=(
+            "MACRO 테스트 과거 실행 결과. 사외 PoC 는 mock — "
+            "사내 운영 시 실제 DB 연동 (task-MVP-003-x)."
+        ),
+        parameters_schema={
+            "type": "object",
+            "properties": {
+                "test_id": {
+                    "type": "string",
+                    "description": "MACRO test identifier",
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": "반환 최대 run 수",
+                    "default": 10,
+                },
+            },
+            "required": ["test_id"],
+        },
+        executor=find_test_history,
+    ),
+    "get_environment_info": ToolSpec(
+        name="get_environment_info",
+        description=(
+            "현재 실행 환경 정보 — OS / Python / 핵심 패키지 버전. "
+            "시크릿·env vars 는 노출 X."
+        ),
+        parameters_schema={
+            "type": "object",
+            "properties": {
+                "scope": {
+                    "type": "string",
+                    "description": "(선택) 특정 영역만 — 현재 인터페이스 호환용",
+                },
+            },
+            "required": [],
+        },
+        executor=get_environment_info,
+    ),
+    "retrieve_similar_cases": ToolSpec(
+        name="retrieve_similar_cases",
+        description=(
+            "과거 유사 에러 분석 사례 (KB §5.5). "
+            "미구현 placeholder — 후속 PR (task-MVP-003-x)."
+        ),
+        parameters_schema={
+            "type": "object",
+            "properties": {
+                "error_signature": {
+                    "type": "string",
+                    "description": "에러 키워드/시그너처",
+                },
+                "top_k": {
+                    "type": "integer",
+                    "description": "반환 최대 case 수",
+                    "default": 5,
+                },
+            },
+            "required": ["error_signature"],
+        },
+        executor=retrieve_similar_cases,
     ),
 }
 
