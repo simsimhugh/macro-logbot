@@ -14,8 +14,12 @@ Provider API keys are read by LiteLLM directly from the environment:
 
 from __future__ import annotations
 
+import json
+import logging
 import os
+import re
 import time
+import types
 from typing import Any
 
 import litellm
@@ -28,6 +32,8 @@ from macro_logbot.gateway.models import (
     ToolCall,
     Usage,
 )
+
+logger = logging.getLogger(__name__)
 
 _DEFAULT_MODEL_ENV = "MACRO_LOGBOT_DEFAULT_MODEL"
 _FALLBACK_MODEL = "openai/gpt-4o-mini"
@@ -60,6 +66,112 @@ _ALLOWED_FORWARD_KWARGS: frozenset[str] = frozenset(
         "parallel_tool_calls",
     }
 )
+
+
+# task-AGENT-008: OSS 모델 native tool-call 패턴 fallback parser.
+# 각 provider 가 tools 파라미터 없이 free-form text 로 tool call 을 출력할 때 검출.
+# 현재 cover: Llama 3.1/3.3, Qwen, markdown JSON. Mistral [TOOL_CALLS] 등 추가는 follow-up.
+# args body 는 lazy `.*?` 로 잡고 json.loads 로 사후 검증 — Pattern 1/4 의 `[^<]/[^|]` 한계 (
+# special char 있는 args 매칭 실패) 해소 (CR WARN-1).
+_FALLBACK_TOOL_PATTERNS: list[re.Pattern[str]] = [
+    # Llama 3.3 native: <function=name>{json_args}</function>
+    re.compile(
+        r"<function=(?P<name>[a-zA-Z_][a-zA-Z0-9_]*)>\s*(?P<args>\{.*?\})\s*</function>",
+        re.DOTALL,
+    ),
+    # Qwen tool_call tag: <tool_call>{"name":"...", "arguments":{...}}</tool_call>
+    re.compile(r"<tool_call>\s*(?P<json>\{.*?\})\s*</tool_call>", re.DOTALL),
+    # Markdown JSON code block: ```json\n{...}\n```
+    # name/arguments 키 존재는 json.loads 후 검증 (CR WARN-2: 키 순서/누락 false negative 해소).
+    re.compile(r"```json\s*\n(?P<json>\{.*?\})\s*```", re.DOTALL),
+    # Llama 3.1 python_tag: <|python_tag|>name.call({...})
+    re.compile(
+        r"<\|python_tag\|>(?P<name>[a-zA-Z_][a-zA-Z0-9_]*)\.call\(\s*(?P<args>\{.*?\})\s*\)",
+        re.DOTALL,
+    ),
+]
+
+# security WARN-M2: content length cap — regex DoS 가드 + 메모리/지연 보호.
+# 64KB 초과 시 fallback parser skip (보통 LLM 응답 < 16KB, MACRO log 도 < 32KB).
+_MAX_FALLBACK_CONTENT_LEN = 64 * 1024
+
+
+def _parse_fallback_tool_calls(content: str) -> list[dict[str, Any]] | None:
+    """LLM content 에서 native tool-call 패턴을 검출해 OpenAI tool_calls 형식으로 변환.
+
+    매칭 패턴이 없으면 None. 검출 1개 이상이면 list 반환 (단일 또는 multi tool call).
+
+    Returns:
+      [{"id": "fallback_0", "type": "function", "function": {"name": ..., "arguments": "..."}}]
+      arguments 는 JSON string (OpenAI tool_calls schema 준수).
+    """
+    # security WARN-M2: regex DoS 가드 — content 가 너무 크면 fallback skip.
+    if len(content) > _MAX_FALLBACK_CONTENT_LEN:
+        logger.warning(
+            "fallback parser skipped — content length %d > %d (security cap)",
+            len(content),
+            _MAX_FALLBACK_CONTENT_LEN,
+        )
+        return None
+    calls: list[dict[str, Any]] = []
+    for pattern in _FALLBACK_TOOL_PATTERNS:
+        for m in pattern.finditer(content):
+            d = m.groupdict()
+            if "name" in d and "args" in d:
+                # Pattern 1, 4 (Llama): name + args 분리
+                name = d["name"]
+                args_json = d["args"]
+                try:
+                    json.loads(args_json)
+                except json.JSONDecodeError:
+                    continue
+                calls.append(
+                    {
+                        "id": f"fallback_{len(calls)}",
+                        "type": "function",
+                        "function": {"name": name, "arguments": args_json},
+                    }
+                )
+            elif "json" in d:
+                # Pattern 2, 3 (Qwen/markdown): json 객체 안 name+arguments 분리
+                try:
+                    obj = json.loads(d["json"])
+                    name = obj.get("name") or (obj.get("function") or {}).get("name")
+                    args = (
+                        obj.get("arguments")
+                        or (obj.get("function") or {}).get("arguments")
+                        or {}
+                    )
+                    if not name:
+                        continue
+                    args_str = args if isinstance(args, str) else json.dumps(args)
+                    calls.append(
+                        {
+                            "id": f"fallback_{len(calls)}",
+                            "type": "function",
+                            "function": {"name": name, "arguments": args_str},
+                        }
+                    )
+                except (json.JSONDecodeError, AttributeError):
+                    continue
+    return calls if calls else None
+
+
+def _construct_tool_call_obj(call: dict[str, Any]) -> object:
+    """fallback dict 를 LiteLLM tool_call 객체 형태로 래핑.
+
+    _extract_tool_calls 가 getattr/dict.get 둘 다 처리하므로
+    SimpleNamespace 로 충분하다.
+    """
+    fn = call["function"]
+    return types.SimpleNamespace(
+        id=call["id"],
+        type=call["type"],
+        function=types.SimpleNamespace(
+            name=fn["name"],
+            arguments=fn["arguments"],
+        ),
+    )
 
 
 def _extract_tool_calls(raw_tool_calls: object) -> list[ToolCall] | None:
@@ -157,12 +269,61 @@ class LLMGateway:
         if self.custom_llm_provider is not None:
             extra["custom_llm_provider"] = self.custom_llm_provider
 
-        response = await litellm.acompletion(
-            model=target_model,
-            messages=raw_messages,
-            **extra,
-            **kwargs,
-        )
+        # Layer 1: BadRequestError(tool_use_failed) 자동 retry (1회).
+        # Groq 의 native tool parser 가 LLM 출력 변환 실패 시 tools 없이 재호출
+        # → content 를 받아 Layer 2 fallback parser 로 흘린다.
+        # 재호출 안에서 또 BadRequestError 가 나면 그대로 raise (무한루프 방지).
+        layer1_retry_used = False
+        try:
+            response = await litellm.acompletion(
+                model=target_model,
+                messages=raw_messages,
+                **extra,
+                **kwargs,
+            )
+        except litellm.exceptions.BadRequestError as exc:
+            if "tool_use_failed" in str(exc) and "tools" in kwargs:
+                retry_kwargs = {
+                    k: v
+                    for k, v in kwargs.items()
+                    if k != "tools" and k != "tool_choice"
+                }
+                logger.warning(
+                    "tool_use_failed for %s — retrying without tools (fallback parser)",
+                    target_model,
+                )
+                layer1_retry_used = True
+                response = await litellm.acompletion(
+                    model=target_model,
+                    messages=raw_messages,
+                    **extra,
+                    **retry_kwargs,
+                )
+            else:
+                raise
+
+        # Layer 2: content → tool_calls fallback extraction.
+        # tool_calls 가 비어 있고 content 가 있으면 regex 로 native 패턴 검출.
+        raw_msg = response.choices[0].message
+        if not getattr(raw_msg, "tool_calls", None) and getattr(raw_msg, "content", None):
+            fallback_calls = _parse_fallback_tool_calls(raw_msg.content)
+            if fallback_calls:
+                logger.info(
+                    "fallback parser extracted %d tool_calls from content (model=%s)",
+                    len(fallback_calls),
+                    target_model,
+                )
+                raw_msg.tool_calls = [_construct_tool_call_obj(c) for c in fallback_calls]
+            elif layer1_retry_used:
+                # CR WARN-3: Layer 1 retry 후 Layer 2 도 0-match — silent recovery 위험.
+                # tool 호출 의도가 있었으나 fallback parser 가 패턴 인식 못함 → agent loop 가
+                # tool 없이 final answer 박제. 운영자 진단 위해 warning 명시.
+                logger.warning(
+                    "fallback parser 0-match after tool_use_failed retry (model=%s, content_len=%d) — "
+                    "agent may terminate without tool call",
+                    target_model,
+                    len(raw_msg.content),
+                )
 
         choices = [
             Choice(
