@@ -184,3 +184,68 @@ def test_archived_case_location_keys_enforced() -> None:
             confidence=0.5,
             source="poc",
         )
+
+
+def test_archived_case_location_extra_keys_ignored() -> None:
+    """Location 의 extra key 는 Pydantic v2 default (extra='ignore') 로 허용.
+
+    이 동작이 의도 (현재 spec §5.5 line 220 의 3-키 외 확장 자유) — 명시 검증.
+    """
+    case = ArchivedCase(
+        case_id="extra-loc",
+        error_signature="X",
+        category="c",
+        root_cause="r",
+        location={  # type: ignore[arg-type]
+            "file": "f.py",
+            "function": "fn",
+            "line": 42,
+            "extra_metadata": "ignored",
+        },
+        fix_hint="h",
+        confidence=0.5,
+        source="poc",
+    )
+    # extra key 는 dropped — Pydantic v2 default.
+    assert case.location.model_dump() == {"file": "f.py", "function": "fn", "line": 42}
+
+
+def test_location_line_zero_rejected() -> None:
+    """Location.line = 0 — 1-indexed 소스 line 번호이므로 ValidationError."""
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError):
+        ArchivedCase(
+            case_id="invalid-line",
+            error_signature="X",
+            category="c",
+            root_cause="r",
+            location={"file": "f.py", "function": "fn", "line": 0},  # type: ignore[arg-type]
+            fix_hint="h",
+            confidence=0.5,
+            source="poc",
+        )
+
+
+def test_confidence_boundary_values_round_trip(tmp_path: Path) -> None:
+    """confidence 경계 0.0 / 1.0 — Pydantic 허용 + SQLite REAL round-trip 보존."""
+    store = SQLiteKBStore(tmp_path / "kb.db")
+    for cid, conf in [("zero", 0.0), ("one", 1.0)]:
+        store.add(_make_case(case_id=cid, confidence=conf))
+        fetched = store.get(cid)
+        assert fetched is not None
+        assert fetched.confidence == pytest.approx(conf)
+
+
+def test_add_duplicate_case_id_raises(tmp_path: Path) -> None:
+    """동일 case_id 두 번 add — sqlite3.IntegrityError 전파 (PRIMARY KEY UNIQUE).
+
+    현재 정책 (계약 명문화). task-KB-002 시점에 INSERT OR REPLACE vs 명시 update
+    분리 등 정책 결정 예정.
+    """
+    import sqlite3
+
+    store = SQLiteKBStore(tmp_path / "kb.db")
+    store.add(_make_case(case_id="dup-001"))
+    with pytest.raises(sqlite3.IntegrityError):
+        store.add(_make_case(case_id="dup-001"))

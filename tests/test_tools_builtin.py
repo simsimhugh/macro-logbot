@@ -352,3 +352,23 @@ def test_retrieve_similar_cases_top_k_range(workspace: Path) -> None:
 
     result_over = retrieve_similar_cases("AttributeError:NoneType", top_k=51)
     assert "error" in result_over
+
+
+def test_retrieve_similar_cases_kb_oserror_fallback(
+    workspace: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """KB init 시 OSError → _get_kb_store None → note 포함 빈 결과 반환.
+
+    PoC 환경에서 .macro-logbot/ 디렉토리 생성이 실패하는 케이스 (read-only fs 등)
+    의 fallback 분기 검증. retrieve_similar_cases 가 error 가 아닌 note 로 처리.
+    """
+    import macro_logbot.tools.builtin as builtin_mod
+
+    monkeypatch.setattr(builtin_mod, "_kb_store", None)
+    # /proc/nonexistent/ 는 mkdir 시 OSError (procfs read-only).
+    monkeypatch.setenv("MACRO_LOGBOT_KB_PATH", "/proc/nonexistent/kb.db")
+
+    result = retrieve_similar_cases("AttributeError:NoneType")
+    assert result.get("error") is None
+    assert result["similar_cases"] == []
+    assert "note" in result

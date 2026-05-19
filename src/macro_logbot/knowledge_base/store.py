@@ -27,7 +27,8 @@ class Location(BaseModel):
 
     file: str
     function: str
-    line: int
+    # line 은 1-indexed (소스 파일 line 번호) — 0/음수 거절.
+    line: int = Field(ge=1)
 
 
 class ArchivedCase(BaseModel):
@@ -43,8 +44,9 @@ class ArchivedCase(BaseModel):
     # confidence 는 spec §5.5 정합 [0, 1] — Pydantic 차원에서 강제 (음수/2.5 거절).
     confidence: float = Field(ge=0.0, le=1.0)
     source: Literal["poc", "production", "verified-master"]
-    tags: list[str] = []
-    related_code_refs: list[str] = []
+    # mutable default 회피 — Pydantic v2 권장 (default_factory).
+    tags: list[str] = Field(default_factory=list)
+    related_code_refs: list[str] = Field(default_factory=list)
 
 
 @runtime_checkable
