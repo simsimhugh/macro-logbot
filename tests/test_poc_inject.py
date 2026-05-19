@@ -58,6 +58,29 @@ def test_inject_unknown_case_raises(tmp_path: Path) -> None:
         inject_mod.inject("E999", tmp_path)
 
 
+def test_repo_root_env_override(tmp_path: Path) -> None:
+    """MACRO_LOGBOT_POC_ROOT env 로 REPO_ROOT 를 override 할 수 있음."""
+    import importlib
+    import importlib.util
+    import os
+    import sys
+
+    env_before = os.environ.get("MACRO_LOGBOT_POC_ROOT")
+    try:
+        os.environ["MACRO_LOGBOT_POC_ROOT"] = str(tmp_path)
+        # 모듈을 새로 로드해서 REPO_ROOT 재계산 확인.
+        spec = importlib.util.spec_from_file_location("poc_inject_env", SCRIPT_PATH)
+        assert spec is not None and spec.loader is not None
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        assert mod.REPO_ROOT == tmp_path.resolve()
+    finally:
+        if env_before is None:
+            os.environ.pop("MACRO_LOGBOT_POC_ROOT", None)
+        else:
+            os.environ["MACRO_LOGBOT_POC_ROOT"] = env_before
+
+
 def test_all_catalog_cases_apply_cleanly(tmp_path: Path) -> None:
     """모든 catalog yaml 이 snake.py original 에 깨끗하게 patch 되는지."""
     cases = sorted(p.stem for p in CATALOG_DIR.glob("E*.yaml"))

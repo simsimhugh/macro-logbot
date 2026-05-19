@@ -49,6 +49,8 @@ DEFAULT_API_URL = "http://localhost:8000"
 # Flash (50 RPD) → Flash-Lite (1000 RPD) 로 quota 안정성 ↑.
 # Groq Llama 등 다른 provider 로 swap 시 --model 옵션 명시.
 DEFAULT_MODEL = "gemini/gemini-2.5-flash-lite"
+# spec §7.1 의 baseline 측정은 groq/llama-3.3-70b-versatile.
+# evaluate.py 는 다양한 분석 모델 측정용 — baseline 측정 시 --model 명시 권장.
 DEFAULT_COOLDOWN_SEC = 60  # Gemini free tier 5 RPM 보호.
 DEFAULT_HTTP_TIMEOUT = 120
 
@@ -59,11 +61,18 @@ def call_backend(
     log_text: str,
     model: str | None,
     timeout: int = DEFAULT_HTTP_TIMEOUT,
+    session_id: str | None = None,
 ) -> dict[str, Any]:
     """POST <api_url>/agent/analyze. 실패 시 {'error': ...} 반환."""
-    payload: dict[str, Any] = {"log_text": log_text}
+    payload: dict[str, Any] = {
+        "log_text": log_text,
+        "temperature": 0,  # deterministic — spec §10.4 "seed=42 결정론적"
+        "seed": 42,
+    }
     if model:
         payload["model"] = model
+    if session_id:
+        payload["session_id"] = session_id
     body = json.dumps(payload).encode("utf-8")
     req = urllib.request.Request(
         url=f"{api_url.rstrip('/')}/agent/analyze",
@@ -169,10 +178,12 @@ def evaluate_case(
     timeout: int = DEFAULT_HTTP_TIMEOUT,
     judge_model: str | None = None,
     judge_api_key: str | None = None,
+    session_id: str | None = None,
 ) -> dict[str, Any]:
     """단일 case 실행 — inject → trigger → POST /agent/analyze → 채점.
 
     judge_model 지정 시 1-A 채점 후 LLM judge (1-B/2-A/2-B) 도 실행.
+    session_id 지정 시 payload 에 포함 (spec §10.6 cumulative mode).
     """
     workdir = Path(tempfile.mkdtemp(prefix=f"poc-{case_id}-"))
     started_at = _dt.datetime.now(_dt.UTC).isoformat()
@@ -190,7 +201,7 @@ def evaluate_case(
             "trigger_exit_code": exit_code,
             "trigger_stderr": stderr_text,
         }
-    backend_response = call_backend(api_url, api_key, stderr_text, model, timeout)
+    backend_response = call_backend(api_url, api_key, stderr_text, model, timeout, session_id=session_id)
     analysis_text = ""
     if "analysis" in backend_response:
         analysis_text = str(backend_response.get("analysis") or "")
@@ -206,6 +217,8 @@ def evaluate_case(
         "ground_truth": ground_truth,
         "score_1a": score,
     }
+    if session_id:
+        result["session_id"] = session_id
     if judge_model:
         tool_calls: list[dict[str, Any]] = []
         if isinstance(backend_response.get("tool_calls"), list):
@@ -214,15 +227,21 @@ def evaluate_case(
             ground_truth, analysis_text, tool_calls, judge_model, judge_api_key=judge_api_key
         )
         result.update(judge_scores)
-        # naive_score_total — 측정 실패 (score=None) 항목 제외 후 유효 항목만 평균
-        # (architect WARN-2: 측정 실패와 진짜 0 점을 구분 — 체계적 하향 편향 회피).
-        valid_scores: list[float] = [score["naive_score_0_to_1"]]
-        for key in ("score_1b", "score_2a", "score_2b"):
-            raw = judge_scores[key].get("score")
-            if raw is not None:
-                valid_scores.append(float(raw))
-        result["naive_score_total"] = round(sum(valid_scores) / len(valid_scores), 3)
-        result["scored_axes"] = len(valid_scores)  # 4 가 정상, < 4 면 일부 측정 실패.
+        # spec §10.1: 4-channel 25%×4 총합 = 0.25·1A + 0.25·1B + 0.25·2A + 0.25·2B.
+        # 측정 실패 (score=None) 항목은 0 으로 처리 — scored_axes < 4 면 명시적 표기.
+        # (architect WARN-2: 측정 실패와 진짜 0 점 구분을 위해 scored_axes 동시 기록).
+        s1b = judge_scores["score_1b"].get("score")
+        s2a = judge_scores["score_2a"].get("score")
+        s2b = judge_scores["score_2b"].get("score")
+        scored_axes = 1 + sum(1 for s in (s1b, s2a, s2b) if s is not None)
+        total = (
+            0.25 * score["naive_score_0_to_1"]
+            + 0.25 * float(s1b if s1b is not None else 0.0)
+            + 0.25 * float(s2a if s2a is not None else 0.0)
+            + 0.25 * float(s2b if s2b is not None else 0.0)
+        )
+        result["naive_score_total"] = round(total, 3)
+        result["scored_axes"] = scored_axes  # 4 가 정상, < 4 면 일부 측정 실패.
     return result
 
 
@@ -344,6 +363,15 @@ def main(argv: list[str] | None = None) -> int:
             "groq/* → GROQ_API_KEY."
         ),
     )
+    parser.add_argument(
+        "--session-cumulative",
+        action="store_true",
+        default=False,
+        help=(
+            "spec §10.6 cumulative mode: 첫 case 응답의 session_id 를 받아 "
+            "후속 case payload 에 echo. 기본 off (매 case 신규 session)."
+        ),
+    )
     args = parser.parse_args(argv)
 
     if not args.api_key:
@@ -385,6 +413,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     model = args.model or DEFAULT_MODEL
     results: list[dict[str, Any]] = []
+    cumulative_session_id: str | None = None
     for idx, case_id in enumerate(case_ids):
         print(f"=== {case_id} ({idx + 1}/{len(case_ids)}) ===")
         result = evaluate_case(
@@ -395,7 +424,13 @@ def main(argv: list[str] | None = None) -> int:
             args.http_timeout,
             judge_model=judge_model,
             judge_api_key=judge_api_key,
+            session_id=cumulative_session_id,
         )
+        # spec §10.6: cumulative mode — 첫 case 응답의 session_id 를 후속 case 에 echo.
+        if args.session_cumulative and cumulative_session_id is None:
+            resp_sid = result.get("backend_response", {}).get("session_id")
+            if resp_sid:
+                cumulative_session_id = str(resp_sid)
         report_path = write_report(date_dir, case_id, result)
         print(f"  -> {report_path}")
         results.append(result)
