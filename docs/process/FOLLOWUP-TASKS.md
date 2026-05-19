@@ -67,6 +67,13 @@
 ### task-SEC-008 — `auth.py` token 비교 `hmac.compare_digest` 적용
 - **출처**: PR #12 security-reviewer (issuecomment-4482964138) MEDIUM — **본 PR 안 처리 완료**, follow-up 등록 불요. 확인용 마커.
 
+### task-SEC-009 — Supply chain hardening (mirror 신뢰 검증 + image digest pinning)
+- **출처**: PR #15 security-reviewer (issuecomment-4484123961) MEDIUM (A08) + LOW (A09)
+- **scope**: (a) `.env.example` 또는 spec §8.4 에 사내 registry/mirror **허용 도메인 명시** + runbook 검증 가이드. (b) pip hash pinning (`pip install --require-hashes` 또는 `--trusted-host` 명시) 또는 lockfile 도입. (c) `open-webui:main` floating tag → `@sha256:<digest>` digest pinning. (d) Dockerfile `ENV PIP_INDEX_URL` 의 runtime leak — task-OPS-001 multi-stage 시 runtime stage 에서 제거.
+- **suggested branch**: `chore/supply-chain-hardening`
+- **reviewer scope**: 일반 (보안 중요)
+- **priority**: medium — 사내 운영 진입 전 (task-LG-002 / task-SEC-007 와 묶음)
+
 ### task-OPS-001 — Dockerfile multi-stage build (이미지 크기 + 공격 표면 감소)
 - **출처**: PR #12 architect (issuecomment-4480701169) COMMENT-1 + security-reviewer L-9
 - **scope**: `Dockerfile` 를 builder + runtime 2-stage 로 분리, build-essential 을 runtime image 에서 제거. 이미지 100MB+ 감소 + gcc 등 공격 표면 축소.
