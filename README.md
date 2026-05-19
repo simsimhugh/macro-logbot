@@ -1,5 +1,8 @@
 # macro-logbot
 
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/simsimhugh/macro-logbot)
+[![View Code Wiki](https://assets.codewiki.google/readme-badge/static.svg)](https://codewiki.google/github.com/simsimhugh/macro-logbot?utm_source=badge&utm_medium=github&utm_campaign=github.com/simsimhugh/macro-logbot)
+
 사내 에이전트 AI 플랫폼. 첫 번째 사용 사례는 사내 테스트 플랫폼 **MACRO**에서 발생하는 에러의 **자율 원인 분석**입니다. Claude Code와 유사하게 LLM이 도구(코드 검색·로그 조회 등)를 자율적으로 다중 호출하며 단서를 모아 결론을 도출합니다.
 
 ## 빠른 시작 (Ubuntu 22.04)
