@@ -27,14 +27,16 @@ def test_llama33_function_tag() -> None:
     content = '<function=search_logs>{"query": "error", "limit": 10}</function>'
     result = _parse_fallback_tool_calls(content)
     assert result is not None
-    assert len(result) == 1
-    tc = result[0]
+    calls, pattern_name = result
+    assert len(calls) == 1
+    tc = calls[0]
     assert tc["id"] == "fallback_0"
     assert tc["type"] == "function"
     assert tc["function"]["name"] == "search_logs"
     args = json.loads(tc["function"]["arguments"])
     assert args["query"] == "error"
     assert args["limit"] == 10
+    assert pattern_name == "function_xml"
 
 
 def test_qwen_tool_call_tag() -> None:
@@ -42,11 +44,13 @@ def test_qwen_tool_call_tag() -> None:
     content = '<tool_call>{"name": "get_trace", "arguments": {"trace_id": "abc123"}}</tool_call>'
     result = _parse_fallback_tool_calls(content)
     assert result is not None
-    assert len(result) == 1
-    tc = result[0]
+    calls, pattern_name = result
+    assert len(calls) == 1
+    tc = calls[0]
     assert tc["function"]["name"] == "get_trace"
     args = json.loads(tc["function"]["arguments"])
     assert args["trace_id"] == "abc123"
+    assert pattern_name == "tool_call_xml"
 
 
 def test_markdown_json_code_block() -> None:
@@ -54,11 +58,13 @@ def test_markdown_json_code_block() -> None:
     content = '```json\n{"name": "analyze_error", "arguments": {"error_code": "E500"}}\n```'
     result = _parse_fallback_tool_calls(content)
     assert result is not None
-    assert len(result) == 1
-    tc = result[0]
+    calls, pattern_name = result
+    assert len(calls) == 1
+    tc = calls[0]
     assert tc["function"]["name"] == "analyze_error"
     args = json.loads(tc["function"]["arguments"])
     assert args["error_code"] == "E500"
+    assert pattern_name == "json_codeblock"
 
 
 def test_llama31_python_tag() -> None:
@@ -66,11 +72,13 @@ def test_llama31_python_tag() -> None:
     content = '<|python_tag|>search_kb.call({"keyword": "timeout"})'
     result = _parse_fallback_tool_calls(content)
     assert result is not None
-    assert len(result) == 1
-    tc = result[0]
+    calls, pattern_name = result
+    assert len(calls) == 1
+    tc = calls[0]
     assert tc["function"]["name"] == "search_kb"
     args = json.loads(tc["function"]["arguments"])
     assert args["keyword"] == "timeout"
+    assert pattern_name == "python_tag"
 
 
 def test_no_match_plain_text() -> None:
@@ -95,11 +103,13 @@ def test_multi_tool_calls() -> None:
     )
     result = _parse_fallback_tool_calls(content)
     assert result is not None
-    assert len(result) == 2
-    assert result[0]["function"]["name"] == "search_logs"
-    assert result[0]["id"] == "fallback_0"
-    assert result[1]["function"]["name"] == "get_trace"
-    assert result[1]["id"] == "fallback_1"
+    calls, pattern_name = result
+    assert len(calls) == 2
+    assert calls[0]["function"]["name"] == "search_logs"
+    assert calls[0]["id"] == "fallback_0"
+    assert calls[1]["function"]["name"] == "get_trace"
+    assert calls[1]["id"] == "fallback_1"
+    assert pattern_name == "function_xml"
 
 
 # ---------------------------------------------------------------------------
@@ -126,7 +136,7 @@ def _make_litellm_response(
 
 @pytest.mark.asyncio
 async def test_layer2_injects_tool_calls_from_content() -> None:
-    """Layer 2: tool_calls 없고 content 에 Llama 패턴 → tool_calls inject."""
+    """Layer 2: tool_calls 없고 content 에 Llama 패턴 → tool_calls inject + metadata."""
     llama_content = '<function=search_logs>{"query": "crash"}</function>'
     fake_response = _make_litellm_response(content=llama_content)
     mock = AsyncMock(return_value=fake_response)
@@ -139,6 +149,9 @@ async def test_layer2_injects_tool_calls_from_content() -> None:
     tc = result.choices[0].message.tool_calls[0]
     assert tc.function.name == "search_logs"
     assert json.loads(tc.function.arguments)["query"] == "crash"
+    # task-AGENT-009: metadata 검증
+    assert result._fallback_used == "layer2_regex_inject"
+    assert result._fallback_pattern == "function_xml"
 
 
 @pytest.mark.asyncio
@@ -196,6 +209,9 @@ async def test_layer1_retries_on_tool_use_failed() -> None:
     tcs = result.choices[0].message.tool_calls
     assert tcs is not None
     assert tcs[0].function.name == "search_logs"
+    # task-AGENT-009: Layer 1 + Layer 2 모두 발생 → layer2_regex_inject 가 최종값
+    # (retry content 에 function_xml 패턴이 포함되어 Layer 2 도 inject 됨)
+    assert result._fallback_used == "layer2_regex_inject"
 
 
 @pytest.mark.asyncio
