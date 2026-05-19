@@ -134,11 +134,33 @@
 - **suggested branch**: `feat/session-sqlite`
 - **priority**: medium — Open WebUI 운영 진입 시점
 
-### task-MVP-003 — MCP tools 나머지 4개 (spec §5.3)
-- **출처**: PR #11 MVP 단순화 (9개 → 5개)
-- **scope**: `git_log`, `find_test_history`, `get_environment_info`, `retrieve_similar_cases` 추가. KB 통합 PR 과 함께 또는 별도.
-- **suggested branch**: `feat/tools-remaining-4`
-- **priority**: medium — Agent Core 안정화 시점
+### ~~task-MVP-003~~ — MCP tools 나머지 4개 (spec §5.3) ✅ **PR #19 머지**
+- **처리 PR**: PR #19 (`feat/tools-remaining-4`) — `git_log`, `find_test_history`, `get_environment_info`, `retrieve_similar_cases` 4 함수 + 4 ToolSpec 추가, spec §5.3 9 tools 인터페이스 완성. 출력 키도 spec §5.3 표 (`test_runs[]`, `similar_cases[]`) 와 정합.
+- **잔여**: `find_test_history` 는 사외 PoC mock (`{"test_runs": []}`), `retrieve_similar_cases` 는 KB §5.5 미구현 placeholder (`{"similar_cases": []}`) — 실제 연동은 task-MVP-003-x.
+
+### task-MVP-003-x — `find_test_history` 사내 DB 연동 + `retrieve_similar_cases` KB 통합 + scope 인자 처리
+- **출처**: PR #19 의도된 단순화 (mock + placeholder) + architect WARN-3 + security WARN-3 + code-reviewer WARN-5
+- **scope**:
+  - `find_test_history` — 사내 MACRO test DB 접속 client 도입 + 실제 test_id 별 run history 반환. 사내 운영 진입 시점. `limit` 인자 실제 적용.
+  - `retrieve_similar_cases` — spec §5.5 Knowledge Base (`archived_cases` 테이블) 구현 후 keyword/signature 매칭 (Phase 1) 또는 벡터 임베딩 (Phase 2) 검색 로직 통합. **WARN-3 (sec MED)**: `error_signature` 길이 cap (`_MAX_SIGNATURE_LEN`), `top_k` 범위 (1..50) 검증.
+  - **WARN-3 (arch LOW + code-r WARN-5)**: `get_environment_info` 의 `scope` 인자가 현재 silent 무시. ToolSpec description 에 "현재 무시됨 — 향후 필터링용 인터페이스 호환" 으로 명시하거나 실제 필터 (e.g. `scope="packages"` 만 반환) 구현.
+- **suggested branch**: `feat/tools-real-integration` (또는 KB PR 과 묶음)
+- **reviewer scope**: 일반 (전체 reviewer cycle)
+- **priority**: medium — `find_test_history` 는 사내 운영 진입 시점, `retrieve_similar_cases` 는 KB §5.5 PR 후
+
+### task-TEST-001 — MCP tools 테스트 보강 (branch coverage + schema 내용 검증)
+- **출처**: PR #19 test-engineer (WARN-5/6/7/8/9) + architect WARN-4 (LOW) + code-reviewer WARN-6 (LOW)
+- **scope**:
+  - **WARN-5 (MED)**: `subprocess.run` `OSError`/`TimeoutExpired` 분기 미테스트 — `grep_codebase` / `git_blame` / `search_logs` / `git_log` 4건. `unittest.mock.patch` 로 raise 시뮬레이션.
+  - **WARN-6 (MED)**: `git_blame` success path (`{"blame": ...}` 반환) 미테스트. `_init_git_repo` + commit 후 호출.
+  - **WARN-7 (MED)**: `get_environment_info` `metadata.PackageNotFoundError` 분기 (`"not installed"` 반환) 미테스트.
+  - **WARN-8 (MED) — 이미 PR #19 fix**: ✅ `search_logs` ToolSpec `max_results` property 누락 fix. **잔여**: `test_tools_registry.py` 가 각 entry 의 `name` ↔ `TOOL_REGISTRY.keys()` 매칭 + `required` 필드 컨텐츠 검증 (현재 shape 만).
+  - **WARN-9 (LOW)**: `grep_codebase` / `search_logs` 파싱 예외 경로 (`parts < 3`, `ValueError on line_no`) 미커버.
+  - **arch WARN-4 (LOW)**: edge-case — `git_log limit=0`, `find_test_history.limit` / `retrieve_similar_cases.top_k` 인자 실제 적용 후 컨트랙트 검증.
+  - **code-r WARN-6 (LOW)**: `_ENV_INFO_PACKAGES` 하드코딩 — `metadata.distributions()` 로 dynamic 조회 + denylist, 또는 docstring 에 "pyproject.toml sync 필요" 명시.
+- **suggested branch**: `test/tools-branch-coverage`
+- **reviewer scope**: test-engineer 단독 가능 (test-only PR, src 변경 없음 — code-r WARN-6 fix 가 src 포함시 일반 cycle)
+- **priority**: medium — 사내 운영 진입 전 운영 분기 검증 필요
 
 ### task-MVP-004 — /agent/analyze session 통합
 - **출처**: PR #11 MVP 의도된 단순화
@@ -150,10 +172,20 @@
 - **scope**: 한국어 등급 (`경고`/`오류`/`치명`) regex 추가. 사내 MACRO 로그 포맷 결정 후 정확한 패턴 매칭.
 - **priority**: low — 사내 MACRO 로그 샘플 확보 후
 
-### task-MVP-006 — Tool 보안 강화 (symlink 우회 등)
-- **출처**: PR #11 MVP 의도된 단순화
-- **scope**: `_safe_resolve` 가 symlink 추적 후 cwd 외부로 가는 경로 차단. `subprocess` argument injection 추가 검증. 사내 운영 진입 전 필수.
+### task-MVP-006 — Tool 보안 강화 (symlink 우회 + control-char strip + int input cap)
+- **출처**: PR #11 MVP 의도된 단순화 + PR #19 security-reviewer (WARN-1/2/5)
+- **scope**:
+  - `_safe_resolve` 가 symlink 추적 후 cwd 외부로 가는 경로 차단. `Path.cwd()` 자체가 symlink 인 환경의 edge case 처리.
+  - `subprocess` argument injection 추가 검증.
+  - **WARN-2 (MED)**: `git_log`/`grep_codebase`/`search_logs` raw output 의 control char (`\x00-\x08\x0b-\x1f\x7f`) / ANSI escape strip — LLM prompt injection 표면 제거. `splitlines()` → `split("\n")` + ctrl char regex strip.
+  - **WARN-5 (LOW)**: integer 인자 입력 cap 통일 — `git_log.limit` (≤200), `read_file.max_lines`, `grep_codebase.max_results`, `search_logs.max_results`, `find_test_history.limit`, `retrieve_similar_cases.top_k`. OOM/cost 가드.
 - **priority**: medium — `task-SEC-002` (인증) 와 함께 운영 진입 전
+
+### task-MVP-006b — `platform.platform()` 사내 hostname/kernel-build 누출 제거
+- **출처**: PR #19 security-reviewer (WARN-4 LOW)
+- **scope**: `get_environment_info` 의 `platform.platform()` 출력 (커널 빌드 / 일부 환경 hostname 포함) 을 LLM/외부 모델 provider 로 보내지 않도록 제거. `platform.release()` 의 build suffix drop 만 유지.
+- **suggested branch**: `feat/env-info-redact`
+- **priority**: low — 사외 PoC 영향 없음, 사내 운영 진입 직전
 
 ### task-MVP-009 — Tools in-process → MCP 서버 분리 (spec §5.3 표현 정합)
 - **출처**: PR #11 architect (issuecomment-4480360602) COMMENT
@@ -250,7 +282,7 @@
 4. **task-LG-003** — /v1/chat/completions streaming (Open WebUI 통합 PR 시점)
 5. ~~task-MVP-001~~ — LangGraph migration (PR #18 머지 완료) ✅
 6. **task-MVP-002** — Session SQLite (Open WebUI 운영 진입)
-7. **task-MVP-003** — MCP tools 나머지 4개 (KB 통합 또는 별도)
+7. ~~task-MVP-003~~ — MCP tools 나머지 4개 (PR #19 머지 완료) ✅ — 잔여 mock/placeholder 실연동은 **task-MVP-003-x**
 8. **task-PROCESS-001** — §10.4 §4.3 병렬 호출 검증 항목 (메타 PR)
 9. **task-SEC-001** — LiteLLM pin 상향 (LiteLLM 3.14 지원 또는 Python downgrade 결정 후)
 10. **task-MVP-004 / 005 / 009** — 운영·다국어·MCP 분리 (필요 시점)

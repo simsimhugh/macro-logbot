@@ -13,20 +13,24 @@ from macro_logbot.tools.registry import (
 )
 
 
-def test_registry_has_five_tools() -> None:
+def test_registry_has_nine_tools() -> None:
     expected = {
         "grep_codebase",
         "read_file",
         "list_directory",
         "git_blame",
         "search_logs",
+        "git_log",
+        "find_test_history",
+        "get_environment_info",
+        "retrieve_similar_cases",
     }
     assert set(TOOL_REGISTRY.keys()) == expected
 
 
 def test_openai_tools_schema_shape() -> None:
     schema = get_openai_tools_schema()
-    assert len(schema) == 5
+    assert len(schema) == 9
     for entry in schema:
         assert entry["type"] == "function"
         fn = entry["function"]

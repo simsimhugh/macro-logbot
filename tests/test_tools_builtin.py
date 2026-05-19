@@ -2,15 +2,20 @@
 
 from __future__ import annotations
 
+import subprocess
 from pathlib import Path
 
 import pytest
 
 from macro_logbot.tools.builtin import (
+    find_test_history,
+    get_environment_info,
     git_blame,
+    git_log,
     grep_codebase,
     list_directory,
     read_file,
+    retrieve_similar_cases,
     search_logs,
 )
 
@@ -189,3 +194,121 @@ def test_search_logs_not_a_dir(workspace: Path) -> None:
     f.write_text("x", encoding="utf-8")
     result = search_logs("x", log_dir=str(f))
     assert "error" in result
+
+
+def _init_git_repo(path: Path) -> None:
+    """tmp dir 에 최소 git repo 초기화 — author/email + 단일 commit."""
+    env = {
+        "GIT_AUTHOR_NAME": "test",
+        "GIT_AUTHOR_EMAIL": "test@example.com",
+        "GIT_COMMITTER_NAME": "test",
+        "GIT_COMMITTER_EMAIL": "test@example.com",
+    }
+    subprocess.run(
+        ["git", "init", "-q", "-b", "main"], cwd=path, check=True, env=env
+    )
+    subprocess.run(
+        ["git", "config", "user.email", "test@example.com"],
+        cwd=path,
+        check=True,
+    )
+    subprocess.run(
+        ["git", "config", "user.name", "test"], cwd=path, check=True
+    )
+
+
+def test_git_log_returns_commits(workspace: Path) -> None:
+    _init_git_repo(workspace)
+    (workspace / "a.txt").write_text("hello\n", encoding="utf-8")
+    subprocess.run(["git", "add", "a.txt"], cwd=workspace, check=True)
+    subprocess.run(
+        ["git", "commit", "-q", "-m", "first commit"], cwd=workspace, check=True
+    )
+    (workspace / "b.txt").write_text("world\n", encoding="utf-8")
+    subprocess.run(["git", "add", "b.txt"], cwd=workspace, check=True)
+    subprocess.run(
+        ["git", "commit", "-q", "-m", "second commit"],
+        cwd=workspace,
+        check=True,
+    )
+    result = git_log()
+    assert "commits" in result
+    messages = [c["message"] for c in result["commits"]]
+    assert "second commit" in messages
+    assert "first commit" in messages
+    # 각 entry 는 hash + message 키.
+    for commit in result["commits"]:
+        assert commit["hash"]
+        assert isinstance(commit["hash"], str)
+
+
+def test_git_log_path_filter(workspace: Path) -> None:
+    _init_git_repo(workspace)
+    (workspace / "a.txt").write_text("a\n", encoding="utf-8")
+    subprocess.run(["git", "add", "a.txt"], cwd=workspace, check=True)
+    subprocess.run(
+        ["git", "commit", "-q", "-m", "touch a"], cwd=workspace, check=True
+    )
+    (workspace / "b.txt").write_text("b\n", encoding="utf-8")
+    subprocess.run(["git", "add", "b.txt"], cwd=workspace, check=True)
+    subprocess.run(
+        ["git", "commit", "-q", "-m", "touch b"], cwd=workspace, check=True
+    )
+    result = git_log(path="a.txt")
+    messages = [c["message"] for c in result["commits"]]
+    assert "touch a" in messages
+    assert "touch b" not in messages
+
+
+def test_git_log_not_git_dir(workspace: Path) -> None:
+    # workspace 는 git init 안 된 상태 — git log 가 error 반환.
+    result = git_log()
+    assert "error" in result
+
+
+def test_git_log_path_traversal(workspace: Path) -> None:
+    result = git_log(path="../../etc/passwd")
+    assert result.get("error") == "path outside working directory"
+
+
+def test_find_test_history_mock(workspace: Path) -> None:
+    result = find_test_history("TC-001")
+    assert result["test_id"] == "TC-001"
+    assert result["test_runs"] == []
+    assert "note" in result
+    assert "mock" in result["note"]
+
+
+def test_find_test_history_missing_test_id(workspace: Path) -> None:
+    result = find_test_history("")
+    assert "error" in result
+    assert "test_id" in result["error"]
+
+
+def test_get_environment_info_has_python(workspace: Path) -> None:
+    result = get_environment_info()
+    assert "python" in result
+    assert "os" in result
+    assert "platform" in result
+    assert "packages" in result
+    # 핵심 패키지 키 확인 — 본 환경에 설치된 항목.
+    packages = result["packages"]
+    for name in ("litellm", "fastapi", "langgraph", "pydantic", "pyyaml"):
+        assert name in packages
+    # 시크릿 노출 X — env vars 키는 응답 어디에도 없어야.
+    for key in ("api_key", "MACRO_LOGBOT_API_KEY", "env", "secrets"):
+        assert key not in result
+
+
+def test_retrieve_similar_cases_placeholder(workspace: Path) -> None:
+    result = retrieve_similar_cases("AttributeError:NoneType")
+    assert result["error_signature"] == "AttributeError:NoneType"
+    assert result["similar_cases"] == []
+    assert "note" in result
+    assert "KB" in result["note"]
+
+
+def test_retrieve_similar_cases_missing_signature(workspace: Path) -> None:
+    result = retrieve_similar_cases("")
+    assert "error" in result
+    assert "error_signature" in result["error"]
