@@ -23,10 +23,15 @@ def _now() -> datetime:
 
 
 class Location(BaseModel):
-    """ArchivedCase.location — spec §5.5 line 220 의 file/function/line 3-키 강제."""
+    """파일 위치 — spec §5.5 KB Location (file/function/line) 및 agent §5.4 Report.location 공용.
+
+    spec §5.5 line 220 은 3-키 (file/function/line) 강제이나, agent crystallize_report 단계
+    에서는 regex 로 function 명 추출이 어려운 케이스가 있어 `function` 은 빈 string default
+    로 완화 (file/line 만 strict). KB write 시 function 정확 추출은 task-MVP-001-y / task-KB-002.
+    """
 
     file: str
-    function: str
+    function: str = ""
     # line 은 1-indexed (소스 파일 line 번호) — 0/음수 거절.
     line: int = Field(ge=1)
 

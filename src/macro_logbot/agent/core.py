@@ -33,19 +33,13 @@ from macro_logbot.gateway import (
     Message,
 )
 from macro_logbot.intake.parser import parse_macro_log
+from macro_logbot.knowledge_base.store import Location
 from macro_logbot.tools.registry import execute_tool, get_openai_tools_schema
 
 MAX_ITERS_DEFAULT = 20  # spec §5.2 default
 
-# spec §5.5 Location — file/function/line 구조 (KB 연동은 task-KB-002).
+# spec §5.5 Location — KB store 정의 (file/function/line) 재사용 (architect WARN-1 충돌 회피).
 _LOCATION_RE = re.compile(r"([\w./-]+\.py):(\d+)")
-
-
-class Location(BaseModel):
-    """파일 위치 — spec §5.5 KB Location."""
-
-    file: str
-    line: int
 
 
 class Report(BaseModel):

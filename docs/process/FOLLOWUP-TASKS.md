@@ -142,9 +142,12 @@
 - **처리 PR**: PR #23 (`feat/agent-graph-full`) — `intake` / `crystallize_report` / `finalize` 3 노드 추가, spec §5.2 6 노드 완성 (single-turn). `Report` / `Location` Pydantic 모델 도입. `AgentRunResult.report` 필드 추가. `/agent/analyze` 응답에 `report` / `session_id` 필드 포함.
 - **잔여**: `crystallize_report` 의 LLM 추가 호출 정확 추출 → task-MVP-001-y. multi-turn follow-up (`followup` 노드) → task-MVP-004.
 
-### task-MVP-001-y — `crystallize_report` LLM 추가 호출로 정확 JSON 추출
-- **출처**: PR #23 의도된 단순화 — MVP 로 last assistant message 본문 그대로 복사
-- **scope**: `_crystallize_report_node` 에서 LLM 추가 호출 (structured output 또는 prompt engineering) 으로 `root_cause` / `fix_hint` / `location` 를 본문에서 정확하게 JSON 추출. 또는 LiteLLM structured output (`response_format=Report`) 강제. `confidence` 도 LLM 평가 기반으로 산출.
+### task-MVP-001-y — `crystallize_report` LLM 추가 호출로 정확 JSON 추출 + Report 스키마 spec §5.4 정합 + design.md mermaid sync
+- **출처**: PR #23 의도된 단순화 + PR #23 architect WARN-2 (MED) + WARN-3 (MED)
+- **scope**:
+  - `_crystallize_report_node` 에서 LLM 추가 호출 (structured output 또는 prompt engineering) 으로 `root_cause` / `fix_hint` / `location` 를 본문에서 정확하게 JSON 추출. 또는 LiteLLM structured output (`response_format=Report`) 강제. `confidence` 도 LLM 평가 기반으로 산출.
+  - **WARN-2 (MED)**: `Report` 스키마에 spec §5.4 line 205 의 `related_code_refs: list[str]` 추가 — 현재 `location` (단일) + `fix_hint` 만으로는 spec §5.4 와 비대칭. `fix_hint` 는 §5.5 KB ArchivedCase 필드라 §5.4 와 mix 됨 — task-MVP-002-x (Session report_json 컬럼 확장) 와 함께 모델 분리 결정 (Report vs ArchivedCase 의도 명문화).
+  - **WARN-3 (MED)**: `docs/design/02-설계문서.md` §5.2 mermaid (line 155-165) 에 `finalize` 노드 명시 추가. 현재 mermaid `crystallize → END` 와 구현 `crystallize → finalize → END` 불일치 — design.md mermaid 보강 (§9 메타 PR 가능).
 - **suggested branch**: `feat/crystallize-llm-extract`
 - **reviewer scope**: 일반 (전체 reviewer cycle)
 - **priority**: medium — PoC 채점 품질 향상 시점 (task-POC-001 이후)
@@ -247,6 +250,7 @@
   - `/agent/analyze` 가 session_id 받아 session messages 누적, 다회차 분석 지원. task-MVP-002 완료, 본 task 진입 가능.
   - **PR #20 code-r WARN-4 (LOW)**: SessionStore.update 의 "존재하지 않는 id" 동작이 InMemory (upsert) vs SQLite (silent no-op) 로 다름 — Protocol docstring 에 명시 후 endpoint 통합 시점에 통일 결정 (옵션 A: 두 backend 모두 `KeyError` raise, 옵션 B: 두 backend 모두 upsert 의미). 현 단위 테스트 `test_sqlite_store_update_nonexistent_is_silent_noop` 가 현재 계약 명문화.
   - **PR #21 code-r WARN-2 (MED)**: `_get_kb_store` module-level singleton thread-safety — async tool 동시 호출 race 시 `_init_db` 의 chmod 가 두 번 실행 가능 (idempotent 라 실해 X). env `MACRO_LOGBOT_KB_PATH` 첫 진입에만 읽힘 — hot-reload 시 env 변경 무시. `threading.Lock` init 보호 + 명시적 `reset_kb_store()` helper (테스트가 monkeypatch internal 의존 회피) 또는 FastAPI lifespan startup DI. SessionStore singleton 도 동일 패턴 적용.
+  - **PR #23 arch WARN-4 (LOW)**: `AgentState` 에 spec §5.2 line 134-143 의 `session_id` / `event` / `pending_tool_calls` / `tool_results` 4 필드 추가 (현재 messages/iteration/last_response/report 만). endpoint 가 session_id 채워서 전달, agent loop 가 multi-turn 컨텍스트 유지.
 - **priority**: medium — multi-turn analysis 요구 시 (singleton thread-safety 는 endpoint 통합 시점 필수)
 
 ### task-MVP-005 — intake parser 다국어 level 지원
