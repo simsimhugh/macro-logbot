@@ -68,27 +68,32 @@ _ALLOWED_FORWARD_KWARGS: frozenset[str] = frozenset(
 )
 
 
-# task-AGENT-008: LLM-agnostic fallback parser — native tool-call patterns
+# task-AGENT-008: OSS 모델 native tool-call 패턴 fallback parser.
 # 각 provider 가 tools 파라미터 없이 free-form text 로 tool call 을 출력할 때 검출.
+# 현재 cover: Llama 3.1/3.3, Qwen, markdown JSON. Mistral [TOOL_CALLS] 등 추가는 follow-up.
+# args body 는 lazy `.*?` 로 잡고 json.loads 로 사후 검증 — Pattern 1/4 의 `[^<]/[^|]` 한계 (
+# special char 있는 args 매칭 실패) 해소 (CR WARN-1).
 _FALLBACK_TOOL_PATTERNS: list[re.Pattern[str]] = [
     # Llama 3.3 native: <function=name>{json_args}</function>
     re.compile(
-        r"<function=(?P<name>[a-zA-Z_][a-zA-Z0-9_]*)>(?P<args>\{[^<]*\})</function>",
+        r"<function=(?P<name>[a-zA-Z_][a-zA-Z0-9_]*)>\s*(?P<args>\{.*?\})\s*</function>",
         re.DOTALL,
     ),
     # Qwen tool_call tag: <tool_call>{"name":"...", "arguments":{...}}</tool_call>
     re.compile(r"<tool_call>\s*(?P<json>\{.*?\})\s*</tool_call>", re.DOTALL),
-    # Markdown JSON code block: ```json\n{"name":"...","arguments":{...}}\n```
-    re.compile(
-        r"```json\s*\n(?P<json>\{[^`]*\"name\"[^`]*\"arguments\"[^`]*\})\s*```",
-        re.DOTALL,
-    ),
+    # Markdown JSON code block: ```json\n{...}\n```
+    # name/arguments 키 존재는 json.loads 후 검증 (CR WARN-2: 키 순서/누락 false negative 해소).
+    re.compile(r"```json\s*\n(?P<json>\{.*?\})\s*```", re.DOTALL),
     # Llama 3.1 python_tag: <|python_tag|>name.call({...})
     re.compile(
-        r"<\|python_tag\|>(?P<name>[a-zA-Z_][a-zA-Z0-9_]*)\.call\((?P<args>\{[^|]*\})\)",
+        r"<\|python_tag\|>(?P<name>[a-zA-Z_][a-zA-Z0-9_]*)\.call\(\s*(?P<args>\{.*?\})\s*\)",
         re.DOTALL,
     ),
 ]
+
+# security WARN-M2: content length cap — regex DoS 가드 + 메모리/지연 보호.
+# 64KB 초과 시 fallback parser skip (보통 LLM 응답 < 16KB, MACRO log 도 < 32KB).
+_MAX_FALLBACK_CONTENT_LEN = 64 * 1024
 
 
 def _parse_fallback_tool_calls(content: str) -> list[dict[str, Any]] | None:
@@ -100,6 +105,14 @@ def _parse_fallback_tool_calls(content: str) -> list[dict[str, Any]] | None:
       [{"id": "fallback_0", "type": "function", "function": {"name": ..., "arguments": "..."}}]
       arguments 는 JSON string (OpenAI tool_calls schema 준수).
     """
+    # security WARN-M2: regex DoS 가드 — content 가 너무 크면 fallback skip.
+    if len(content) > _MAX_FALLBACK_CONTENT_LEN:
+        logger.warning(
+            "fallback parser skipped — content length %d > %d (security cap)",
+            len(content),
+            _MAX_FALLBACK_CONTENT_LEN,
+        )
+        return None
     calls: list[dict[str, Any]] = []
     for pattern in _FALLBACK_TOOL_PATTERNS:
         for m in pattern.finditer(content):
@@ -260,6 +273,7 @@ class LLMGateway:
         # Groq 의 native tool parser 가 LLM 출력 변환 실패 시 tools 없이 재호출
         # → content 를 받아 Layer 2 fallback parser 로 흘린다.
         # 재호출 안에서 또 BadRequestError 가 나면 그대로 raise (무한루프 방지).
+        layer1_retry_used = False
         try:
             response = await litellm.acompletion(
                 model=target_model,
@@ -278,6 +292,7 @@ class LLMGateway:
                     "tool_use_failed for %s — retrying without tools (fallback parser)",
                     target_model,
                 )
+                layer1_retry_used = True
                 response = await litellm.acompletion(
                     model=target_model,
                     messages=raw_messages,
@@ -299,6 +314,16 @@ class LLMGateway:
                     target_model,
                 )
                 raw_msg.tool_calls = [_construct_tool_call_obj(c) for c in fallback_calls]
+            elif layer1_retry_used:
+                # CR WARN-3: Layer 1 retry 후 Layer 2 도 0-match — silent recovery 위험.
+                # tool 호출 의도가 있었으나 fallback parser 가 패턴 인식 못함 → agent loop 가
+                # tool 없이 final answer 박제. 운영자 진단 위해 warning 명시.
+                logger.warning(
+                    "fallback parser 0-match after tool_use_failed retry (model=%s, content_len=%d) — "
+                    "agent may terminate without tool call",
+                    target_model,
+                    len(raw_msg.content),
+                )
 
         choices = [
             Choice(
