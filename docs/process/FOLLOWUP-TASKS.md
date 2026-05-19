@@ -135,14 +135,16 @@
 - **priority**: medium — Open WebUI 운영 진입 시점
 
 ### ~~task-MVP-003~~ — MCP tools 나머지 4개 (spec §5.3) ✅ **PR #19 머지**
-- **처리 PR**: PR #19 (`feat/tools-remaining-4`) — `git_log`, `find_test_history`, `get_environment_info`, `retrieve_similar_cases` 4 함수 + 4 ToolSpec 추가, spec §5.3 9 tools 인터페이스 완성.
-- **잔여**: `find_test_history` 는 사외 PoC mock (`{"runs": []}`), `retrieve_similar_cases` 는 KB §5.5 미구현 placeholder (`{"cases": []}`) — 실제 연동은 task-MVP-003-x.
+- **처리 PR**: PR #19 (`feat/tools-remaining-4`) — `git_log`, `find_test_history`, `get_environment_info`, `retrieve_similar_cases` 4 함수 + 4 ToolSpec 추가, spec §5.3 9 tools 인터페이스 완성. 출력 키도 spec §5.3 표 (`test_runs[]`, `similar_cases[]`) 와 정합.
+- **잔여**: `find_test_history` 는 사외 PoC mock (`{"test_runs": []}`), `retrieve_similar_cases` 는 KB §5.5 미구현 placeholder (`{"similar_cases": []}`) — 실제 연동은 task-MVP-003-x.
 
-### task-MVP-003-x — `find_test_history` 사내 DB 연동 + `retrieve_similar_cases` KB 통합
-- **출처**: PR #19 의도된 단순화 (mock + placeholder)
+### task-MVP-003-x — `find_test_history` 사내 DB 연동 + `retrieve_similar_cases` KB 통합 + scope 인자 처리 + edge-case 테스트
+- **출처**: PR #19 의도된 단순화 (mock + placeholder) + architect WARN-3 / WARN-4 (LOW)
 - **scope**:
-  - `find_test_history` — 사내 MACRO test DB 접속 client 도입 + 실제 test_id 별 run history 반환. 사내 운영 진입 시점.
+  - `find_test_history` — 사내 MACRO test DB 접속 client 도입 + 실제 test_id 별 run history 반환. 사내 운영 진입 시점. `limit` 인자 실제 적용.
   - `retrieve_similar_cases` — spec §5.5 Knowledge Base (`archived_cases` 테이블) 구현 후 keyword/signature 매칭 (Phase 1) 또는 벡터 임베딩 (Phase 2) 검색 로직 통합.
+  - **WARN-3** (LOW): `get_environment_info` 의 `scope` 인자가 현재 silent 무시. ToolSpec description 에 "현재 무시됨 — 향후 필터링용 인터페이스 호환" 으로 명시하거나 실제 필터 (e.g. `scope="packages"` 만 반환) 구현.
+  - **WARN-4** (LOW): edge-case 테스트 보강 — `git_log limit=0`, `find_test_history limit` 인자 실제 적용 시 컨트랙트 검증.
 - **suggested branch**: `feat/tools-real-integration` (또는 KB PR 과 묶음)
 - **reviewer scope**: 일반 (전체 reviewer cycle)
 - **priority**: medium — `find_test_history` 는 사내 운영 진입 시점, `retrieve_similar_cases` 는 KB §5.5 PR 후

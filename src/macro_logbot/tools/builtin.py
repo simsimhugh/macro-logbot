@@ -317,19 +317,18 @@ def find_test_history(
 ) -> dict[str, Any]:
     """MACRO 테스트 과거 실행 결과 — 사외 PoC 는 mock.
 
-    사외 PoC 환경엔 사내 MACRO test DB 가 없으므로 빈 runs 반환.
+    사외 PoC 환경엔 사내 MACRO test DB 가 없으므로 빈 test_runs 반환.
     사내 운영 진입 시 후속 PR (task-MVP-003-x) 에서 실제 DB 연동.
 
     Returns:
-      {"test_id": str, "runs": [], "note": str} 혹은 {"error": str}.
+      {"test_id": str, "test_runs": [], "note": str} 혹은 {"error": str}.
     """
     if not test_id or not isinstance(test_id, str):
         return {"error": "test_id required"}
-    # limit 인자는 인터페이스 유지용 — mock 단계에서는 미사용.
     _ = limit
     return {
         "test_id": test_id,
-        "runs": [],
+        "test_runs": [],
         "note": "mock — 사내 MACRO test DB 연동은 후속 PR (task-MVP-003-x)",
     }
 
@@ -378,13 +377,13 @@ def retrieve_similar_cases(
     KB 구현 PR 후 실제 검색 로직 추가 (task-MVP-003-x).
 
     Returns:
-      {"error_signature": str, "cases": [], "note": str} 혹은 {"error": str}.
+      {"error_signature": str, "similar_cases": [], "note": str} 혹은 {"error": str}.
     """
     if not error_signature or not isinstance(error_signature, str):
         return {"error": "error_signature required"}
     _ = top_k
     return {
         "error_signature": error_signature,
-        "cases": [],
+        "similar_cases": [],
         "note": "KB (spec §5.5) 미구현 placeholder — 후속 PR (task-MVP-003-x)",
     }

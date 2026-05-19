@@ -274,7 +274,7 @@ def test_git_log_path_traversal(workspace: Path) -> None:
 def test_find_test_history_mock(workspace: Path) -> None:
     result = find_test_history("TC-001")
     assert result["test_id"] == "TC-001"
-    assert result["runs"] == []
+    assert result["test_runs"] == []
     assert "note" in result
     assert "mock" in result["note"]
 
@@ -303,7 +303,7 @@ def test_get_environment_info_has_python(workspace: Path) -> None:
 def test_retrieve_similar_cases_placeholder(workspace: Path) -> None:
     result = retrieve_similar_cases("AttributeError:NoneType")
     assert result["error_signature"] == "AttributeError:NoneType"
-    assert result["cases"] == []
+    assert result["similar_cases"] == []
     assert "note" in result
     assert "KB" in result["note"]
 
