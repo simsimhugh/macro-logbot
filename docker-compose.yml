@@ -15,6 +15,9 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      args:
+        BASE_IMAGE: ${BASE_IMAGE:-python:3.14-slim}
+        PIP_INDEX_URL: ${PIP_INDEX_URL:-https://pypi.org/simple}
     container_name: macro-logbot-backend
     restart: unless-stopped
     environment:
@@ -41,7 +44,7 @@ services:
       - macrologbot-net
 
   open-webui:
-    image: ghcr.io/open-webui/open-webui:main
+    image: ${OPEN_WEBUI_IMAGE:-ghcr.io/open-webui/open-webui:main}
     container_name: open-webui
     restart: unless-stopped
     depends_on:

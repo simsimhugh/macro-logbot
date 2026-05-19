@@ -93,3 +93,5 @@ curl -X POST http://localhost:8000/agent/analyze \
 - `MACRO_LOGBOT_AUTH_REQUIRED=true` + key 미설정 → 503 (misconfigured).
 
 상세 후속 작업은 `docs/process/FOLLOWUP-TASKS.md` (task-SEC-002 등) 참고.
+
+> 사내 운영 시 `.env` 의 사내 mirror 4줄을 uncomment 하면 같은 명령으로 동작 — `docs/design/02-설계문서.md` §8.4 참조.
