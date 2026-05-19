@@ -177,15 +177,49 @@
 - **처리 PR**: PR #19 (`feat/tools-remaining-4`) — `git_log`, `find_test_history`, `get_environment_info`, `retrieve_similar_cases` 4 함수 + 4 ToolSpec 추가, spec §5.3 9 tools 인터페이스 완성. 출력 키도 spec §5.3 표 (`test_runs[]`, `similar_cases[]`) 와 정합.
 - **잔여**: `find_test_history` 는 사외 PoC mock (`{"test_runs": []}`), `retrieve_similar_cases` 는 KB §5.5 미구현 placeholder (`{"similar_cases": []}`) — 실제 연동은 task-MVP-003-x.
 
-### task-MVP-003-x — `find_test_history` 사내 DB 연동 + `retrieve_similar_cases` KB 통합 + scope 인자 처리
+### task-MVP-003-x — `find_test_history` 사내 DB 연동 + scope 인자 처리
 - **출처**: PR #19 의도된 단순화 (mock + placeholder) + architect WARN-3 + security WARN-3 + code-reviewer WARN-5
 - **scope**:
   - `find_test_history` — 사내 MACRO test DB 접속 client 도입 + 실제 test_id 별 run history 반환. 사내 운영 진입 시점. `limit` 인자 실제 적용.
-  - `retrieve_similar_cases` — spec §5.5 Knowledge Base (`archived_cases` 테이블) 구현 후 keyword/signature 매칭 (Phase 1) 또는 벡터 임베딩 (Phase 2) 검색 로직 통합. **WARN-3 (sec MED)**: `error_signature` 길이 cap (`_MAX_SIGNATURE_LEN`), `top_k` 범위 (1..50) 검증.
+  - ~~`retrieve_similar_cases` — spec §5.5 Knowledge Base (`archived_cases` 테이블) 구현 후 keyword/signature 매칭 (Phase 1) 또는 벡터 임베딩 (Phase 2) 검색 로직 통합. **WARN-3 (sec MED)**: `error_signature` 길이 cap (`_MAX_SIGNATURE_LEN`), `top_k` 범위 (1..50) 검증.~~ **PR #21 처리 완료** — `SQLiteKBStore` Phase 1 + 보안 가드 도입.
   - **WARN-3 (arch LOW + code-r WARN-5)**: `get_environment_info` 의 `scope` 인자가 현재 silent 무시. ToolSpec description 에 "현재 무시됨 — 향후 필터링용 인터페이스 호환" 으로 명시하거나 실제 필터 (e.g. `scope="packages"` 만 반환) 구현.
-- **suggested branch**: `feat/tools-real-integration` (또는 KB PR 과 묶음)
+- **suggested branch**: `feat/tools-real-integration`
 - **reviewer scope**: 일반 (전체 reviewer cycle)
-- **priority**: medium — `find_test_history` 는 사내 운영 진입 시점, `retrieve_similar_cases` 는 KB §5.5 PR 후
+- **priority**: medium — `find_test_history` 는 사내 운영 진입 시점
+
+### task-KB-001 — KB Phase 2 벡터 임베딩 (RAG / case-based reasoning) + WARN-1/2 보강 + 검색 robustness
+- **출처**: PR #21 의도된 단순화 (Phase 1 keyword LIKE 만) — spec §5.5 Phase 2 선택 항목 + architect WARN-1/2 (MED) + code-reviewer WARN-4 (LOW) + security LOW-1 (LIKE wildcard) + test-engineer WARN-3 (정책 결정)
+- **scope**:
+  - `SQLiteKBStore.search` 를 벡터 임베딩으로 업그레이드. sentence-transformers 또는 sqlite-vec / pgvector 평가 후 retrieval scoring 개선. Phase 1 LIKE fallback 유지.
+  - **architect WARN-1 (MED)**: spec §5.5 의 `verified-master` 우선 부여 — `ORDER BY CASE source WHEN 'verified-master' THEN 0 WHEN 'production' THEN 1 ELSE 2 END, confidence DESC` 적용. 동일 confidence 케이스의 source tie-break 결정.
+  - **architect WARN-2 (MED)**: Phase 1 LIKE 검색의 정규화 layer 추가 — signature token split + OR 매칭 (예: `AttributeError:NoneType.x_access` → `AttributeError` + `NoneType` + `x_access` 각각 substring), 또는 별도 `category` + `error_type` 컬럼 분리. 운영 단계에서 정확한 동일 정규화 표식 매칭이 거의 무력화되는 문제 해소.
+  - **code-r WARN-4 / sec LOW-1 / test WARN-3 (LOW)**: 검색 robustness — (a) 빈 query 시 `[]` 반환 (현재 LIKE '%%' 전체 매칭) 정책 결정 + 테스트, (b) `%` / `_` 메타문자 ESCAPE 처리 (literal 매칭), (c) test-only `test_search_empty_query` / `test_search_sql_wildcard_not_expanded` 동작 고정.
+- **suggested branch**: `feat/kb-vector-search`
+- **reviewer scope**: 일반 (전체 reviewer cycle — 신규 외부 dep 포함)
+- **priority**: low — PoC validation 후 (KB 누적 케이스 충분해진 시점)
+
+### task-KB-002 — `archived_cases` populating 흐름 (분석 완료 후 자동 add) + 중복 case_id 정책
+- **출처**: PR #21 의도된 단순화 — KB store 구현만, write 흐름 미연결 + code-reviewer WARN-3 (MED) + security LOW-2
+- **scope**:
+  - Agent Core 의 `crystallize_report` 노드 종료 직후 `SQLiteKBStore.add` 호출 (spec §5.5 "Writer 위치" 참조). `source: poc` 또는 `production` 자동 태그. verifier 승격 (`source: verified-master`) hook 별도. task-MVP-004 (endpoint session 통합) 와 함께 진행.
+  - **code-r WARN-3 (MED)**: `SQLiteKBStore.add` 중복 case_id 정책 결정 — (A) `INSERT OR REPLACE` upsert, (B) 명시적 `update()` 메서드 분리 + `KBStoreDuplicateError` raise, (C) docstring 명시 + `INSERT OR IGNORE`. 현재 단위 테스트 `test_add_duplicate_case_id_raises` 가 현재 계약 (`sqlite3.IntegrityError`) 명문화. verifier 승격 (`verified-master` 재기입) 시점에 의미 결정 필수.
+- **suggested branch**: `feat/kb-auto-archive`
+- **reviewer scope**: 일반 (전체 reviewer cycle)
+- **priority**: medium — task-MVP-004 (endpoint session 통합) 완료 후
+
+### task-KB-003 — SQLite store 공통 base 추출 (DRY)
+- **출처**: PR #21 code-reviewer WARN-1 (MED) — KB + SessionStore 의 `_connect`/`_init_db`/chmod 패턴 거의 동일
+- **scope**: `src/macro_logbot/persistence/sqlite_base.py` (또는 `_SQLiteStoreBase`) 추출 — `__init__(db_path)` + `_connect()` + `_apply_owner_only_perms()` 공유. WAL pragma + chmod 0o600 + `-wal`/`-shm` suffix loop + `contextlib.suppress(OSError)` 패턴 중복 제거. 각 store 는 `_CREATE_TABLE_SQL` + CRUD 메서드만 정의. KBStore/SessionStore Protocol 의미 보존 (Protocol = 인터페이스, base class = 구현). 향후 3번째 store 추가 시 보안 가드 누락 방지.
+- **suggested branch**: `refactor/sqlite-store-base`
+- **reviewer scope**: 일반
+- **priority**: low — 3번째 store 추가 시점에 의미 ↑
+
+### task-SEC-012 — `MACRO_LOGBOT_KB_PATH` env path containment + symlink guard
+- **출처**: PR #21 security WARN-MED-1 (A01 Broken Access Control / A05 Misconfiguration)
+- **scope**: `MACRO_LOGBOT_KB_PATH` env 가 절대 path 그대로 수용 — `_safe_resolve` 의 cwd containment 미적용. `MACRO_LOGBOT_DATA_ROOT` (또는 default `.macro-logbot`) 도입 후 KB path 가 root 밖이면 fail-closed. symlink 추적 후 root 외부 가는 경로 차단. 운영 진입 패키지 (task-SEC-007/009/011) 와 묶음.
+- **suggested branch**: `feat/kb-env-containment`
+- **reviewer scope**: 일반 (보안 중요)
+- **priority**: medium — 사내 운영 진입 전 (task-SEC-007 / task-SEC-011 와 묶음)
 
 ### task-TEST-001 — MCP tools 테스트 보강 (branch coverage + schema 내용 검증)
 - **출처**: PR #19 test-engineer (WARN-5/6/7/8/9) + architect WARN-4 (LOW) + code-reviewer WARN-6 (LOW)
@@ -197,16 +231,18 @@
   - **WARN-9 (LOW)**: `grep_codebase` / `search_logs` 파싱 예외 경로 (`parts < 3`, `ValueError on line_no`) 미커버.
   - **arch WARN-4 (LOW)**: edge-case — `git_log limit=0`, `find_test_history.limit` / `retrieve_similar_cases.top_k` 인자 실제 적용 후 컨트랙트 검증.
   - **code-r WARN-6 (LOW)**: `_ENV_INFO_PACKAGES` 하드코딩 — `metadata.distributions()` 로 dynamic 조회 + denylist, 또는 docstring 에 "pyproject.toml sync 필요" 명시.
+  - **PR #21 test WARN-6 (LOW)**: `_kb_store` singleton 격리 — 각 KB tool 테스트가 `monkeypatch.setattr(builtin_mod, "_kb_store", None)` 패턴 반복. `autouse=True` fixture 로 추출하여 일관 적용 + stale singleton 회피.
 - **suggested branch**: `test/tools-branch-coverage`
 - **reviewer scope**: test-engineer 단독 가능 (test-only PR, src 변경 없음 — code-r WARN-6 fix 가 src 포함시 일반 cycle)
 - **priority**: medium — 사내 운영 진입 전 운영 분기 검증 필요
 
-### task-MVP-004 — /agent/analyze session 통합 + SessionStore.update semantic 통일
-- **출처**: PR #11 MVP 의도된 단순화 + PR #20 code-reviewer WARN-4 (LOW)
+### task-MVP-004 — /agent/analyze session 통합 + SessionStore.update semantic 통일 + KB singleton thread-safety
+- **출처**: PR #11 MVP 의도된 단순화 + PR #20 code-reviewer WARN-4 (LOW) + PR #21 code-reviewer WARN-2 (MED)
 - **scope**:
   - `/agent/analyze` 가 session_id 받아 session messages 누적, 다회차 분석 지원. task-MVP-002 완료, 본 task 진입 가능.
-  - **code-r WARN-4 (LOW)**: SessionStore.update 의 "존재하지 않는 id" 동작이 InMemory (upsert) vs SQLite (silent no-op) 로 다름 — Protocol docstring 에 명시 후 endpoint 통합 시점에 통일 결정 (옵션 A: 두 backend 모두 `KeyError` raise, 옵션 B: 두 backend 모두 upsert 의미). 현 단위 테스트 `test_sqlite_store_update_nonexistent_is_silent_noop` 가 현재 계약 명문화.
-- **priority**: low — multi-turn analysis 요구 시
+  - **PR #20 code-r WARN-4 (LOW)**: SessionStore.update 의 "존재하지 않는 id" 동작이 InMemory (upsert) vs SQLite (silent no-op) 로 다름 — Protocol docstring 에 명시 후 endpoint 통합 시점에 통일 결정 (옵션 A: 두 backend 모두 `KeyError` raise, 옵션 B: 두 backend 모두 upsert 의미). 현 단위 테스트 `test_sqlite_store_update_nonexistent_is_silent_noop` 가 현재 계약 명문화.
+  - **PR #21 code-r WARN-2 (MED)**: `_get_kb_store` module-level singleton thread-safety — async tool 동시 호출 race 시 `_init_db` 의 chmod 가 두 번 실행 가능 (idempotent 라 실해 X). env `MACRO_LOGBOT_KB_PATH` 첫 진입에만 읽힘 — hot-reload 시 env 변경 무시. `threading.Lock` init 보호 + 명시적 `reset_kb_store()` helper (테스트가 monkeypatch internal 의존 회피) 또는 FastAPI lifespan startup DI. SessionStore singleton 도 동일 패턴 적용.
+- **priority**: medium — multi-turn analysis 요구 시 (singleton thread-safety 는 endpoint 통합 시점 필수)
 
 ### task-MVP-005 — intake parser 다국어 level 지원
 - **출처**: PR #11 MVP 의도된 단순화

@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 
+from macro_logbot.knowledge_base import ArchivedCase, SQLiteKBStore
 from macro_logbot.tools.builtin import (
     find_test_history,
     get_environment_info,
@@ -300,15 +301,74 @@ def test_get_environment_info_has_python(workspace: Path) -> None:
         assert key not in result
 
 
-def test_retrieve_similar_cases_placeholder(workspace: Path) -> None:
-    result = retrieve_similar_cases("AttributeError:NoneType")
-    assert result["error_signature"] == "AttributeError:NoneType"
-    assert result["similar_cases"] == []
-    assert "note" in result
-    assert "KB" in result["note"]
-
-
 def test_retrieve_similar_cases_missing_signature(workspace: Path) -> None:
     result = retrieve_similar_cases("")
     assert "error" in result
     assert "error_signature" in result["error"]
+
+
+def test_retrieve_similar_cases_kb_lookup(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """KB SQLiteKBStore fixture — add 후 retrieve_similar_cases 로 케이스 반환 검증."""
+    import macro_logbot.tools.builtin as builtin_mod
+
+    db_path = tmp_path / "kb.db"
+    store = SQLiteKBStore(db_path)
+    case = ArchivedCase(
+        case_id="test-case-001",
+        error_signature="AttributeError:NoneType",
+        category="runtime/none-access",
+        root_cause="None 값에 접근",
+        location={"file": "src/app.py", "function": "run", "line": 10},
+        fix_hint="None 체크 추가",
+        confidence=0.85,
+        source="poc",
+    )
+    store.add(case)
+
+    # module-level singleton 리셋 + env 패치
+    monkeypatch.setattr(builtin_mod, "_kb_store", None)
+    monkeypatch.setenv("MACRO_LOGBOT_KB_PATH", str(db_path))
+
+    result = retrieve_similar_cases("AttributeError:NoneType")
+    assert result["error_signature"] == "AttributeError:NoneType"
+    assert len(result["similar_cases"]) == 1
+    assert result["similar_cases"][0]["case_id"] == "test-case-001"
+
+
+def test_retrieve_similar_cases_signature_length_cap(workspace: Path) -> None:
+    """error_signature 가 _MAX_SIGNATURE_LEN (4096) 초과 시 error 반환."""
+    long_sig = "A" * 4097
+    result = retrieve_similar_cases(long_sig)
+    assert "error" in result
+    assert "too long" in result["error"]
+
+
+def test_retrieve_similar_cases_top_k_range(workspace: Path) -> None:
+    """top_k 가 1..50 범위를 벗어나면 error 반환."""
+    result_zero = retrieve_similar_cases("AttributeError:NoneType", top_k=0)
+    assert "error" in result_zero
+
+    result_over = retrieve_similar_cases("AttributeError:NoneType", top_k=51)
+    assert "error" in result_over
+
+
+def test_retrieve_similar_cases_kb_oserror_fallback(
+    workspace: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """KB init 시 OSError → _get_kb_store None → note 포함 빈 결과 반환.
+
+    PoC 환경에서 .macro-logbot/ 디렉토리 생성이 실패하는 케이스 (read-only fs 등)
+    의 fallback 분기 검증. retrieve_similar_cases 가 error 가 아닌 note 로 처리.
+    """
+    import macro_logbot.tools.builtin as builtin_mod
+
+    monkeypatch.setattr(builtin_mod, "_kb_store", None)
+    # /proc/nonexistent/ 는 mkdir 시 OSError (procfs read-only).
+    monkeypatch.setenv("MACRO_LOGBOT_KB_PATH", "/proc/nonexistent/kb.db")
+
+    result = retrieve_similar_cases("AttributeError:NoneType")
+    assert result.get("error") is None
+    assert result["similar_cases"] == []
+    assert "note" in result
