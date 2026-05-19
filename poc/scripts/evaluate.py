@@ -79,6 +79,8 @@ def call_backend(
         return {"error": f"URLError: {exc}"}
     except (TimeoutError, json.JSONDecodeError) as exc:
         return {"error": f"{type(exc).__name__}: {exc}"}
+    except Exception as exc:  # noqa: BLE001 — 한 case 실패가 5 case loop 전체 죽이지 않도록
+        return {"error": f"unexpected {type(exc).__name__}: {exc}"}
 
 
 def score_1a(analysis: str, ground_truth: dict[str, Any]) -> dict[str, Any]:

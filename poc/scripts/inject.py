@@ -28,7 +28,12 @@ SNAKE_ORIGINAL = REPO_ROOT / "poc" / "targets" / "snake-game" / "original" / "sn
 
 
 def load_case(case_id: str) -> dict[str, Any]:
-    """case_id (예: 'E001') 로 yaml 메타 로드. 실패 시 FileNotFoundError."""
+    """case_id (예: 'E001') 로 yaml 메타 로드. 실패 시 FileNotFoundError.
+
+    case_id 는 alphanumeric + '_'/'-' 만 허용 — path traversal (`../`) 차단.
+    """
+    if not case_id.replace("_", "").replace("-", "").isalnum():
+        raise ValueError(f"invalid case_id: {case_id!r}")
     path = CATALOG_DIR / f"{case_id}.yaml"
     if not path.is_file():
         raise FileNotFoundError(f"unknown case: {case_id} (expected {path})")

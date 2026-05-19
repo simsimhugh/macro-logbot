@@ -46,11 +46,12 @@ def trigger(workdir: Path, timeout: int = DEFAULT_TIMEOUT_SEC) -> tuple[int, str
         )
     except subprocess.TimeoutExpired as exc:
         return 2, f"timeout after {timeout}s: {exc}"
-    # 정상 종료 (returncode == 0): injection 이 에러를 못 만들었음 — false negative.
-    if completed.returncode == 0:
-        return 1, completed.stderr
-    # 비정상 종료 → traceback 이 stderr 에 있을 것.
-    return 0, completed.stderr
+    # snake.py 가 정상 충돌 (die) 시에도 returncode 0 으로 종료할 수 있으므로
+    # stderr 에 "Traceback" 본문이 있는지 양조건 확인 — injection 에러 캡처 robust.
+    if completed.returncode != 0 or "Traceback" in completed.stderr:
+        return 0, completed.stderr
+    # 정상 종료 + traceback 없음 → injection 실패 (false negative).
+    return 1, completed.stderr
 
 
 def main(argv: list[str] | None = None) -> int:
