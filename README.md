@@ -84,7 +84,7 @@ Open WebUI 와 macro-logbot backend 를 docker-compose 로 한 번에 띄우는 
    ```
 2. `.env` 편집:
    - `MACRO_LOGBOT_API_KEY` — 임의 문자열 (Open WebUI 와 backend 가 공유).
-   - `MACRO_LOGBOT_DEFAULT_MODEL=gemini/gemini-1.5-flash` (Gemini 사용 시).
+   - `MACRO_LOGBOT_DEFAULT_MODEL=gemini/gemini-2.5-flash-lite` (Gemini 사용 시).
    - `GEMINI_API_KEY=<발급 키>` (또는 사용할 provider 의 key).
 3. 기동:
    ```bash

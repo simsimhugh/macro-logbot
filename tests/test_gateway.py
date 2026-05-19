@@ -68,7 +68,7 @@ async def test_default_model_fallback(monkeypatch: pytest.MonkeyPatch) -> None:
     """인자와 env 가 모두 없으면 hardcoded fallback 이 사용된다."""
     monkeypatch.delenv("MACRO_LOGBOT_DEFAULT_MODEL", raising=False)
     gateway = LLMGateway()
-    assert gateway.default_model == "openai/gpt-4o-mini"
+    assert gateway.default_model == "gemini/gemini-2.5-flash-lite"
 
 
 @pytest.mark.asyncio
