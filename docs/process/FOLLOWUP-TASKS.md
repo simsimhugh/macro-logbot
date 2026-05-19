@@ -413,14 +413,38 @@
 - **size estimate**: docs ~100 lines
 - **priority**: low — 운영 투입 직전
 
-### task-DEMO-001 — demo_session.py 개선 (cleanup + semantic 분리)
-- **출처**: PR #29 architect WARN-3 (LOW) + WARN-4 (LOW)
+### task-DEMO-001 — demo_session.py 개선 (cleanup + semantic + error paths)
+- **출처**: PR #29 architect WARN-3/4 (LOW) + code-r WARN-2/3 (MED) + LOW 4 + test HIGH/MED 분기 미커버
 - **scope**:
-  - **WARN-3**: `--log` 와 `--prompt` 동작 동일 (둘 다 `log_text` forward) — docstring 에 "현재 backend 동작 동일, semantic hint 용 분리" 명시 또는 통합.
-  - **WARN-4**: `--case` 모드의 `tempfile.mkdtemp` cleanup — 매 실행마다 `/tmp/demo-*` 누적. `shutil.rmtree(workdir, ignore_errors=True)` REPL 종료 시점에 호출 또는 `tempfile.TemporaryDirectory` context manager 로 wrap.
-- **suggested branch**: `chore/demo-session-cleanup`
+  - **arch WARN-3 + code-r WARN-2 (MED)**: `--log` 와 `--prompt` 동작 동일 — docstring/help 에 "현재 동작 동일, semantic hint" 명시 또는 통합.
+  - **arch WARN-4 (LOW)**: `--case` 모드의 `tempfile.mkdtemp` cleanup — `tempfile.TemporaryDirectory` context manager.
+  - **code-r WARN-1 (MED)**: mypy `no-any-return` 3건 (`scripts/demo_session.py:88,90,92`) cast 명시.
+  - **code-r WARN-3 (MED)**: `--case` 분기 `inject/trigger` ImportError 친절 처리 (사외 배포 환경).
+  - **code-r LOW**: root_cause 300자 truncation `...` 표기, `--timeout` 문서화, Dockerfile Debian codename ARG, apt sources backup.
+  - **test HIGH-1**: `post_analyze` 에러 path 3종 (HTTPError/URLError/Timeout) + `main()` `sid` 없는 분기 테스트.
+  - **test MED**: `EOFError` / `KeyboardInterrupt` input 분기.
+  - **test LOW**: `_print_response` 출력 분기 + `--case` mock 테스트.
+- **suggested branch**: `chore/demo-session-improvements`
 - **reviewer scope**: 일반
 - **priority**: low — 데모 안정성
+
+### task-DEMO-002 — `--api-key` argv 평문 노출 회피 (env 또는 getpass)
+- **출처**: PR #29 security WARN-MED-2
+- **scope**: `scripts/demo_session.py` `--api-key` flag 가 `ps auxe` / `/proc/<pid>/cmdline` / shell history 에 평문 노출. env `MACRO_LOGBOT_API_KEY` 만 허용 (flag deprecate) 또는 `getpass.getpass("API key: ")` fallback. 최소 help 문구에 argv 노출 경고.
+- **suggested branch**: `chore/demo-api-key-getpass`
+- **reviewer scope**: 일반 (보안)
+- **priority**: low — demo CLI, env 사용 권장
+
+### task-INFRA-CA-001 — 사내 CA bundle + --trusted-host 제거 + apt signed-by
+- **출처**: PR #29 security WARN-MED-1 + LOW-3
+- **scope**:
+  - Dockerfile 에 `ARG INTERNAL_CA_BUNDLE` + `COPY ${INTERNAL_CA_BUNDLE:-/dev/null} /usr/local/share/ca-certificates/internal.crt` + `update-ca-certificates` 표준 패턴.
+  - `pip install --trusted-host` 완전 제거 (system CA 로 충분).
+  - `pip install --require-hashes` 또는 lockfile 도입 검토.
+  - apt sources.list 에 `signed-by=/etc/apt/keyrings/internal.gpg` 명시.
+- **suggested branch**: `chore/infra-ca-bundle`
+- **reviewer scope**: 일반 (보안 중요)
+- **priority**: medium — 사내 production rollout release gate
 
 ---
 
