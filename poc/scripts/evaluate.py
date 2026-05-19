@@ -45,7 +45,10 @@ REPO_ROOT = SCRIPT_DIR.parent.parent
 REPORTS_ROOT = REPO_ROOT / "poc" / "reports"
 
 DEFAULT_API_URL = "http://localhost:8000"
-DEFAULT_MODEL = "gemini/gemini-2.5-flash"
+# backend `.env.example` 의 MACRO_LOGBOT_DEFAULT_MODEL 과 정합 (PR #20 후 flash-lite default).
+# Flash (50 RPD) → Flash-Lite (1000 RPD) 로 quota 안정성 ↑.
+# Groq Llama 등 다른 provider 로 swap 시 --model 옵션 명시.
+DEFAULT_MODEL = "gemini/gemini-2.5-flash-lite"
 DEFAULT_COOLDOWN_SEC = 60  # Gemini free tier 5 RPM 보호.
 DEFAULT_HTTP_TIMEOUT = 120
 

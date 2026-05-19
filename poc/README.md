@@ -28,7 +28,7 @@ python poc/scripts/evaluate.py --cases E001,E002,E003,E004,E005,E006,E007,E008,E
 ```
 
 옵션:
-- `--model gemini/gemini-2.5-flash` (기본) — 다른 모델 swap.
+- `--model gemini/gemini-2.5-flash-lite` (기본) — 다른 모델 swap.
 - `--api-url http://localhost:8000` — backend URL.
 - `--rate-limit-cooldown 60` — case 간 sleep (Gemini free tier 5 RPM 보호).
 
