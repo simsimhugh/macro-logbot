@@ -10,22 +10,22 @@
 
 ### 1.1 사내 환경 가정
 - 사용자 사내는 Samsung 계열 사내 LLM (`gpt-oss / GaussO4 / GaussO3 / Gemma4-260430`) 을 운영 — Samsung 사내 SSO 의 통합 가능성이 높음(미확인). 정확한 protocol(SAMLv2 / OIDC / 자체 토큰)은 사용자 확인 필요 — §7 risk 로 격상.
-- 사내 네트워크는 외부 인터넷 차단 (spec `docs/design/02-설계문서.md:731-739` §12.1). 따라서 외부 IdP(Google/Microsoft) 사용 불가, **사내 IdP only**.
-- 사내 미러 가용 (`docs/design/02-설계문서.md:43-45`). `Authlib` / `python-jose` / `oauth2-proxy` image 미러 필요.
+- 사내 네트워크는 외부 인터넷 차단 (spec `docs/design/02-설계문서.md:730-748` §12.1). 따라서 외부 IdP(Google/Microsoft) 사용 불가, **사내 IdP only**.
+- 사내 미러 가용 (`docs/operations/DEPLOYMENT.md:107-118` 의 BASE_IMAGE/PIP_INDEX_URL 패턴). `Authlib` / `python-jose` / `oauth2-proxy` image 미러 필요.
 
 ### 1.2 사외 PoC vs 사내 production 분리
 | 환경 | 인증 |
 |---|---|
-| 사외 PoC (현재) | 공유 API key (`MACRO_LOGBOT_API_KEY`) Bearer + X-API-Key 동치. `src/macro_logbot/auth.py:67-98`. WEBUI_AUTH=false (`docker-compose.yml:58-59`) |
-| 사내 production | SSO 필수 — task-SEC-002. 운영 진입 차단 사유 (`docs/process/FOLLOWUP-TASKS.md:117-123`, `docs/operations/DEPLOYMENT.md:224`) |
+| 사외 PoC (현재) | 공유 API key (`MACRO_LOGBOT_API_KEY`) Bearer + X-API-Key 동치. `src/macro_logbot/auth.py:57-101`. WEBUI_AUTH=false (`docker-compose.yml:61`) |
+| 사내 production | SSO 필수 — task-SEC-002. 운영 진입 차단 사유 (`docs/process/FOLLOWUP-TASKS.md:117` 부터, `docs/operations/DEPLOYMENT.md:241-247`) |
 
 핵심 원칙: **API key 인증은 deprecate 가 아닌 fallback 으로 유지** — 서비스 계정(evaluate.py, intake webhook, MACRO platform → backend)이 SSO 미지원이라서 영구 공존 필요.
 
 ### 1.3 단일 사용자 vs 다중 사용자 — 영향 평가 (critical)
 현재 시스템은 사실상 단일 사용자 가정:
-- `verify_api_key` 가 단일 server_key 와 timing-safe 비교만 수행 — principal 개념 없음 (`src/macro_logbot/auth.py:85-98`).
-- `SQLiteSessionStore.get(session_id)` 는 owner 검증 없음 — IDOR 우려가 이미 인지되어 있음 (`docs/process/FOLLOWUP-TASKS.md:268` "principal scoping → task-SEC-002 묶음").
-- `AgentState` 에 `user_id` / `principal` 필드 없음 — `session_id` / `event_id` 만 존재 (`docs/design/02-설계문서.md:136-147`).
+- `verify_api_key` 가 단일 server_key 와 timing-safe 비교만 수행 — principal 개념 없음 (`src/macro_logbot/auth.py:57-101`).
+- `SQLiteSessionStore.get(session_id)` 는 owner 검증 없음 + `app.py:242-249` 가 미존재 session_id 받으면 **새 session 발급으로 fallback** — IDOR 회피 + DoS/저장소 오염 vector. 우려가 이미 인지되어 있음 (`docs/process/FOLLOWUP-TASKS.md:268` "principal scoping → task-SEC-002 묶음").
+- `AgentState` 에 `user_id` / `principal` 필드 없음 — `session_id` / `event_id` 만 존재 (`docs/design/02-설계문서.md:136-148`).
 
 **영향**: SSO 도입 시 단순 인증만 추가하면 부족. 다음 4개 모델 변경이 동반되어야 함:
 1. `sessions` 테이블에 `owner_principal TEXT NOT NULL` 컬럼 추가 (task-MVP-002-x 와 묶음 권장).
@@ -67,10 +67,18 @@
 
 ### Option B: 사내 reverse proxy(oauth2-proxy / nginx auth_request) 에서 SSO 처리, backend 는 헤더 신뢰
 ```
-[브라우저] -> [oauth2-proxy: SSO] -> [Open WebUI + backend] (사내 IdP 와 통신)
+                       [oauth2-proxy: SSO]
+                              |
+[브라우저] -> [oauth2-proxy] --+--> [Open WebUI] --(OPENAI key + forward header)--> [backend]
+                              \--> [backend (직접 호출 path)]
                        \-- X-Forwarded-User, X-Forwarded-Email 헤더 --/
+                              ↑
+                       [사내 IdP] 와 통신
 ```
 - 구현: backend 는 reverse proxy 에서 forward 된 `X-Forwarded-User`(employee_id) + `X-Forwarded-Email` 헤더를 신뢰 + IP allowlist(proxy 만 forward 허용)로 spoofing 방지.
+- **Header propagation 메커니즘 (Hardening R3 — architect WARN-MED)**: Open WebUI 가 자체 brower session 에서 backend 호출 시 oauth2-proxy header 가 자동 propagate 되지 않는다. 두 가지 해소책:
+  - (a) **권장**: oauth2-proxy 가 backend 도 직접 proxy — 사용자 → oauth2-proxy → {Open WebUI, backend} 토폴로지. Open WebUI 는 사용자 인증 정보 없이 service-account API key 만 사용.
+  - (b) 대안: Open WebUI 가 backend 호출 시 oauth2-proxy 의 `--set-xauthrequest=true` + Open WebUI 의 request forwarding config 로 header chain 구성. (Open WebUI 의 OpenAI API client 가 header pass-through 지원해야 — 검증 필요)
 - **Pros**: (1) 사내 표준 패턴 — oauth2-proxy 는 SAML/OIDC 둘 다 지원 (2) backend 코드 변경 최소 (3) Open WebUI + backend 둘 다 동일 proxy 뒤 (4) 사내 보안팀이 oauth2-proxy 자체 검증 인계 가능
 - **Cons**: (1) Open WebUI 가 자체 user 관리 — proxy 헤더 ↔ Open WebUI user 매핑(`WEBUI_AUTH_TRUSTED_EMAIL_HEADER` 설정 필요) (2) backend 헤더 spoofing 방어 critical (3) `tcpdump` 검증 시 추가 hop
 - **적합성**: 사내 production 표준. evaluate.py / webhook 은 별도 service-account API key path.
@@ -98,7 +106,7 @@
 ## 4. 구현 단계 (sprint plan)
 
 ### Sprint 1 — 인증 추상화 layer (PR 1개) → task-SEC-002-a
-- `src/macro_logbot/auth.py:57-98` 의 `verify_api_key` 를 다음 구조로 리팩토링:
+- `src/macro_logbot/auth.py:57-101` 의 `verify_api_key` 를 다음 구조로 리팩토링:
   ```
   AuthBackend (Protocol):
     async authenticate(request) -> Principal | None
@@ -130,7 +138,7 @@
   - cookie 는 oauth2-proxy 영역만, backend 는 cookie 무시.
 - `sessions` 테이블 schema 변경(task-MVP-002-x 와 묶음):
   - `owner_principal TEXT NOT NULL DEFAULT 'anonymous'` (NOT NULL with default — 기존 row 마이그레이션 안전).
-- `SQLiteSessionStore.get(session_id, principal)` 시그니처 확장 — owner mismatch 시 `None` 반환 (404 와 동일 처리, IDOR 회피 — `src/macro_logbot/app.py:230-241` 의 기존 패턴 유지).
+- `SQLiteSessionStore.get(session_id, principal)` 시그니처 확장 — owner mismatch 시 `None` 반환 (404 와 동일 처리, IDOR 회피 — `src/macro_logbot/app.py:242-249` 의 기존 fallback 패턴 유지). **주의 (architect WARN-MED)**: 현재 `app.py:242-249` 가 미존재 session_id 받으면 새 session 발급으로 fallback — multi-user 환경에서 owner mismatch 와 미존재 구분 안 하면 DoS/저장소 오염 vector. task-SEC-002-d 구현 시 owner mismatch → 명시적 403 (또는 audit log 후 새 session 발급 거부) 결정 필요.
 - **사이즈 추정**: src ~60 lines + tests ~80 lines + 마이그레이션 SQL 1개.
 
 ### Sprint 4 — audit log + 보안 로깅 → task-SEC-002-e
@@ -158,7 +166,7 @@
   - service account: scoped API key(`webhook` scope 전용).
 - `AuthBackend` Protocol 정의 + `Principal` schema 도입 명시.
 
-### 5.2 `docs/design/02-설계문서.md` §12 보안 검증 (line 729-749)
+### 5.2 `docs/design/02-설계문서.md` §12 보안 검증 (line 730-748)
 - §12.1 외부 유출 방지: 화이트리스트에 "사내 IdP endpoint" 추가.
 - §12.2 시크릿 관리: JWT 검증용 JWKS URL + OIDC client_secret 항목 추가.
 - 신규 §12.4 SSO 통합 추가 — Trust boundary 표 + spoofing 방어 (proxy IP allowlist) 명시.
@@ -202,6 +210,10 @@
 | RISK-SSO-6 | oauth2-proxy 와 backend 사이 spoofing 방어 — backend 가 무신뢰 환경에서 헤더 받으면 우회 가능 | high severity | `MACRO_LOGBOT_AUTH_TRUSTED_PROXY_IPS` CIDR allowlist + 미설정 시 fail-closed |
 | RISK-SSO-7 | 사내 미러에 `Authlib` / `oauth2-proxy` image 미보유 가능성 | Sprint 차단 | task-SEC-001 / task-OPS-001 패턴으로 dep 등록 절차 사전 진행 |
 | RISK-SSO-8 | KB `verified-master` 승격 권한 — 누가 어떤 role 로? | KB 신뢰성 손상 | `Principal.scopes` 에 `kb.verify` 추가, 별도 admin role |
+| RISK-SSO-9 | OAuth state/PKCE CSRF — login-back redirect 가로채기 | high — 세션 탈취 | OIDCAuthBackend 가 state cookie + PKCE 강제, oauth2-proxy 의 `--cookie-csrf-per-request=true` 활성 |
+| RISK-SSO-10 | Refresh token theft — 장기 사용자 세션 탈취 | medium — 토큰 노출 시 영속 접근 | refresh token 저장 회피 (JWT access token + 짧은 만료 + IdP 재인증) 또는 oauth2-proxy 의 server-side session store (`--session-store-type=redis`) 사용 |
+| RISK-SSO-11 | Audit log tampering — IDOR/우회 사후 추적 불가 | high — 사고 회수 불가 | audit log sink 를 backend 외부 (host syslog + 사내 SIEM) 로 forward, integrity hash chain (또는 append-only log) 검토 |
+| RISK-SSO-12 | SSO bypass via 영구 API key — service account 의 admin scope 가 사용자 path 도 접근 시 SSO 회피 | high — 권한 상승 | service account API key 는 `webhook` scope 만 발급, `chat/analyze` scope 발급 절대 금지. audit log 에서 `principal.source="api_key"` + 사용자 endpoint 호출 = 즉시 alert |
 
 ### 측정 시스템(evaluate.py)의 인증 우회 정책 — 명문화
 - evaluate.py / poc 채점 스크립트는 **service-account API key** 로 backend 호출. 해당 key 는 `webhook` scope 만 보유 — 일반 사용자 endpoint 접근 불가.
@@ -219,21 +231,30 @@
 
 **최종 권고**: Hybrid = **B(주력) + 일부 C(Open WebUI 측면 추가 detection) + 영구 API key fallback(service account)** + `AuthBackend` 추상화로 dev/PoC ↔ 사내 production swap.
 
+### Hardening rules (사내 production manifest 강제)
+
+| 규칙 | 근거 | 강제 위치 |
+|---|---|---|
+| **R1** `MACRO_LOGBOT_AUTH_REQUIRED=true` 강제 (fail-closed) | security M3 (PR #38 review) — dev default `false` 가 production 으로 흘러오면 인증 무력화 | `docker-compose.internal.yml` (task-SEC-002-f) + backend startup 시 manifest 에 `AUTH_REQUIRED=false` 발견 시 fatal exit |
+| **R2** IdP downgrade 방어 — B(OIDC) + A(SAML) 동시 enable 금지 | security M2 — attacker 가 약한 IdP path 선택 가능 | `MACRO_LOGBOT_AUTH_BACKEND` env 가 단일 backend (`oidc` 또는 `header_forward` 또는 `chained`) 만 허용. `oidc,saml` 같은 조합 reject |
+| **R3** oauth2-proxy `X-Forwarded-User` propagation 메커니즘 명시 | architect WARN-MED (PR #38 review) — Open WebUI → backend hop 에서 자동 propagate 안 됨 | task-SEC-002-f 의 `docker-compose.internal.yml` 에 oauth2-proxy 가 backend 도 직접 proxy 하는 topology (사용자 → oauth2-proxy → {Open WebUI, backend}) 채택. Open WebUI 가 backend 호출 시 oauth2-proxy 의 forward header 를 그대로 전달하도록 Open WebUI 의 `WEBUI_AUTH_TRUSTED_EMAIL_HEADER` + backend reverse proxy 추가 hop 구성 |
+| **R4** Service account scope 격리 | RISK-SSO-12 — admin scope 가 사용자 endpoint 호출 시 SSO 회피 | `Principal.scopes` 에 `webhook` 와 `chat/analyze` 분리, 동일 key 에 둘 다 부여 금지. audit log alert |
+
 ---
 
 ## References
 
 핵심 코드:
-- `src/macro_logbot/auth.py:25-98` — 현재 인증 구현
-- `src/macro_logbot/app.py:102-126,214-218` — `verify_api_key` 의존성 적용 endpoint 3개
-- `src/macro_logbot/app.py:230-241` — 세션 owner 검증 부재(IDOR risk source)
-- `docker-compose.yml:23-32,46-60` — backend env + Open WebUI `WEBUI_AUTH=false`
+- `src/macro_logbot/auth.py:57-101` — 현재 인증 구현 (`verify_api_key`)
+- `src/macro_logbot/app.py:104,125,229` — `verify_api_key` 의존성 적용 endpoint 3개 (`/v1/models`, `/v1/chat/completions`, `/agent/analyze`)
+- `src/macro_logbot/app.py:242-249` — 세션 owner 검증 부재(IDOR risk source) + 미존재 session_id 시 새 session 발급 fallback
+- `docker-compose.yml:14-46, 48-67` — backend service + Open WebUI service. `WEBUI_AUTH=false` (line 61)
 
 스펙/프로세스:
 - `docs/design/02-설계문서.md:99-124` — §5.1 External Interfaces
 - `docs/design/02-설계문서.md:136-147` — `AgentState` (principal 필드 부재)
-- `docs/design/02-설계문서.md:731-749` — §12 보안 검증
-- `docs/operations/DEPLOYMENT.md:93-132,218-229` — 사외/사내 env 비교표
-- `docs/process/FOLLOWUP-TASKS.md:117-123` — task-SEC-002 현재 stub
-- `docs/process/FOLLOWUP-TASKS.md:267-268` — IDOR principal scoping
-- `docs/process/FOLLOWUP-TASKS.md:296-299` — task-SEC-002 와 묶음 후보
+- `docs/design/02-설계문서.md:730-748` — §12 보안 검증
+- `docs/operations/DEPLOYMENT.md:241-247` — 운영 진입 전 체크리스트 (task-SEC-002 의 운영 진입 차단 사유)
+- `docs/process/FOLLOWUP-TASKS.md:117` 부터 — task-SEC-002 현재 stub (본 PR 에서 a~f 로 분해)
+- `docs/process/FOLLOWUP-TASKS.md:268` — IDOR principal scoping
+- `docs/process/FOLLOWUP-TASKS.md::task-MVP-006` — Tool 보안 강화 (task-SEC-002 와 묶음 후보)
