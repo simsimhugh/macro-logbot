@@ -5,6 +5,7 @@ Spec reference: docs/design/02-설계문서.md (v1.1) §5.1 External Interfaces
 
 import logging
 import os
+import threading
 from typing import Literal
 from uuid import uuid4
 
@@ -30,29 +31,45 @@ logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Singleton stores — module-level, lazy-init on first request.
+# Double-checked locking (threading.Lock) 으로 TOCTOU race 방지.
 # ---------------------------------------------------------------------------
 
 _session_store: SQLiteSessionStore | None = None
 _kb_store: SQLiteKBStore | None = None
 
+_session_store_lock = threading.Lock()
+_kb_store_lock = threading.Lock()
+
 
 def _get_session_store() -> SQLiteSessionStore:
     global _session_store
     if _session_store is None:
-        db_path = os.getenv("MACRO_LOGBOT_SESSION_DB", ".macro-logbot-sessions.db")
-        _session_store = SQLiteSessionStore(db_path)
+        with _session_store_lock:
+            if _session_store is None:
+                db_path = os.getenv("MACRO_LOGBOT_SESSION_DB", ".macro-logbot-sessions.db")
+                _session_store = SQLiteSessionStore(db_path)
     return _session_store
 
 
 def _get_kb_store() -> SQLiteKBStore | None:
     """KB store — MACRO_LOGBOT_KB_PATH 설정 시에만 반환, 미설정 시 None."""
     global _kb_store
+    # env 경로 확인은 lock 밖 (idempotent read-only).
     kb_path = os.getenv("MACRO_LOGBOT_KB_PATH")
     if kb_path is None:
         return None
     if _kb_store is None:
-        _kb_store = SQLiteKBStore(kb_path)
+        with _kb_store_lock:
+            if _kb_store is None:
+                _kb_store = SQLiteKBStore(kb_path)
     return _kb_store
+
+
+def _reset_singletons_for_test() -> None:
+    """테스트 격리용 — monkeypatch internal 의존 회피 (code-r WARN-3 from PR #25)."""
+    global _session_store, _kb_store
+    _session_store = None
+    _kb_store = None
 
 
 app = FastAPI(
@@ -244,7 +261,9 @@ async def agent_analyze(
     # (PR #23 test-e WARN-1: hardcoded MAX_ITERS_DEFAULT 비교 vs run_agent 호출 시
     # 사용한 max_iters 가 어긋날 수 있는 위험 제거).
     max_iters = MAX_ITERS_DEFAULT
-    result = await run_agent(messages, gateway, max_iters=max_iters, model=body.model)
+    result = await run_agent(
+        messages, gateway, max_iters=max_iters, model=body.model, session_id=session.id
+    )
 
     # --- session messages 갱신 저장 ---
     # system message 는 매 호출마다 _ANALYZE_SYSTEM_PROMPT / intake 노드가 prepend 하므로
@@ -308,4 +327,4 @@ def _kb_auto_archive(kb_store: SQLiteKBStore, report: Report) -> None:
 # 미사용 import 방어 — get_openai_tools_schema 는 외부 모듈에서 import 가능하도록
 # 재노출 목적. underscore prefix getter 는 internal 의미 + patch.object 가 __all__ 무관
 # 하게 동작하므로 export 에서 제외 (code-r WARN-6).
-__all__ = ["app", "get_gateway", "get_openai_tools_schema"]
+__all__ = ["app", "get_gateway", "get_openai_tools_schema", "_reset_singletons_for_test"]

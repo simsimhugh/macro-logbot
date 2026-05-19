@@ -40,20 +40,20 @@ def _final_response(content: str) -> ChatCompletionResponse:
 
 @pytest.fixture(autouse=True)
 def reset_app_singletons() -> Iterator[None]:
-    """각 테스트 전후로 app 모듈 레벨 singleton 을 InMemorySessionStore 로 초기화.
+    """각 테스트 전후로 app 모듈 레벨 singleton 을 초기화.
 
+    _reset_singletons_for_test() 를 사용해 monkeypatch internal 의존 없이
+    격리 보장 (code-r WARN-3 from PR #25).
     실제 SQLite DB 생성 없이 테스트 격리 보장.
     """
     import macro_logbot.app as app_module
     from macro_logbot.session import InMemorySessionStore
 
-    prev_session = app_module._session_store
-    prev_kb = app_module._kb_store
+    app_module._reset_singletons_for_test()
+    # _get_session_store() 가 호출되기 전에 InMemorySessionStore 로 pre-set.
     app_module._session_store = InMemorySessionStore()  # type: ignore[assignment]
-    app_module._kb_store = None
     yield
-    app_module._session_store = prev_session
-    app_module._kb_store = prev_kb
+    app_module._reset_singletons_for_test()
 
 
 @pytest.fixture
@@ -530,3 +530,86 @@ def test_agent_analyze_kb_archive_failure_keeps_200(
     body = response.json()
     assert body["report"]["root_cause"] == "disk-full test"
     failing_kb.add.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# task-MVP-004-x: singleton thread-safety + AgentState session_id
+# ---------------------------------------------------------------------------
+
+
+def test_singleton_thread_safety_double_checked_lock() -> None:
+    """10 thread 동시 호출 시 _get_session_store() 가 인스턴스 1개만 생성."""
+    import threading
+
+    import macro_logbot.app as app_module
+    from macro_logbot.session import SQLiteSessionStore
+
+    # 싱글톤 초기화 — None 상태에서 경쟁 진입 보장.
+    app_module._reset_singletons_for_test()
+
+    results: list[SQLiteSessionStore] = []
+    lock = threading.Lock()
+
+    def call_get() -> None:
+        store = app_module._get_session_store()
+        with lock:
+            results.append(store)
+
+    threads = [threading.Thread(target=call_get) for _ in range(10)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    assert len(results) == 10
+    # 모든 호출이 동일 인스턴스를 반환해야 함 (identity check).
+    first = results[0]
+    assert all(r is first for r in results), (
+        f"singleton 위반 — {len({id(r) for r in results})} 개 인스턴스 생성됨"
+    )
+
+
+@pytest.mark.asyncio
+async def test_agent_state_includes_session_id_when_passed() -> None:
+    """run_agent(session_id='x') 호출 시 state['session_id'] == 'x' 가 보장된다."""
+    import time
+    from unittest.mock import AsyncMock
+
+    from macro_logbot.agent.core import run_agent
+    from macro_logbot.gateway import (
+        ChatCompletionResponse,
+        Choice,
+        LLMGateway,
+        Message,
+        Usage,
+    )
+    from macro_logbot.gateway.models import Message as GwMessage
+
+    final_resp = ChatCompletionResponse(
+        id="chatcmpl-sid",
+        object="chat.completion",
+        created=int(time.time()),
+        model="openai/gpt-4o-mini",
+        choices=[
+            Choice(
+                index=0,
+                message=GwMessage(role="assistant", content="ok"),
+                finish_reason="stop",
+            )
+        ],
+        usage=Usage(prompt_tokens=1, completion_tokens=1, total_tokens=2),
+    )
+
+    gw = LLMGateway.__new__(LLMGateway)
+    gw.default_model = "openai/gpt-4o-mini"
+    gw.complete = AsyncMock(return_value=final_resp)  # type: ignore[method-assign]
+
+    result = await run_agent(
+        [Message(role="user", content="hi")],
+        gw,
+        session_id="test-session-x",
+    )
+
+    # run_agent 결과가 정상 반환되어야 함.
+    assert result.iterations == 1
+    assert result.response.choices[0].message.content == "ok"

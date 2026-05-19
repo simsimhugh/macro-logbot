@@ -262,14 +262,12 @@
 - **처리 PR**: PR #24 (`feat/session-endpoint-kb-archive`) — `/agent/analyze` 가 optional `session_id` 받아 `SQLiteSessionStore` 에서 messages 로드 → graph 실행 → messages 저장 → 응답에 `session_id` 반환. `SQLiteSessionStore.update` 가 upsert (INSERT OR REPLACE) 로 변경 — `InMemorySessionStore` 와 동일 의미. `test_sqlite_store_update_nonexistent_is_upsert` 테스트로 계약 명문화.
 - **잔여**: singleton thread-safety (`_get_session_store` / `_get_kb_store` lock 보호 + `reset_*` helper) → task-MVP-004-x. `AgentState` 에 `session_id` / `event` / `pending_tool_calls` / `tool_results` 4 필드 추가 → task-MVP-004-x.
 
-### task-MVP-004-x — singleton thread-safety + AgentState session_id/event 필드 추가
-- **출처**: PR #21 code-reviewer WARN-2 (MED) + PR #23 architect WARN-4 (LOW) — PR #24 잔여
-- **scope**:
-  - `_get_session_store` / `_get_kb_store` module-level singleton 에 `threading.Lock` init 보호 + 명시적 `reset_session_store()` / `reset_kb_store()` helper (테스트 격리). FastAPI lifespan startup DI 도 선택지.
-  - `AgentState` 에 spec §5.2 line 134-143 의 `session_id: str | None` / `event: LogEvent | None` / `pending_tool_calls: list[ToolCall]` / `tool_results: list[ToolResult]` 4 필드 추가. endpoint 가 session_id 채워서 전달.
-- **suggested branch**: `feat/session-state-fields`
-- **reviewer scope**: 일반 (전체 reviewer cycle)
-- **priority**: medium — 운영 동시성 + multi-turn AgentState 완성 시점
+### ~~task-MVP-004-x~~ — singleton thread-safety + AgentState session_id/event_id 필드 추가 ✅ **PR #26 머지**
+- **처리 PR**: PR #26 (`feat/singleton-thread-safety-and-agentstate`) — `_get_session_store` / `_get_kb_store` double-checked locking (`threading.Lock`) 적용. `_reset_singletons_for_test()` helper 추가 (테스트 격리). `AgentState` 에 `session_id: str | None` + `event_id: str | None` 추가. `run_agent` 시그니처 확장 (backward-compat). `/agent/analyze` 가 `session_id=session.id` 를 graph state 로 전달.
+- **잔여**:
+  - principal scoping (session IDOR owner 확인) → task-SEC-002 묶음.
+  - `pending_tool_calls: list[ToolCall]` / `tool_results: list[ToolResult]` → spec §5.2 잠정 필드, LangGraph node 함수 시그니처와 중복 — 구현 미정.
+  - `event: LogEvent` → `event_id: str | None` MVP 단순화, LogEvent.id 통합은 task-MVP-005 (intake 한국어) 후.
 
 ### task-MVP-005 — intake parser 다국어 level 지원
 - **출처**: PR #11 MVP 의도된 단순화

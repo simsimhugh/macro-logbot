@@ -71,6 +71,8 @@ def _base_state(messages: list[Message]) -> AgentState:
         max_iters=20,
         last_response=None,
         report=None,
+        session_id=None,
+        event_id=None,
         _model=None,
         _generation_kwargs={},
         _gateway=LLMGateway.__new__(LLMGateway),  # 노드 테스트에선 미사용
