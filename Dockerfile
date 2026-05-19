@@ -9,6 +9,8 @@
 #                        --build-arg PIP_INDEX_URL=https://<사내-pypi>/simple
 ARG BASE_IMAGE=python:3.14-slim
 ARG PIP_INDEX_URL=https://pypi.org/simple
+ARG APT_MIRROR=""
+ARG PIP_TRUSTED_HOST=""
 
 FROM ${BASE_IMAGE} AS runtime
 
@@ -20,6 +22,14 @@ ENV PIP_INDEX_URL=${PIP_INDEX_URL} \
 
 WORKDIR /app
 
+# 사내 apt mirror swap (APT_MIRROR 비어 있으면 skip — 사외 PoC 기본 동작 유지).
+ARG APT_MIRROR
+RUN [ -z "${APT_MIRROR}" ] || { \
+        printf "deb %s trixie main\ndeb %s trixie-updates main\n" \
+            "${APT_MIRROR}" "${APT_MIRROR}" > /etc/apt/sources.list \
+        && rm -f /etc/apt/sources.list.d/*.list /etc/apt/sources.list.d/*.sources; \
+    }
+
 # 시스템 빌드 의존성 (litellm/pydantic transitive 휠 빌드 대비 — slim 이므로 최소).
 RUN apt-get update \
     && apt-get install -y --no-install-recommends build-essential \
@@ -30,8 +40,13 @@ COPY pyproject.toml README.md ./
 COPY src ./src
 
 # production install — dev tools (pytest/ruff/mypy) 제외.
+# PIP_TRUSTED_HOST 있으면 사내 mirror 인증서 검증 skip (self-signed CA 환경 우회).
+# 보안 trade-off: MITM 방어 약화 + supply-chain 무결성 검증 우회. 정공법은 사내 CA bundle
+# 을 image 에 COPY 또는 컨테이너에 마운트. `--trusted-host` 는 HTTP / self-signed 환경
+# 임시 우회용으로만 사용 (architect WARN-1 PR #29).
+ARG PIP_TRUSTED_HOST
 RUN pip install --upgrade pip \
-    && pip install .
+    && pip install . ${PIP_TRUSTED_HOST:+--trusted-host ${PIP_TRUSTED_HOST}}
 
 # build-time import smoke — 의존성 누락/3.14 휠 부재 등을 런타임 전에 즉시 검출.
 RUN python -c "import macro_logbot, macro_logbot.app, macro_logbot.auth"
