@@ -341,7 +341,23 @@
 ### ~~task-POC-002~~ — error catalog 5 → 10 확장 ✅ **PR #30 머지**
 - **출처**: PR #14 — spec §10.4 / `docs/process/04-PoC-운영가이드.md` §4.2 의 Phase 1 카탈로그 10 개 명세 대비 본 PR 은 5 개만.
 - **처리 PR**: PR #30 (`feat/poc-catalog-expand-10`) — E006 (AttributeError is_dead in step) · E007 (ZeroDivisionError ticks=0) · E008 (infinite loop spawn_food) · E009 (wrong assignment body insert) · E010 (UnicodeEncodeError ascii encode) yaml 5개 추가. inject/trigger 검증 완료. `tests/test_poc_catalog.py` 신규 (52 tests). `tests/test_poc_trigger.py` E008 timeout rc=2 허용 수정.
-- **잔여**: task-POC-003 (4 모델 매트릭스) — `--model` swap 으로 evaluate.py 가 이미 지원, scope 작은 후속.
+- **잔여**:
+  - **task-POC-002b 신규** (architect WARN-MED): `ground_truth.location.line` 정확도 — E006 (claim 126→real 125), E007 (claim 90→real 89), E008 (claim 73→real 78) off-by-1~5. 1-A `line_match` 측정 왜곡 회피.
+  - **task-POC-002c 신규** (architect WARN-LOW): file-path 단조성 (10 case 모두 snake.py) — multi-file target (예: utils.py 추출 후 inject) 으로 1-A `file_match` free 25% 제거. PR #14 이미 지적.
+  - **task-POC-002d 신규** (architect WARN-LOW): E006 title "NameError" → "AttributeError" 정정. E009 traceback 발생 검증.
+  - task-POC-003 (4 모델 매트릭스).
+
+### task-POC-002b — ground_truth.location.line 정확도 (PR #30 architect WARN-MED)
+- **scope**: E006/E007/E008 yaml 의 `ground_truth.location.line` 을 inject 후 실제 snake.py 라인과 일치하게 정정.
+- **priority**: medium — baseline 측정 honest 평가 위해 task-POC-003 이전 권고
+
+### task-POC-002c — multi-file target (1-A file_match free 회피)
+- **scope**: PoC target 에 `utils.py` 또는 별도 module 추출 + 1~2 case 에 그쪽 inject. 모든 case file=snake.py 면 LLM 이 "snake.py" 라고만 답해도 file_match=True (free 25%). PR #14 architect 가 지적했고 PR #30 도 미해결.
+- **priority**: low — baseline 측정 변별력
+
+### task-POC-002d — E006 title 정정 + E009 traceback 검증
+- **scope**: E006 title "NameError" → "AttributeError" (Python raise type 정합). E009 self.body[0] 덮어쓰기가 실제 IndexError raise 하는지 검증, 아니면 다른 traceback 패턴 명시.
+- **priority**: low — cosmetic
 
 ### task-POC-003 — 4 모델 매트릭스 비교 (PoC)
 - **출처**: PR #14 — 본 PR `evaluate.py` 는 단일 `--model` 만 지원.
