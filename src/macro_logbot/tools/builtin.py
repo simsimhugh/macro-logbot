@@ -8,6 +8,11 @@
   - 결과 경로가 cwd 밖이면 error 반환 (path traversal 차단).
   - subprocess 호출은 shell=False, 인자 리스트 형식만 사용.
 
+PoC workspace 확장 (env-gated, fail-closed):
+  - MACRO_LOGBOT_ENV=poc + MACRO_LOGBOT_POC_WORKSPACE_ALLOWED 설정 시
+    허용된 literal prefix 경로도 접근 가능 (4 security layer 적용).
+  - 미설정 시 기존 cwd-only 동작 유지 (production 기본값).
+
 Spec reference: docs/design/02-설계문서.md (v1.1) §5.3
 """
 
@@ -15,6 +20,7 @@ from __future__ import annotations
 
 import os
 import platform
+import posixpath
 import re
 import subprocess
 import sys
@@ -60,16 +66,95 @@ def _get_kb_store() -> SQLiteKBStore | None:
     return _kb_store
 
 
-def _safe_resolve(path: str) -> Path | None:
-    """cwd 안으로 제한된 절대 경로를 반환. 밖이면 None."""
+# PoC workspace 확장 — secret blocklist (Layer 3).
+# 이 패턴이 resolved path 안에 포함되면 PoC allowlist 에서도 거부.
+_POC_SECRET_BLOCKLIST = (
+    ".env",
+    ".ssh",
+    ".aws",
+    "credentials",
+    "id_rsa",
+    "id_ed25519",
+    "config.json",
+    ".pem",
+)
+
+
+def _resolve_within_cwd(path: str, cwd: Path) -> Path | None:
+    """path 를 cwd 기준으로 resolve 하고 cwd 안인지 확인. 밖이면 None."""
     candidate = Path(path)
     if not candidate.is_absolute():
-        candidate = Path.cwd() / candidate
+        candidate = cwd / candidate
     resolved = candidate.resolve()
-    cwd = Path.cwd().resolve()
     if not resolved.is_relative_to(cwd):
         return None
     return resolved
+
+
+def _safe_resolve(path: str) -> Path | None:
+    """cwd 안으로 제한된 절대 경로를 반환. 밖이면 None.
+
+    Default (production): cwd 안만 허용 (fail-closed).
+
+    PoC 모드 (MACRO_LOGBOT_ENV=poc + MACRO_LOGBOT_POC_WORKSPACE_ALLOWED 설정 시):
+      4 security layer 를 통과한 경우 allowlist prefix 경로도 허용.
+        Layer 1: literal prefix match only (regex 금지, CSV).
+        Layer 2: symlink 거부 (O_NOFOLLOW 동등 — resolved path + parents 검사).
+        Layer 3: secret blocklist (.env, .ssh, .aws, credentials 등).
+        Layer 4: env=poc gate (fail-closed default).
+    """
+    cwd = Path.cwd().resolve()
+
+    # Layer 4: env=poc gate (fail-closed) — poc 가 아니면 cwd-only.
+    if os.environ.get("MACRO_LOGBOT_ENV") != "poc":
+        return _resolve_within_cwd(path, cwd)
+
+    # PoC 모드: allowlist 미설정 시 cwd-only fallback.
+    allowed_raw = os.environ.get("MACRO_LOGBOT_POC_WORKSPACE_ALLOWED", "")
+    if not allowed_raw:
+        return _resolve_within_cwd(path, cwd)
+
+    # path 정규화.
+    candidate = Path(path).expanduser()
+    if not candidate.is_absolute():
+        candidate = cwd / candidate
+
+    # Layer 2: symlink 거부 — resolve() 전에 원본 경로와 parents 를 검사.
+    # Path.resolve() 는 symlink 를 따라가므로, resolve 전에 체크해야 한다.
+    try:
+        check = candidate
+        if check.is_symlink():
+            return None
+        # 존재하는 상위 경로 중 symlink 가 있으면 거부.
+        for parent in check.parents:
+            if not parent.exists():
+                continue
+            if parent.is_symlink():
+                return None
+    except (OSError, RuntimeError):
+        return None
+
+    # path traversal 정규화 — posixpath.normpath 로 ".." 처리 (비존재 경로도 적용).
+    normalized_str = posixpath.normpath(str(candidate))
+    resolved = Path(normalized_str)
+    resolved_str = str(resolved)
+
+    # cwd 안이면 allowlist 검사 불필요 — 그대로 허용.
+    if resolved.is_relative_to(cwd):
+        return resolved
+
+    # Layer 3: secret blocklist.
+    if any(blocked in resolved_str for blocked in _POC_SECRET_BLOCKLIST):
+        return None
+
+    # Layer 1: literal prefix match (CSV, regex 금지).
+    for prefix in allowed_raw.split(","):
+        prefix = prefix.strip()
+        if prefix and resolved_str.startswith(prefix):
+            return resolved
+
+    # 어느 layer 도 통과 못 함 — cwd-only fallback.
+    return _resolve_within_cwd(path, cwd)
 
 
 def grep_codebase(

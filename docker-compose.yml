@@ -34,6 +34,10 @@ services:
       GROQ_API_KEY: ${GROQ_API_KEY:-}
     ports:
       - "8000:8000"
+    volumes:
+      # PoC 측정 시 host /tmp/poc-* 의 inject 코드를 container 가 read 가능하게.
+      # production 환경에서는 본 마운트 제거 — _safe_resolve 의 env=poc gate 가 fallback.
+      - /tmp:/tmp:ro
     healthcheck:
       # backend 가 uvicorn import 완료 후에 open-webui 가 /v1/models 호출하도록
       # — 첫 부팅 race 방지.
