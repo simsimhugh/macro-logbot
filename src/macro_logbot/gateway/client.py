@@ -73,21 +73,34 @@ _ALLOWED_FORWARD_KWARGS: frozenset[str] = frozenset(
 # 현재 cover: Llama 3.1/3.3, Qwen, markdown JSON. Mistral [TOOL_CALLS] 등 추가는 follow-up.
 # args body 는 lazy `.*?` 로 잡고 json.loads 로 사후 검증 — Pattern 1/4 의 `[^<]/[^|]` 한계 (
 # special char 있는 args 매칭 실패) 해소 (CR WARN-1).
-_FALLBACK_TOOL_PATTERNS: list[re.Pattern[str]] = [
+# task-AGENT-009: 각 패턴에 이름 부여 — _fallback_pattern metadata 노출용.
+_FALLBACK_TOOL_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     # Llama 3.3 native: <function=name>{json_args}</function>
-    re.compile(
-        r"<function=(?P<name>[a-zA-Z_][a-zA-Z0-9_]*)>\s*(?P<args>\{.*?\})\s*</function>",
-        re.DOTALL,
+    (
+        "function_xml",
+        re.compile(
+            r"<function=(?P<name>[a-zA-Z_][a-zA-Z0-9_]*)>\s*(?P<args>\{.*?\})\s*</function>",
+            re.DOTALL,
+        ),
     ),
     # Qwen tool_call tag: <tool_call>{"name":"...", "arguments":{...}}</tool_call>
-    re.compile(r"<tool_call>\s*(?P<json>\{.*?\})\s*</tool_call>", re.DOTALL),
+    (
+        "tool_call_xml",
+        re.compile(r"<tool_call>\s*(?P<json>\{.*?\})\s*</tool_call>", re.DOTALL),
+    ),
     # Markdown JSON code block: ```json\n{...}\n```
     # name/arguments 키 존재는 json.loads 후 검증 (CR WARN-2: 키 순서/누락 false negative 해소).
-    re.compile(r"```json\s*\n(?P<json>\{.*?\})\s*```", re.DOTALL),
+    (
+        "json_codeblock",
+        re.compile(r"```json\s*\n(?P<json>\{.*?\})\s*```", re.DOTALL),
+    ),
     # Llama 3.1 python_tag: <|python_tag|>name.call({...})
-    re.compile(
-        r"<\|python_tag\|>(?P<name>[a-zA-Z_][a-zA-Z0-9_]*)\.call\(\s*(?P<args>\{.*?\})\s*\)",
-        re.DOTALL,
+    (
+        "python_tag",
+        re.compile(
+            r"<\|python_tag\|>(?P<name>[a-zA-Z_][a-zA-Z0-9_]*)\.call\(\s*(?P<args>\{.*?\})\s*\)",
+            re.DOTALL,
+        ),
     ),
 ]
 
@@ -96,13 +109,18 @@ _FALLBACK_TOOL_PATTERNS: list[re.Pattern[str]] = [
 _MAX_FALLBACK_CONTENT_LEN = 64 * 1024
 
 
-def _parse_fallback_tool_calls(content: str) -> list[dict[str, Any]] | None:
+def _parse_fallback_tool_calls(
+    content: str,
+) -> tuple[list[dict[str, Any]], str] | None:
     """LLM content 에서 native tool-call 패턴을 검출해 OpenAI tool_calls 형식으로 변환.
 
-    매칭 패턴이 없으면 None. 검출 1개 이상이면 list 반환 (단일 또는 multi tool call).
+    매칭 패턴이 없으면 None. 검출 1개 이상이면 (calls, pattern_name) 튜플 반환.
+    pattern_name 은 첫 매칭 패턴의 이름 ("function_xml" / "tool_call_xml" /
+    "json_codeblock" / "python_tag") — task-AGENT-009 metadata 노출용.
 
     Returns:
-      [{"id": "fallback_0", "type": "function", "function": {"name": ..., "arguments": "..."}}]
+      ([{"id": "fallback_0", "type": "function", "function": {"name": ..., "arguments": "..."}}],
+       "pattern_name")
       arguments 는 JSON string (OpenAI tool_calls schema 준수).
     """
     # security WARN-M2: regex DoS 가드 — content 가 너무 크면 fallback skip.
@@ -114,7 +132,8 @@ def _parse_fallback_tool_calls(content: str) -> list[dict[str, Any]] | None:
         )
         return None
     calls: list[dict[str, Any]] = []
-    for pattern in _FALLBACK_TOOL_PATTERNS:
+    matched_pattern_name: str | None = None
+    for pattern_name, pattern in _FALLBACK_TOOL_PATTERNS:
         for m in pattern.finditer(content):
             d = m.groupdict()
             if "name" in d and "args" in d:
@@ -125,6 +144,8 @@ def _parse_fallback_tool_calls(content: str) -> list[dict[str, Any]] | None:
                     json.loads(args_json)
                 except json.JSONDecodeError:
                     continue
+                if matched_pattern_name is None:
+                    matched_pattern_name = pattern_name
                 calls.append(
                     {
                         "id": f"fallback_{len(calls)}",
@@ -145,6 +166,8 @@ def _parse_fallback_tool_calls(content: str) -> list[dict[str, Any]] | None:
                     if not name:
                         continue
                     args_str = args if isinstance(args, str) else json.dumps(args)
+                    if matched_pattern_name is None:
+                        matched_pattern_name = pattern_name
                     calls.append(
                         {
                             "id": f"fallback_{len(calls)}",
@@ -154,7 +177,9 @@ def _parse_fallback_tool_calls(content: str) -> list[dict[str, Any]] | None:
                     )
                 except (json.JSONDecodeError, AttributeError):
                     continue
-    return calls if calls else None
+    if calls and matched_pattern_name is not None:
+        return calls, matched_pattern_name
+    return None
 
 
 def _construct_tool_call_obj(call: dict[str, Any]) -> object:
@@ -305,12 +330,18 @@ class LLMGateway:
         # Layer 2: content → tool_calls fallback extraction.
         # tool_calls 가 비어 있고 content 가 있으면 regex 로 native 패턴 검출.
         raw_msg = response.choices[0].message
+        layer2_pattern_name: str | None = None
+        layer2_inject_used = False
         if not getattr(raw_msg, "tool_calls", None) and getattr(raw_msg, "content", None):
-            fallback_calls = _parse_fallback_tool_calls(raw_msg.content)
-            if fallback_calls:
+            fallback_result = _parse_fallback_tool_calls(raw_msg.content)
+            if fallback_result:
+                fallback_calls, layer2_pattern_name = fallback_result
+                layer2_inject_used = True
                 logger.info(
-                    "fallback parser extracted %d tool_calls from content (model=%s)",
+                    "fallback parser extracted %d tool_calls from content "
+                    "pattern=%s model=%s",
                     len(fallback_calls),
+                    layer2_pattern_name,
                     target_model,
                 )
                 raw_msg.tool_calls = [_construct_tool_call_obj(c) for c in fallback_calls]
@@ -350,7 +381,7 @@ class LLMGateway:
 
         # response.id / .object / .model 도 provider edge case 에서 None 가능 —
         # usage 와 동일 defensive 패턴 적용 (일관성).
-        return ChatCompletionResponse(
+        result = ChatCompletionResponse(
             id=response.id or f"chatcmpl-litellm-{int(time.time())}",
             object=response.object or "chat.completion",
             created=response.created or int(time.time()),
@@ -358,3 +389,18 @@ class LLMGateway:
             choices=choices,
             usage=usage,
         )
+
+        # task-AGENT-009: fallback metadata 노출 — observability / SIEM.
+        # PrivateAttr 는 생성자 파라미터로 전달 불가 → 생성 후 setattr.
+        if layer1_retry_used:
+            result._fallback_used = "layer1_no_tools_retry"
+            logger.warning(
+                "fallback=layer1_no_tools_retry model=%s",
+                target_model,
+            )
+        if layer2_inject_used:
+            result._fallback_used = "layer2_regex_inject"
+            result._fallback_pattern = layer2_pattern_name
+        # 정상 경로: _fallback_used 는 PrivateAttr default=None 유지.
+
+        return result

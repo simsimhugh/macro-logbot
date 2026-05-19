@@ -8,6 +8,7 @@ from __future__ import annotations
 from typing import Literal
 
 from pydantic import BaseModel, Field
+from pydantic import PrivateAttr
 
 
 class FunctionCall(BaseModel):
@@ -71,3 +72,10 @@ class ChatCompletionResponse(BaseModel):
     model: str
     choices: list[Choice]
     usage: Usage
+    # task-AGENT-009: fallback parser 사용 여부 — observability / SIEM 노출.
+    # None = 정상 경로, "layer1_no_tools_retry" = BadRequestError retry,
+    # "layer2_regex_inject" = content regex 패턴 검출.
+    _fallback_used: str | None = PrivateAttr(default=None)
+    # Layer 2 의 경우 매칭된 패턴 이름: "function_xml" / "tool_call_xml" /
+    # "json_codeblock" / "python_tag". Layer 1 또는 정상 경로에서는 None.
+    _fallback_pattern: str | None = PrivateAttr(default=None)
