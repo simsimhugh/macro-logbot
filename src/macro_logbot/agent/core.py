@@ -25,7 +25,7 @@ from typing import TypedDict, cast
 
 from langgraph.graph import END, StateGraph
 from langgraph.graph.state import CompiledStateGraph
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
 from macro_logbot.gateway import (
     ChatCompletionResponse,
@@ -113,17 +113,25 @@ async def _intake_node(state: AgentState) -> AgentState:
     hint = f"[INTAKE] level={level_str}, time={ts_str}, hint={record.message[:120]}"
     system_msg = Message(role="system", content=hint)
 
-    # 이미 intake system 메시지가 있으면 중복 추가 방지 (재진입 방어).
-    first_is_intake = (
-        msgs
-        and msgs[0].role == "system"
-        and bool(msgs[0].content)
-        and msgs[0].content.startswith("[INTAKE]")  # type: ignore[union-attr]
+    # 재진입 방어 — 어느 위치든 [INTAKE] system 메시지가 있으면 중복 추가 X
+    # (app.py 가 ANALYZE_SYSTEM_PROMPT 를 0번째에 두면 startswith 가 False 가 되어
+    # 가드 우회되던 버그 fix — PR #23 code-r WARN-2).
+    already_has_intake = any(
+        m.role == "system" and m.content and m.content.startswith("[INTAKE]")
+        for m in msgs
     )
-    if first_is_intake:
+    if already_has_intake:
         return state
 
-    return {**state, "messages": [system_msg, *msgs]}
+    # 기존 system 메시지 뒤에 intake 힌트 삽입 (ANALYZE_PROMPT 같은 페르소나 system 보존).
+    insert_idx = 0
+    for i, m in enumerate(msgs):
+        if m.role == "system":
+            insert_idx = i + 1
+        else:
+            break
+    new_msgs = [*msgs[:insert_idx], system_msg, *msgs[insert_idx:]]
+    return {**state, "messages": new_msgs}
 
 
 async def _llm_call_node(state: AgentState) -> AgentState:
@@ -195,11 +203,15 @@ async def _crystallize_report_node(state: AgentState) -> AgentState:
             last_assistant_content = m.content
             break
 
-    # location: 첫 *.py:N 매칭.
+    # location: 첫 *.py:N 매칭. line ≥ 1 강제 (KB Location 검증).
+    # LLM 답변에 line=0 또는 음수가 나오는 케이스 (드물지만) graph crash 방지.
     location: Location | None = None
     loc_match = _LOCATION_RE.search(last_assistant_content)
     if loc_match:
-        location = Location(file=loc_match.group(1), line=int(loc_match.group(2)))
+        try:
+            location = Location(file=loc_match.group(1), line=int(loc_match.group(2)))
+        except ValidationError:
+            location = None
 
     report = Report(
         root_cause=last_assistant_content,

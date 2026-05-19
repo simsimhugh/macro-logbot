@@ -139,6 +139,8 @@ def test_agent_analyze_max_iters_terminates_with_flag(
     body = response.json()
     assert body["terminated_reason"] == "max_iters"
     assert body["iterations"] == MAX_ITERS_DEFAULT
+    # AgentRunResult.report default=None — endpoint 가 그대로 직렬화 (PR #23 test WARN-6).
+    assert body["report"] is None
 
 
 def test_agent_analyze_requires_log_text(

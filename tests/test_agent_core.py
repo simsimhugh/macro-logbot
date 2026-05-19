@@ -51,6 +51,8 @@ def _mock_gateway(responses: list[ChatCompletionResponse]) -> LLMGateway:
 
 @pytest.mark.asyncio
 async def test_run_agent_no_tool_calls_returns_immediately() -> None:
+    from macro_logbot.agent import Report
+
     gw = _mock_gateway([_resp(content="done", tool_calls=None)])
     result = await run_agent([Message(role="user", content="hi")], gw)
     assert result.iterations == 1
@@ -61,6 +63,10 @@ async def test_run_agent_no_tool_calls_returns_immediately() -> None:
     assert result.messages[0].role == "system"
     assert result.messages[0].content is not None
     assert result.messages[0].content.startswith("[INTAKE]")
+    # crystallize_report 노드가 항상 실행되므로 report 는 None 이 아님 (PR #23 test WARN-7).
+    assert result.report is not None
+    assert isinstance(result.report, Report)
+    assert result.report.root_cause == "done"
 
 
 @pytest.mark.asyncio

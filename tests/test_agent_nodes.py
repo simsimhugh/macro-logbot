@@ -130,6 +130,49 @@ async def test_intake_node_no_duplicate_on_reentry() -> None:
     assert len(system_msgs) == 1
 
 
+@pytest.mark.asyncio
+async def test_intake_node_preserves_existing_persona_system_prompt() -> None:
+    """기존 ANALYZE_PROMPT 같은 persona system 메시지가 0번째 자리 보존되는지.
+
+    PR #23 code-r WARN-2 fix — 가드가 startswith("[INTAKE]") 만 보면 ANALYZE_PROMPT
+    뒤에 INTAKE 가 prepend 되어 system 순서가 역전되는 버그 확인.
+    """
+    persona_msg = Message(role="system", content="You are an expert error analyst.")
+    user_msg = Message(role="user", content="2026-05-19 10:00:00 ERROR: boom")
+    state = _base_state([persona_msg, user_msg])
+    result = await _intake_node(state)
+
+    msgs = result["messages"]
+    # 첫 번째는 여전히 persona system, [INTAKE] 는 그 뒤.
+    assert msgs[0].role == "system"
+    assert msgs[0].content == "You are an expert error analyst."
+    assert msgs[1].role == "system"
+    assert msgs[1].content is not None
+    assert msgs[1].content.startswith("[INTAKE]")
+    # user 메시지는 system 뒤.
+    assert msgs[2].role == "user"
+
+
+@pytest.mark.asyncio
+async def test_intake_node_guard_works_when_intake_not_first() -> None:
+    """[INTAKE] system 이 0번째가 아닐 때도 재진입 가드 작동 확인 (any 패턴).
+
+    이전 버그: 가드가 `msgs[0].content.startswith("[INTAKE]")` 만 보면 persona system
+    이 0번째에 있을 때 INTAKE 가 누적 prepend.
+    """
+    persona_msg = Message(role="system", content="You are an expert.")
+    intake_msg = Message(role="system", content="[INTAKE] level=ERROR, time=x, hint=y")
+    user_msg = Message(role="user", content="ERROR: again")
+    state = _base_state([persona_msg, intake_msg, user_msg])
+    result = await _intake_node(state)
+
+    intake_msgs = [
+        m for m in result["messages"]
+        if m.role == "system" and m.content and m.content.startswith("[INTAKE]")
+    ]
+    assert len(intake_msgs) == 1
+
+
 # ---------------------------------------------------------------------------
 # crystallize_report_node
 # ---------------------------------------------------------------------------
@@ -162,6 +205,24 @@ async def test_crystallize_report_no_location_when_no_py_path() -> None:
     result = await _crystallize_report_node(state)
     report = result["report"]
     assert isinstance(report, Report)
+    assert report.location is None
+
+
+@pytest.mark.asyncio
+async def test_crystallize_report_line_zero_returns_none() -> None:
+    """LLM 답변에 `file.py:0` 같이 line=0 매칭 — Location.line ge=1 ValidationError 가드.
+
+    이전엔 graph 가 ValidationError 로 crash 했음 (PR #23 code-r WARN-1 fix).
+    """
+    content = "에러 위치 foo.py:0 — 0번 줄 표기 (line 1-indexed 위반)"
+    state = _base_state([
+        Message(role="user", content="log"),
+        Message(role="assistant", content=content),
+    ])
+    result = await _crystallize_report_node(state)
+    report = result["report"]
+    assert isinstance(report, Report)
+    # ValidationError 잡고 location=None 으로 fall-through.
     assert report.location is None
 
 

@@ -186,7 +186,11 @@ async def agent_analyze(
         Message(role="system", content=_ANALYZE_SYSTEM_PROMPT),
         Message(role="user", content=user_prompt),
     ]
-    result = await run_agent(messages, gateway, model=body.model)
+    # max_iters 를 명시 변수로 묶음 — terminated_reason 판정과 동일 값 비교 보장
+    # (PR #23 test-e WARN-1: hardcoded MAX_ITERS_DEFAULT 비교 vs run_agent 호출 시
+    # 사용한 max_iters 가 어긋날 수 있는 위험 제거).
+    max_iters = MAX_ITERS_DEFAULT
+    result = await run_agent(messages, gateway, max_iters=max_iters, model=body.model)
     analysis = ""
     if result.response.choices:
         analysis = result.response.choices[0].message.content or ""
@@ -198,7 +202,7 @@ async def agent_analyze(
     )
     terminated_reason: Literal["final", "max_iters"] = (
         "max_iters"
-        if (result.iterations >= MAX_ITERS_DEFAULT and last_assistant_has_tool_calls)
+        if (result.iterations >= max_iters and last_assistant_has_tool_calls)
         else "final"
     )
     return AgentAnalyzeResponse(
