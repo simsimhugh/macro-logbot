@@ -280,12 +280,12 @@ Q3. "어떻게 수정하면 좋을까? 코드 변경 예시를 보여줘."
 | 모델 | full | partial | fail | 자율해결률 | 평균 분석 시간 | 평균 토큰 |
 |---|---|---|---|---|---|---|
 | Gemini Flash | 7 | 2 | 1 | 90% | 5.2s | 2,300 |
-| gpt-4o-mini | 6 | 3 | 1 | 90% | 6.8s | 2,800 |
+| gpt-4o | 6 | 3 | 1 | 90% | 6.8s | 2,800 |
 | Claude Haiku | 8 | 1 | 1 | 90% | 4.9s | 2,100 |
 | Groq Llama 3 | 4 | 2 | 4 | 60% | 1.8s | 1,600 |
 
 ## 케이스별 매트릭스
-| Case | Gemini | gpt-4o-mini | Claude Haiku | Groq Llama |
+| Case | Gemini | gpt-4o | Claude Haiku | Groq Llama |
 |---|---|---|---|---|
 | E001 | ✅ full | ✅ full | ✅ full | ⚠️ partial |
 | ... | ... | ... | ... | ... |
