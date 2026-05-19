@@ -43,7 +43,7 @@ python poc/scripts/evaluate.py --cases E001,E002,E003,E004,E005,E006,E007,E008,E
 | 2-A | 도구 호출 적절성 | 25% | LLM judge | ⚠️ interim — 1차 분석 기반 (PR #27) |
 | 2-B | 수정 방향 정합성 | 25% | LLM judge | ⚠️ interim — 1차 분석 기반 (PR #27) |
 
-`evaluate.py --judge claude-haiku-4-5` 옵션으로 1-A ~ 2-B 4단계 전체 채점 가능. judge 없이 실행 시 1-A 만 (기존 동작 유지).
+`evaluate.py --judge groq/llama-3.3-70b-versatile` 옵션으로 1-A ~ 2-B 4단계 전체 채점 가능. judge 없이 실행 시 1-A 만 (기존 동작 유지).
 
 > **⚠️ interim 의미** (architect WARN-1 PR #27): spec §6.2 (`docs/process/04-PoC-운영가이드.md`) 의 2-A/2-B 는 본래 **follow-up 대화 (Q1/Q2/Q3) 답변** 을 채점 대상으로 정의. 본 PR 은 1차 `/agent/analyze` 응답만으로 모든 4 항목을 채점한다 — 즉 2-A/2-B 는 "1차 분석에서 도구 호출이 적절했는가" + "1차 분석 안의 fix_hint 가 정합한가" 의 interim 의미. follow-up Q1/Q2/Q3 자동 호출 + 진짜 채점은 **`task-POC-001-x`** (endpoint multi-turn 통합 후) 로 분리. 본격 baseline 측정 시점에 2-A/2-B 의미 재확인 필요.
 
@@ -61,11 +61,15 @@ judge 호출은 `temperature=0 + seed=42` — best-effort 결정성. LiteLLM pro
 # 1-A 만 (judge 없음 — 기본)
 python poc/scripts/evaluate.py --cases E001 --api-key $MACRO_LOGBOT_API_KEY
 
-# 4단계 전체 채점 (Claude Haiku judge)
-python poc/scripts/evaluate.py --cases E001 --judge claude-haiku-4-5 \
-    --anthropic-api-key sk-ant-...
+# 4단계 전체 채점 (Groq Llama 3.3 70B judge — 추천, 14,400 RPD 무료, provider 독립)
+python poc/scripts/evaluate.py --cases E001 --judge groq/llama-3.3-70b-versatile
+# (GROQ_API_KEY env 또는 --judge-api-key gsk_... 명시)
 
-# Gemini judge 사용 시
+# Claude judge 사용 시 (유료 — 신규 가입 $5 free credit)
+python poc/scripts/evaluate.py --cases E001 --judge claude-haiku-4-5 \
+    --judge-api-key sk-ant-...
+
+# Gemini judge 사용 시 (analysis 와 동일 provider — self-bias 주의)
 python poc/scripts/evaluate.py --cases E001,E002,E003 \
     --judge gemini/gemini-2.5-flash-lite
 ```

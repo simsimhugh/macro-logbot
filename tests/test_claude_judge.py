@@ -153,3 +153,25 @@ def test_call_failure_returns_error_dict_with_redacted_detail() -> None:
     # error_detail 에 시크릿 패턴 redacted + 200자 cap.
     assert "sk-ant-abcdefghij1234567890" not in result["error_detail"]
     assert "[REDACTED]" in result["error_detail"]
+
+
+# ---------------------------------------------------------------------------
+# Groq judge — provider 독립 무료 옵션 (PR #31)
+# ---------------------------------------------------------------------------
+
+
+def test_judge_root_cause_with_groq_model() -> None:
+    """Groq Llama 3.3 70B model 식별자로도 정상 호출되는지 (whitelist 통과)."""
+    payload = json.dumps({"score": 1.0, "reasoning": "groq judge ok"})
+    with patch("litellm.completion", return_value=_make_litellm_response(payload)) as m:
+        result = judge_mod.judge_root_cause(
+            ground_truth="cause",
+            response="response",
+            model="groq/llama-3.3-70b-versatile",
+            api_key="gsk_test",
+        )
+    assert result["score"] == 1.0
+    # api_key 가 LiteLLM 호출에 직접 전달되었는지 (process env 미수정 — sec WARN-2).
+    call_kwargs = m.call_args.kwargs
+    assert call_kwargs["api_key"] == "gsk_test"
+    assert call_kwargs["model"] == "groq/llama-3.3-70b-versatile"
