@@ -320,7 +320,9 @@ def test_agent_analyze_continues_session_on_provided_id(
         sid = r1.json()["session_id"]
 
         # 두 번째 호출 — 같은 session_id 전달
-        with patch("macro_logbot.app.run_agent", new=AsyncMock(return_value=fake_second)):
+        with patch(
+            "macro_logbot.app.run_agent", new=AsyncMock(return_value=fake_second)
+        ) as mock_run_second:
             r2 = client_with_mock_gateway.post(
                 "/agent/analyze",
                 json={"log_text": "2026-05-19 10:00:00 ERROR: second", "session_id": sid},
@@ -328,9 +330,27 @@ def test_agent_analyze_continues_session_on_provided_id(
         assert r2.status_code == 200
         assert r2.json()["session_id"] == sid
 
-    # session 에 두 번째 호출 messages 가 저장됐는지 확인.
+        # architect WARN-1: 두 번째 run_agent 호출 시 첫 호출의 assistant 메시지가
+        # 컨텍스트로 주입되어야 spec §5.4 messages 누적 의미 충족.
+        call_messages = mock_run_second.call_args[0][0]
+        assistant_contents = [m.content for m in call_messages if m.role == "assistant"]
+        assert "first reply" in assistant_contents, (
+            "두 번째 호출 시 첫 호출 assistant 응답이 컨텍스트로 주입되지 않음 — "
+            f"실제 messages: {call_messages}"
+        )
+        # architect WARN-2: system 메시지는 매 호출마다 새로 prepend 되므로 session
+        # 에 누적 저장되면 안 됨. call_messages 의 system 은 정확히 1개 (ANALYZE_PROMPT)
+        # — session 에서 system 안 가져와서 prepend 1회만 발생.
+        system_count = sum(1 for m in call_messages if m.role == "system")
+        assert system_count == 1, (
+            f"system 메시지가 1개여야 함 (ANALYZE_PROMPT 만). 실측 {system_count}개 — "
+            f"session 저장 시 system strip 누락 의심"
+        )
+
+    # session 에 두 번째 호출 messages 가 저장됐는지 확인 (system 제외).
     session = mem_store.get(sid)
     assert session is not None
+    # second_messages 에 원래 system 없음 → 그대로 저장됨.
     assert session.messages == second_messages
 
 

@@ -242,7 +242,9 @@ async def agent_analyze(
     result = await run_agent(messages, gateway, max_iters=max_iters, model=body.model)
 
     # --- session messages 갱신 저장 ---
-    session.messages = result.messages
+    # system message 는 매 호출마다 _ANALYZE_SYSTEM_PROMPT / intake 노드가 prepend 하므로
+    # session 에는 저장 X — 다음 호출에서 중복 누적 방지 (architect WARN-2).
+    session.messages = [m for m in result.messages if m.role != "system"]
     session_store.update(session)
 
     analysis = ""

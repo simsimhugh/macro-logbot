@@ -215,7 +215,17 @@
 
 ### ~~task-KB-002~~ — `archived_cases` populating 흐름 (분석 완료 후 자동 add) ✅ **PR #24 머지**
 - **처리 PR**: PR #24 (`feat/session-endpoint-kb-archive`) — `env MACRO_LOGBOT_KB_AUTO_ARCHIVE=true` 활성화 시 `/agent/analyze` 가 분석 완료 후 `_kb_auto_archive()` 호출 → `SQLiteKBStore.add(ArchivedCase)`. `source="poc"`, `case_id=uuid4()`, `error_signature=root_cause[:80]`, `location` None 이면 placeholder `Location(file="unknown", line=1)` 사용.
-- **잔여**: 중복 case_id upsert/ignore 정책 결정 + `KBStoreDuplicateError` → task-KB-001 또는 task-KB-002-x. verifier 승격 (`verified-master`) hook → 별도.
+- **잔여**: 중복 case_id upsert/ignore 정책 → task-KB-001 또는 task-KB-002-x. verifier 승격 (`verified-master`) hook → 별도.
+
+### task-KB-002-x — KB write 품질 (error_signature 정규화 + Location placeholder 처리)
+- **출처**: PR #24 architect WARN-3 (LOW) + WARN-4 (LOW)
+- **scope**:
+  - **WARN-3 (LOW)**: `error_signature = root_cause[:80]` 단순 truncate → 자연어 본문 prefix 가 들어가 spec §5.5 line 220 `정규화 표식` (예: `"AttributeError:NoneType.x_access"`) 의도와 다름. KB retrieval 매칭 효과 약화. task-MVP-001-y 의 LLM structured output 으로 정규화 signature 추출 후 흡수, 또는 별도 lightweight 정규화 함수 (traceback 마지막 줄 추출 + `<ExceptionType>:<attr/op>` 정규식).
+  - **WARN-4 (LOW)**: `report.location is None` 일 때 placeholder `Location(file="unknown", function="", line=1)` 으로 archive — KB retrieval 시 의미 없는 row noise. 옵션: (A) location None 이면 archive skip (가장 안전, 권고), (B) `Location.line: int | None = None` 허용 + KB schema NULLABLE (spec §5.5 line 220 정합 손상 가능).
+  - 중복 case_id upsert/ignore 정책 — `INSERT OR REPLACE` (덮어쓰기) vs `INSERT OR IGNORE` (skip) + `KBStoreDuplicateError` raise 결정 후 docstring 명문화.
+- **suggested branch**: `feat/kb-write-quality`
+- **reviewer scope**: 일반
+- **priority**: medium — task-MVP-001-y (정확 JSON 추출) 후 또는 묶음
 
 ### task-KB-003 — SQLite store 공통 base 추출 (DRY)
 - **출처**: PR #21 code-reviewer WARN-1 (MED) — KB + SessionStore 의 `_connect`/`_init_db`/chmod 패턴 거의 동일
