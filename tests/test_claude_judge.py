@@ -54,6 +54,8 @@ def test_judge_root_cause_happy_path() -> None:
         )
     assert result["score"] == 1.0
     assert result["reasoning"] == "exact match"
+    # happy path 는 error 필드 부재 — 측정 실패와 명확히 구분 (test-e WARN-4).
+    assert "error" not in result
 
 
 def test_judge_root_cause_json_parse_failure() -> None:
@@ -83,6 +85,7 @@ def test_judge_tool_appropriateness_happy_path() -> None:
         )
     assert result["score"] == 0.5
     assert "partial" in result["reasoning"]
+    assert "error" not in result  # test-e WARN-4
 
 
 def test_judge_tool_appropriateness_json_parse_failure() -> None:
@@ -112,6 +115,7 @@ def test_judge_fix_direction_happy_path() -> None:
         )
     assert result["score"] == 1.0
     assert result["reasoning"] == "same location and method"
+    assert "error" not in result  # test-e WARN-4
 
 
 def test_judge_fix_direction_json_parse_failure() -> None:
@@ -124,3 +128,28 @@ def test_judge_fix_direction_json_parse_failure() -> None:
     assert result["score"] is None
     assert "JSON parse error" in result["reasoning"]
     assert result["error"] == "json_decode"
+
+
+# ---------------------------------------------------------------------------
+# call_failure 분기 — litellm 호출 자체 실패 (network/timeout/auth)
+# ---------------------------------------------------------------------------
+
+
+def test_call_failure_returns_error_dict_with_redacted_detail() -> None:
+    """LiteLLM call 실패 시 score=None + error_detail redacted (test-e WARN-1, sec WARN-1).
+
+    raw exception 의 시크릿 패턴이 error_detail 에 redact 되는지도 검증.
+    """
+    fake_msg = "401 Authentication failed: api_key=sk-ant-abcdefghij1234567890 invalid"
+    with patch("litellm.completion", side_effect=RuntimeError(fake_msg)):
+        result = judge_mod.judge_root_cause(
+            ground_truth="any", response="any", model="claude-haiku-4-5"
+        )
+    assert result["score"] is None
+    assert result["error"] == "call_failure"
+    # reasoning 은 type 만 (raw message 노출 X).
+    assert "sk-ant-" not in result["reasoning"]
+    assert result["reasoning"] == "judge call error: RuntimeError"
+    # error_detail 에 시크릿 패턴 redacted + 200자 cap.
+    assert "sk-ant-abcdefghij1234567890" not in result["error_detail"]
+    assert "[REDACTED]" in result["error_detail"]

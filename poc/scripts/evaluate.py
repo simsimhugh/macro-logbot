@@ -33,6 +33,7 @@ if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
 from claude_judge import (  # noqa: E402
+    _JUDGE_MODELS,
     judge_fix_direction,
     judge_root_cause,
     judge_tool_appropriateness,
@@ -123,7 +124,7 @@ def score_1a(analysis: str, ground_truth: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-_JUDGE_MODELS = frozenset({"claude-haiku-4-5", "gemini/gemini-2.5-flash-lite"})
+# judge 모델 화이트리스트는 claude_judge._JUDGE_MODELS 가 단일 source — argparse choices 에 활용.
 
 
 def run_judge(
@@ -131,23 +132,28 @@ def run_judge(
     analysis_text: str,
     tool_calls: list[dict[str, Any]],
     judge_model: str,
+    judge_api_key: str | None = None,
 ) -> dict[str, Any]:
     """1-B/2-A/2-B LLM judge 채점. 결과 dict 반환.
 
+    judge_api_key 명시 시 LiteLLM 호출에 직접 전달 — process env 미수정
+    (sec WARN-2: setdefault 가 subprocess 환경 누출 회피).
+
     Returns:
         {
-          "score_1b": {"score": float, "reasoning": str},
-          "score_2a": {"score": float, "reasoning": str},
-          "score_2b": {"score": float, "reasoning": str},
+          "score_1b": {"score": float | None, "reasoning": str, ...},
+          "score_2a": {...}, "score_2b": {...},
         }
     """
     root_cause_gt = str(ground_truth.get("root_cause") or "")
     fix_hint_gt = str(ground_truth.get("fix_hint") or "")
     expected_tools: list[str] = list(ground_truth.get("expected_tool_calls") or [])
 
-    score_1b = judge_root_cause(root_cause_gt, analysis_text, judge_model)
-    score_2a = judge_tool_appropriateness(expected_tools, tool_calls, judge_model)
-    score_2b = judge_fix_direction(fix_hint_gt, analysis_text, judge_model)
+    score_1b = judge_root_cause(root_cause_gt, analysis_text, judge_model, api_key=judge_api_key)
+    score_2a = judge_tool_appropriateness(
+        expected_tools, tool_calls, judge_model, api_key=judge_api_key
+    )
+    score_2b = judge_fix_direction(fix_hint_gt, analysis_text, judge_model, api_key=judge_api_key)
 
     return {"score_1b": score_1b, "score_2a": score_2a, "score_2b": score_2b}
 
@@ -159,6 +165,7 @@ def evaluate_case(
     model: str | None,
     timeout: int = DEFAULT_HTTP_TIMEOUT,
     judge_model: str | None = None,
+    judge_api_key: str | None = None,
 ) -> dict[str, Any]:
     """단일 case 실행 — inject → trigger → POST /agent/analyze → 채점.
 
@@ -196,7 +203,9 @@ def evaluate_case(
         tool_calls: list[dict[str, Any]] = []
         if isinstance(backend_response.get("tool_calls"), list):
             tool_calls = backend_response["tool_calls"]
-        judge_scores = run_judge(ground_truth, analysis_text, tool_calls, judge_model)
+        judge_scores = run_judge(
+            ground_truth, analysis_text, tool_calls, judge_model, judge_api_key=judge_api_key
+        )
         result.update(judge_scores)
         # naive_score_total — 측정 실패 (score=None) 항목 제외 후 유효 항목만 평균
         # (architect WARN-2: 측정 실패와 진짜 0 점을 구분 — 체계적 하향 편향 회피).
@@ -312,7 +321,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--judge",
         default="none",
-        choices=["none", "claude-haiku-4-5", "gemini/gemini-2.5-flash-lite"],
+        choices=("none", *_JUDGE_MODELS),
         help=(
             "LLM judge 모델 (1-B/2-A/2-B 채점). none 이면 1-A 만 (기본 none). "
             "주의: 현 2-A/2-B 는 1차 /agent/analyze 응답 기반 interim 채점 — "
@@ -338,6 +347,7 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     judge_model: str | None = None
+    judge_api_key: str | None = None
     if args.judge != "none":
         judge_model = args.judge
         if judge_model.startswith("claude") and not args.anthropic_api_key:
@@ -346,9 +356,10 @@ def main(argv: list[str] | None = None) -> int:
                 file=sys.stderr,
             )
             return 2
-        # LiteLLM 이 환경변수에서 직접 읽도록 설정.
+        # API key 는 process env 수정 없이 LiteLLM 호출에 직접 전달 (sec WARN-2).
+        # subprocess (trigger.py) 가 dict(os.environ) 으로 상속하는 누출 표면 회피.
         if args.anthropic_api_key:
-            os.environ.setdefault("ANTHROPIC_API_KEY", args.anthropic_api_key)
+            judge_api_key = args.anthropic_api_key
 
     date_dir = (
         Path(args.reports_dir) / _dt.datetime.now(_dt.UTC).strftime("%Y-%m-%d")
@@ -364,6 +375,7 @@ def main(argv: list[str] | None = None) -> int:
             model,
             args.http_timeout,
             judge_model=judge_model,
+            judge_api_key=judge_api_key,
         )
         report_path = write_report(date_dir, case_id, result)
         print(f"  -> {report_path}")
