@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+import sqlite3
 import time
 from collections.abc import Iterator
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
@@ -35,6 +36,24 @@ def _final_response(content: str) -> ChatCompletionResponse:
         ],
         usage=Usage(prompt_tokens=10, completion_tokens=5, total_tokens=15),
     )
+
+
+@pytest.fixture(autouse=True)
+def reset_app_singletons() -> Iterator[None]:
+    """각 테스트 전후로 app 모듈 레벨 singleton 을 InMemorySessionStore 로 초기화.
+
+    실제 SQLite DB 생성 없이 테스트 격리 보장.
+    """
+    import macro_logbot.app as app_module
+    from macro_logbot.session import InMemorySessionStore
+
+    prev_session = app_module._session_store
+    prev_kb = app_module._kb_store
+    app_module._session_store = InMemorySessionStore()  # type: ignore[assignment]
+    app_module._kb_store = None
+    yield
+    app_module._session_store = prev_session
+    app_module._kb_store = prev_kb
 
 
 @pytest.fixture
@@ -91,8 +110,9 @@ def test_agent_analyze_happy_path(
     assert "confidence" in body["report"]
     assert "reasoning_summary" in body["report"]
     assert body["report"]["confidence"] == 0.5
-    # session_id 는 task-MVP-004 에서 채워질 자리 — 현재 null.
-    assert body["session_id"] is None
+    # session_id 는 task-MVP-004 (PR #24) 에서 통합 — 항상 uuid str 반환.
+    assert isinstance(body["session_id"], str)
+    assert len(body["session_id"]) > 0
 
 
 def test_agent_analyze_max_iters_terminates_with_flag(
@@ -221,3 +241,292 @@ def test_agent_analyze_response_report_none_when_no_report(
     assert response.status_code == 200
     body = response.json()
     assert body["report"] is None
+
+
+# ---------------------------------------------------------------------------
+# task-MVP-004: session_id 통합 테스트 (PR #24)
+# ---------------------------------------------------------------------------
+
+
+def test_agent_analyze_creates_new_session_id_when_none(
+    client_with_mock_gateway: TestClient,
+) -> None:
+    """session_id=None 요청 → 응답에 새 uuid str session_id 반환."""
+    import macro_logbot.app as app_module
+    from macro_logbot.session import InMemorySessionStore
+
+    fake = AgentRunResult(
+        response=_final_response("분석 결과"),
+        iterations=1,
+        messages=[
+            Message(role="user", content="log"),
+            Message(role="assistant", content="분석 결과"),
+        ],
+        report=None,
+    )
+    mem_store = InMemorySessionStore()
+    with (
+        patch("macro_logbot.app.run_agent", new=AsyncMock(return_value=fake)),
+        patch.object(app_module, "_session_store", mem_store),
+    ):
+        response = client_with_mock_gateway.post(
+            "/agent/analyze",
+            json={"log_text": "2026-05-19 10:00:00 ERROR: crash"},
+        )
+    assert response.status_code == 200
+    body = response.json()
+    session_id = body["session_id"]
+    assert isinstance(session_id, str)
+    assert len(session_id) == 36  # uuid4 형식
+
+
+def test_agent_analyze_continues_session_on_provided_id(
+    client_with_mock_gateway: TestClient,
+) -> None:
+    """첫 호출 session_id 를 두 번째 호출에 전달 → session messages 이어짐."""
+    import macro_logbot.app as app_module
+    from macro_logbot.session import InMemorySessionStore
+
+    first_messages = [
+        Message(role="user", content="first"),
+        Message(role="assistant", content="first reply"),
+    ]
+    second_messages = [
+        Message(role="user", content="second"),
+        Message(role="assistant", content="second reply"),
+    ]
+
+    fake_first = AgentRunResult(
+        response=_final_response("first reply"),
+        iterations=1,
+        messages=first_messages,
+        report=None,
+    )
+    fake_second = AgentRunResult(
+        response=_final_response("second reply"),
+        iterations=1,
+        messages=second_messages,
+        report=None,
+    )
+
+    mem_store = InMemorySessionStore()
+    with patch.object(app_module, "_session_store", mem_store):
+        # 첫 번째 호출 — session 생성
+        with patch("macro_logbot.app.run_agent", new=AsyncMock(return_value=fake_first)):
+            r1 = client_with_mock_gateway.post(
+                "/agent/analyze",
+                json={"log_text": "2026-05-19 10:00:00 ERROR: first"},
+            )
+        assert r1.status_code == 200
+        sid = r1.json()["session_id"]
+
+        # 두 번째 호출 — 같은 session_id 전달
+        with patch(
+            "macro_logbot.app.run_agent", new=AsyncMock(return_value=fake_second)
+        ) as mock_run_second:
+            r2 = client_with_mock_gateway.post(
+                "/agent/analyze",
+                json={"log_text": "2026-05-19 10:00:00 ERROR: second", "session_id": sid},
+            )
+        assert r2.status_code == 200
+        assert r2.json()["session_id"] == sid
+
+        # architect WARN-1: 두 번째 run_agent 호출 시 첫 호출의 assistant 메시지가
+        # 컨텍스트로 주입되어야 spec §5.4 messages 누적 의미 충족.
+        call_messages = mock_run_second.call_args[0][0]
+        assistant_contents = [m.content for m in call_messages if m.role == "assistant"]
+        assert "first reply" in assistant_contents, (
+            "두 번째 호출 시 첫 호출 assistant 응답이 컨텍스트로 주입되지 않음 — "
+            f"실제 messages: {call_messages}"
+        )
+        # architect WARN-2: system 메시지는 매 호출마다 새로 prepend 되므로 session
+        # 에 누적 저장되면 안 됨. call_messages 의 system 은 정확히 1개 (ANALYZE_PROMPT)
+        # — session 에서 system 안 가져와서 prepend 1회만 발생.
+        system_count = sum(1 for m in call_messages if m.role == "system")
+        assert system_count == 1, (
+            f"system 메시지가 1개여야 함 (ANALYZE_PROMPT 만). 실측 {system_count}개 — "
+            f"session 저장 시 system strip 누락 의심"
+        )
+
+    # session 에 두 번째 호출 messages 가 저장됐는지 확인 (system 제외).
+    session = mem_store.get(sid)
+    assert session is not None
+    # second_messages 에 원래 system 없음 → 그대로 저장됨.
+    assert session.messages == second_messages
+
+
+# ---------------------------------------------------------------------------
+# task-KB-002: KB auto-archive 테스트 (PR #24)
+# ---------------------------------------------------------------------------
+
+
+def test_agent_analyze_kb_auto_archive_enabled(
+    client_with_mock_gateway: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """MACRO_LOGBOT_KB_AUTO_ARCHIVE=true + MACRO_LOGBOT_KB_PATH 설정 → KB.add 호출."""
+    import macro_logbot.app as app_module
+    from macro_logbot.agent.core import Location
+    from macro_logbot.session import InMemorySessionStore
+
+    monkeypatch.setenv("MACRO_LOGBOT_KB_AUTO_ARCHIVE", "true")
+    monkeypatch.setenv("MACRO_LOGBOT_KB_PATH", "/tmp/test_kb_auto.db")
+
+    fake_report = Report(
+        root_cause="NullPointerException in UserService",
+        location=Location(file="src/user.py", line=42),
+        fix_hint="None 체크 추가",
+        confidence=0.8,
+        reasoning_summary="NullPointerException in UserService",
+    )
+    fake = AgentRunResult(
+        response=_final_response("분석 결과"),
+        iterations=1,
+        messages=[],
+        report=fake_report,
+    )
+
+    mock_kb = MagicMock()
+    mem_store = InMemorySessionStore()
+    with (
+        patch("macro_logbot.app.run_agent", new=AsyncMock(return_value=fake)),
+        patch.object(app_module, "_session_store", mem_store),
+        patch.object(app_module, "_kb_store", None),
+        patch.object(app_module, "_get_kb_store", return_value=mock_kb),
+    ):
+        response = client_with_mock_gateway.post(
+            "/agent/analyze",
+            json={"log_text": "2026-05-19 10:00:00 ERROR: NPE"},
+        )
+    assert response.status_code == 200
+    mock_kb.add.assert_called_once()
+    # 전달된 ArchivedCase 검증
+    case = mock_kb.add.call_args[0][0]
+    assert case.source == "poc"
+    assert case.root_cause == fake_report.root_cause
+    assert case.location.file == "src/user.py"
+
+
+def test_agent_analyze_kb_auto_archive_disabled_default(
+    client_with_mock_gateway: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """MACRO_LOGBOT_KB_AUTO_ARCHIVE 미설정 → KB.add 호출 안 됨."""
+    import macro_logbot.app as app_module
+    from macro_logbot.agent.core import Location
+    from macro_logbot.session import InMemorySessionStore
+
+    monkeypatch.delenv("MACRO_LOGBOT_KB_AUTO_ARCHIVE", raising=False)
+
+    fake_report = Report(
+        root_cause="some error",
+        location=Location(file="src/main.py", line=1),
+        fix_hint="fix it",
+        confidence=0.5,
+        reasoning_summary="some error",
+    )
+    fake = AgentRunResult(
+        response=_final_response("분석"),
+        iterations=1,
+        messages=[],
+        report=fake_report,
+    )
+
+    mock_kb = MagicMock()
+    mem_store = InMemorySessionStore()
+    with (
+        patch("macro_logbot.app.run_agent", new=AsyncMock(return_value=fake)),
+        patch.object(app_module, "_session_store", mem_store),
+        patch.object(app_module, "_get_kb_store", return_value=mock_kb),
+    ):
+        response = client_with_mock_gateway.post(
+            "/agent/analyze",
+            json={"log_text": "2026-05-19 10:00:00 ERROR: something"},
+        )
+    assert response.status_code == 200
+    mock_kb.add.assert_not_called()
+
+
+def test_agent_analyze_unknown_session_id_creates_new_session(
+    client_with_mock_gateway: TestClient,
+) -> None:
+    """존재하지 않는 session_id 전송 — 404 대신 새 session 생성 fallback (IDOR 회피).
+
+    test-e WARN-1 + sec WARN-4 — branch coverage 보강.
+    """
+    import macro_logbot.app as app_module
+    from macro_logbot.session import InMemorySessionStore
+
+    fake = AgentRunResult(
+        response=_final_response("ok"),
+        iterations=1,
+        messages=[],
+        report=None,
+    )
+    mem_store = InMemorySessionStore()
+    with (
+        patch("macro_logbot.app.run_agent", new=AsyncMock(return_value=fake)),
+        patch.object(app_module, "_session_store", mem_store),
+    ):
+        response = client_with_mock_gateway.post(
+            "/agent/analyze",
+            json={
+                "log_text": "2026-05-19 10:00:00 ERROR: orphan",
+                "session_id": "nonexistent-uuid-deadbeef",
+            },
+        )
+    assert response.status_code == 200
+    body = response.json()
+    # 전달한 id 와 다른 새 id 가 반환 — fallback create.
+    assert body["session_id"] != "nonexistent-uuid-deadbeef"
+    assert len(body["session_id"]) == 36  # uuid4 length
+
+
+def test_agent_analyze_kb_archive_failure_keeps_200(
+    client_with_mock_gateway: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """KB.add 실패 (disk full / permission 등) → endpoint 는 여전히 200 반환.
+
+    code-r WARN-2 + test-e WARN-2 — KB 는 analytics side effect, 응답 계약 본체에
+    영향 X. exception 은 logger.warning 후 swallow.
+    """
+    import macro_logbot.app as app_module
+    from macro_logbot.agent.core import Location
+    from macro_logbot.session import InMemorySessionStore
+
+    monkeypatch.setenv("MACRO_LOGBOT_KB_AUTO_ARCHIVE", "true")
+    monkeypatch.setenv("MACRO_LOGBOT_KB_PATH", "/tmp/test_kb_failure.db")
+
+    fake_report = Report(
+        root_cause="disk-full test",
+        location=Location(file="src/x.py", line=1),
+        fix_hint="x",
+        confidence=0.5,
+        reasoning_summary="x",
+    )
+    fake = AgentRunResult(
+        response=_final_response("ok"),
+        iterations=1,
+        messages=[],
+        report=fake_report,
+    )
+
+    # mock KB 의 add 가 OperationalError raise — endpoint 가 swallow 해야 200.
+    failing_kb = MagicMock()
+    failing_kb.add.side_effect = sqlite3.OperationalError("disk full")
+    mem_store = InMemorySessionStore()
+    with (
+        patch("macro_logbot.app.run_agent", new=AsyncMock(return_value=fake)),
+        patch.object(app_module, "_session_store", mem_store),
+        patch.object(app_module, "_get_kb_store", return_value=failing_kb),
+    ):
+        response = client_with_mock_gateway.post(
+            "/agent/analyze",
+            json={"log_text": "2026-05-19 10:00:00 ERROR: x"},
+        )
+    # KB 실패에도 200 + report 정상 반환.
+    assert response.status_code == 200
+    body = response.json()
+    assert body["report"]["root_cause"] == "disk-full test"
+    failing_kb.add.assert_called_once()

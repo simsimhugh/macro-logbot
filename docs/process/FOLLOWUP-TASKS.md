@@ -213,14 +213,19 @@
 - **reviewer scope**: 일반 (전체 reviewer cycle — 신규 외부 dep 포함)
 - **priority**: low — PoC validation 후 (KB 누적 케이스 충분해진 시점)
 
-### task-KB-002 — `archived_cases` populating 흐름 (분석 완료 후 자동 add) + 중복 case_id 정책
-- **출처**: PR #21 의도된 단순화 — KB store 구현만, write 흐름 미연결 + code-reviewer WARN-3 (MED) + security LOW-2
+### ~~task-KB-002~~ — `archived_cases` populating 흐름 (분석 완료 후 자동 add) ✅ **PR #24 머지**
+- **처리 PR**: PR #24 (`feat/session-endpoint-kb-archive`) — `env MACRO_LOGBOT_KB_AUTO_ARCHIVE=true` 활성화 시 `/agent/analyze` 가 분석 완료 후 `_kb_auto_archive()` 호출 → `SQLiteKBStore.add(ArchivedCase)`. `source="poc"`, `case_id=uuid4()`, `error_signature=root_cause[:80]`, `location` None 이면 placeholder `Location(file="unknown", line=1)` 사용.
+- **잔여**: 중복 case_id upsert/ignore 정책 → task-KB-001 또는 task-KB-002-x. verifier 승격 (`verified-master`) hook → 별도.
+
+### task-KB-002-x — KB write 품질 (error_signature 정규화 + Location placeholder 처리)
+- **출처**: PR #24 architect WARN-3 (LOW) + WARN-4 (LOW)
 - **scope**:
-  - Agent Core 의 `crystallize_report` 노드 종료 직후 `SQLiteKBStore.add` 호출 (spec §5.5 "Writer 위치" 참조). `source: poc` 또는 `production` 자동 태그. verifier 승격 (`source: verified-master`) hook 별도. task-MVP-004 (endpoint session 통합) 와 함께 진행.
-  - **code-r WARN-3 (MED)**: `SQLiteKBStore.add` 중복 case_id 정책 결정 — (A) `INSERT OR REPLACE` upsert, (B) 명시적 `update()` 메서드 분리 + `KBStoreDuplicateError` raise, (C) docstring 명시 + `INSERT OR IGNORE`. 현재 단위 테스트 `test_add_duplicate_case_id_raises` 가 현재 계약 (`sqlite3.IntegrityError`) 명문화. verifier 승격 (`verified-master` 재기입) 시점에 의미 결정 필수.
-- **suggested branch**: `feat/kb-auto-archive`
-- **reviewer scope**: 일반 (전체 reviewer cycle)
-- **priority**: medium — task-MVP-004 (endpoint session 통합) 완료 후
+  - **WARN-3 (LOW)**: `error_signature = root_cause[:80]` 단순 truncate → 자연어 본문 prefix 가 들어가 spec §5.5 line 220 `정규화 표식` (예: `"AttributeError:NoneType.x_access"`) 의도와 다름. KB retrieval 매칭 효과 약화. task-MVP-001-y 의 LLM structured output 으로 정규화 signature 추출 후 흡수, 또는 별도 lightweight 정규화 함수 (traceback 마지막 줄 추출 + `<ExceptionType>:<attr/op>` 정규식).
+  - **WARN-4 (LOW)**: `report.location is None` 일 때 placeholder `Location(file="unknown", function="", line=1)` 으로 archive — KB retrieval 시 의미 없는 row noise. 옵션: (A) location None 이면 archive skip (가장 안전, 권고), (B) `Location.line: int | None = None` 허용 + KB schema NULLABLE (spec §5.5 line 220 정합 손상 가능).
+  - 중복 case_id upsert/ignore 정책 — `INSERT OR REPLACE` (덮어쓰기) vs `INSERT OR IGNORE` (skip) + `KBStoreDuplicateError` raise 결정 후 docstring 명문화.
+- **suggested branch**: `feat/kb-write-quality`
+- **reviewer scope**: 일반
+- **priority**: medium — task-MVP-001-y (정확 JSON 추출) 후 또는 묶음
 
 ### task-KB-003 — SQLite store 공통 base 추출 (DRY)
 - **출처**: PR #21 code-reviewer WARN-1 (MED) — KB + SessionStore 의 `_connect`/`_init_db`/chmod 패턴 거의 동일
@@ -253,15 +258,18 @@
 - **reviewer scope**: test-engineer 단독 가능 (test-only PR, src 변경 없음 — code-r WARN-6 fix 가 src 포함시 일반 cycle)
 - **priority**: medium — 사내 운영 진입 전 운영 분기 검증 필요
 
-### task-MVP-004 — /agent/analyze session 통합 + SessionStore.update semantic 통일 + KB singleton thread-safety
-- **출처**: PR #11 MVP 의도된 단순화 + PR #20 code-reviewer WARN-4 (LOW) + PR #21 code-reviewer WARN-2 (MED)
-- **note**: PR #23 (`feat/agent-graph-full`) 으로 graph 6 노드 완성 (`Report` 구조 + `session_id=null` placeholder 도입). session_id 통합 진입 가능.
+### ~~task-MVP-004~~ — /agent/analyze session 통합 + SessionStore.update semantic 통일 ✅ **PR #24 머지**
+- **처리 PR**: PR #24 (`feat/session-endpoint-kb-archive`) — `/agent/analyze` 가 optional `session_id` 받아 `SQLiteSessionStore` 에서 messages 로드 → graph 실행 → messages 저장 → 응답에 `session_id` 반환. `SQLiteSessionStore.update` 가 upsert (INSERT OR REPLACE) 로 변경 — `InMemorySessionStore` 와 동일 의미. `test_sqlite_store_update_nonexistent_is_upsert` 테스트로 계약 명문화.
+- **잔여**: singleton thread-safety (`_get_session_store` / `_get_kb_store` lock 보호 + `reset_*` helper) → task-MVP-004-x. `AgentState` 에 `session_id` / `event` / `pending_tool_calls` / `tool_results` 4 필드 추가 → task-MVP-004-x.
+
+### task-MVP-004-x — singleton thread-safety + AgentState session_id/event 필드 추가
+- **출처**: PR #21 code-reviewer WARN-2 (MED) + PR #23 architect WARN-4 (LOW) — PR #24 잔여
 - **scope**:
-  - `/agent/analyze` 가 session_id 받아 session messages 누적, 다회차 분석 지원. task-MVP-002 완료, 본 task 진입 가능.
-  - **PR #20 code-r WARN-4 (LOW)**: SessionStore.update 의 "존재하지 않는 id" 동작이 InMemory (upsert) vs SQLite (silent no-op) 로 다름 — Protocol docstring 에 명시 후 endpoint 통합 시점에 통일 결정 (옵션 A: 두 backend 모두 `KeyError` raise, 옵션 B: 두 backend 모두 upsert 의미). 현 단위 테스트 `test_sqlite_store_update_nonexistent_is_silent_noop` 가 현재 계약 명문화.
-  - **PR #21 code-r WARN-2 (MED)**: `_get_kb_store` module-level singleton thread-safety — async tool 동시 호출 race 시 `_init_db` 의 chmod 가 두 번 실행 가능 (idempotent 라 실해 X). env `MACRO_LOGBOT_KB_PATH` 첫 진입에만 읽힘 — hot-reload 시 env 변경 무시. `threading.Lock` init 보호 + 명시적 `reset_kb_store()` helper (테스트가 monkeypatch internal 의존 회피) 또는 FastAPI lifespan startup DI. SessionStore singleton 도 동일 패턴 적용.
-  - **PR #23 arch WARN-4 (LOW)**: `AgentState` 에 spec §5.2 line 134-143 의 `session_id` / `event` / `pending_tool_calls` / `tool_results` 4 필드 추가 (현재 messages/iteration/last_response/report 만). endpoint 가 session_id 채워서 전달, agent loop 가 multi-turn 컨텍스트 유지.
-- **priority**: medium — multi-turn analysis 요구 시 (singleton thread-safety 는 endpoint 통합 시점 필수)
+  - `_get_session_store` / `_get_kb_store` module-level singleton 에 `threading.Lock` init 보호 + 명시적 `reset_session_store()` / `reset_kb_store()` helper (테스트 격리). FastAPI lifespan startup DI 도 선택지.
+  - `AgentState` 에 spec §5.2 line 134-143 의 `session_id: str | None` / `event: LogEvent | None` / `pending_tool_calls: list[ToolCall]` / `tool_results: list[ToolResult]` 4 필드 추가. endpoint 가 session_id 채워서 전달.
+- **suggested branch**: `feat/session-state-fields`
+- **reviewer scope**: 일반 (전체 reviewer cycle)
+- **priority**: medium — 운영 동시성 + multi-turn AgentState 완성 시점
 
 ### task-MVP-005 — intake parser 다국어 level 지원
 - **출처**: PR #11 MVP 의도된 단순화

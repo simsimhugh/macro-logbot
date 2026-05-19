@@ -6,6 +6,7 @@ Spec reference: docs/design/02-설계문서.md (v1.1) §5.1 External Interfaces
 import logging
 import os
 from typing import Literal
+from uuid import uuid4
 
 from fastapi import APIRouter, Depends, FastAPI
 from pydantic import BaseModel
@@ -20,9 +21,39 @@ from macro_logbot.gateway import (
     Message,
 )
 from macro_logbot.intake import IntakeRecord, parse_macro_log
+from macro_logbot.knowledge_base import ArchivedCase, SQLiteKBStore
+from macro_logbot.knowledge_base.store import Location
+from macro_logbot.session import SQLiteSessionStore
 from macro_logbot.tools import get_openai_tools_schema
 
 logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Singleton stores — module-level, lazy-init on first request.
+# ---------------------------------------------------------------------------
+
+_session_store: SQLiteSessionStore | None = None
+_kb_store: SQLiteKBStore | None = None
+
+
+def _get_session_store() -> SQLiteSessionStore:
+    global _session_store
+    if _session_store is None:
+        db_path = os.getenv("MACRO_LOGBOT_SESSION_DB", ".macro-logbot-sessions.db")
+        _session_store = SQLiteSessionStore(db_path)
+    return _session_store
+
+
+def _get_kb_store() -> SQLiteKBStore | None:
+    """KB store — MACRO_LOGBOT_KB_PATH 설정 시에만 반환, 미설정 시 None."""
+    global _kb_store
+    kb_path = os.getenv("MACRO_LOGBOT_KB_PATH")
+    if kb_path is None:
+        return None
+    if _kb_store is None:
+        _kb_store = SQLiteKBStore(kb_path)
+    return _kb_store
+
 
 app = FastAPI(
     title="macro-logbot",
@@ -132,6 +163,7 @@ class AgentAnalyzeRequest(BaseModel):
 
     log_text: str
     model: str | None = None
+    session_id: str | None = None
 
 
 class AgentAnalyzeResponse(BaseModel):
@@ -143,7 +175,8 @@ class AgentAnalyzeResponse(BaseModel):
 
     report: crystallize_report 노드가 추출한 구조화 리포트 (MVP: last assistant 복사).
       None 이면 LLM 응답이 없었던 edge case.
-    session_id: task-MVP-004 에서 채워질 자리 — 현재 null 고정.
+    session_id: 분석 session uuid — 연속 호출 시 같은 id 로 컨텍스트 이어받기
+      (task-MVP-004, PR #24).
     """
 
     analysis: str
@@ -170,7 +203,26 @@ async def agent_analyze(
     body: AgentAnalyzeRequest,
     gateway: LLMGateway = Depends(get_gateway),  # noqa: B008
 ) -> AgentAnalyzeResponse:
-    """MACRO 에러 로그를 받아 agent loop 으로 분석하고 결과 반환."""
+    """MACRO 에러 로그를 받아 agent loop 으로 분석하고 결과 반환.
+
+    session_id 가 제공되면 기존 session messages 를 컨텍스트로 로드.
+    없으면 새 session 생성. 분석 후 messages 를 session 에 저장하고 session_id 반환.
+    """
+    # --- session 로드 또는 생성 ---
+    session_store = _get_session_store()
+    if body.session_id:
+        session = session_store.get(body.session_id)
+        if session is None:
+            # 알 수 없는 id — 새 session 으로 안전하게 생성 (404 대신, IDOR 회피).
+            # 보안 감사 위해 WARN 로깅 (security WARN-4) — id 앞 8자만 (full 노출 회피).
+            logger.warning(
+                "session_id %s... not found — issuing new session",
+                body.session_id[:8],
+            )
+            session = session_store.create()
+    else:
+        session = session_store.create()
+
     record = parse_macro_log(body.log_text)
     user_prompt = (
         "다음 MACRO 에러 로그를 분석해 주세요. 필요 시 tool 을 호출하세요.\n\n"
@@ -182,8 +234,10 @@ async def agent_analyze(
         user_prompt += f"\ntraceback:\n{record.traceback}\n"
     user_prompt += f"\nraw:\n{record.raw}\n"
 
+    # persona system + 기존 session messages + 새 user message.
     messages = [
         Message(role="system", content=_ANALYZE_SYSTEM_PROMPT),
+        *session.messages,
         Message(role="user", content=user_prompt),
     ]
     # max_iters 를 명시 변수로 묶음 — terminated_reason 판정과 동일 값 비교 보장
@@ -191,6 +245,13 @@ async def agent_analyze(
     # 사용한 max_iters 가 어긋날 수 있는 위험 제거).
     max_iters = MAX_ITERS_DEFAULT
     result = await run_agent(messages, gateway, max_iters=max_iters, model=body.model)
+
+    # --- session messages 갱신 저장 ---
+    # system message 는 매 호출마다 _ANALYZE_SYSTEM_PROMPT / intake 노드가 prepend 하므로
+    # session 에는 저장 X — 다음 호출에서 중복 누적 방지 (architect WARN-2).
+    session.messages = [m for m in result.messages if m.role != "system"]
+    session_store.update(session)
+
     analysis = ""
     if result.response.choices:
         analysis = result.response.choices[0].message.content or ""
@@ -205,16 +266,46 @@ async def agent_analyze(
         if (result.iterations >= max_iters and last_assistant_has_tool_calls)
         else "final"
     )
+
+    # --- KB auto-archive (env 활성화 + report 존재 시) ---
+    # KB write 는 analytics side effect — 실패해도 분석 응답 자체는 200 유지
+    # (code-r WARN-2: disk full / permission / schema drift 등이 endpoint 응답
+    # 계약 본체에 영향 주면 안 됨).
+    if os.getenv("MACRO_LOGBOT_KB_AUTO_ARCHIVE") == "true" and result.report:
+        kb_store = _get_kb_store()
+        if kb_store is not None:
+            try:
+                _kb_auto_archive(kb_store, result.report)
+            except Exception as exc:
+                logger.warning("KB auto-archive failed (non-fatal): %s", exc)
+
     return AgentAnalyzeResponse(
         analysis=analysis,
         record=record,
         iterations=result.iterations,
         terminated_reason=terminated_reason,
         report=result.report,
-        session_id=None,  # task-MVP-004 에서 채워질 자리
+        session_id=session.id,
     )
 
 
+def _kb_auto_archive(kb_store: SQLiteKBStore, report: Report) -> None:
+    """분석 결과 Report 를 KB 에 자동 아카이빙 (env gating 후 호출)."""
+    location = report.location or Location(file="unknown", function="", line=1)
+    case = ArchivedCase(
+        case_id=str(uuid4()),
+        error_signature=report.root_cause[:80],
+        category="auto/poc",
+        root_cause=report.root_cause,
+        location=location,
+        fix_hint=report.fix_hint,
+        confidence=report.confidence,
+        source="poc",
+    )
+    kb_store.add(case)
+
+
 # 미사용 import 방어 — get_openai_tools_schema 는 외부 모듈에서 import 가능하도록
-# 재노출 목적. (linter 가 unused 로 잡지 않게 __all__ 명시.)
+# 재노출 목적. underscore prefix getter 는 internal 의미 + patch.object 가 __all__ 무관
+# 하게 동작하므로 export 에서 제외 (code-r WARN-6).
 __all__ = ["app", "get_gateway", "get_openai_tools_schema"]
