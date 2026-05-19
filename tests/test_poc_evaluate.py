@@ -361,12 +361,12 @@ def test_evaluate_case_total_scoring_partial_judge_failure(tmp_path: Path) -> No
 
 
 # ---------------------------------------------------------------------------
-# spec §10.6 — --session-cumulative (task-EVAL-001)
+# spec §10.6 — --continue-session (task-EVAL-001)
 # ---------------------------------------------------------------------------
 
 
-def test_main_session_cumulative_threads_session_id(tmp_path: Path) -> None:
-    """--session-cumulative: 첫 case 응답 session_id 가 후속 case 에 전달됨."""
+def test_main_continue_session_threads_session_id(tmp_path: Path) -> None:
+    """--continue-session: 첫 case 응답 session_id 가 후속 case 에 전달됨."""
     call_count = 0
     recorded_session_ids: list[str | None] = []
 
@@ -409,7 +409,7 @@ def test_main_session_cumulative_threads_session_id(tmp_path: Path) -> None:
                 "--api-key", "test-key",
                 "--rate-limit-cooldown", "0",
                 "--reports-dir", str(tmp_path),
-                "--session-cumulative",
+                "--continue-session",
             ]
         )
 
@@ -421,8 +421,8 @@ def test_main_session_cumulative_threads_session_id(tmp_path: Path) -> None:
     assert recorded_session_ids[1] == "sess-from-backend"
 
 
-def test_main_no_session_cumulative_default(tmp_path: Path) -> None:
-    """--session-cumulative 미지정 시 session_id=None 유지."""
+def test_main_no_continue_session_default(tmp_path: Path) -> None:
+    """--continue-session 미지정 시 session_id=None 유지."""
     recorded_session_ids: list[str | None] = []
 
     def _fake_evaluate_case(

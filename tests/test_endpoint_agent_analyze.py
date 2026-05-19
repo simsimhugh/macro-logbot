@@ -641,3 +641,66 @@ async def test_agent_state_includes_session_id_when_passed() -> None:
     # 결과 자체도 정상.
     assert final_state["last_response"] is not None
     assert final_state["iteration"] == 1
+
+
+# ---------------------------------------------------------------------------
+# BLOCK-1 fix: temperature/seed schema 추가 + run_agent 로 forward (PR #42)
+# ---------------------------------------------------------------------------
+
+
+def test_agent_analyze_temperature_seed_forwarded_to_run_agent(
+    client_with_mock_gateway: TestClient,
+) -> None:
+    """temperature=0, seed=42 payload 가 run_agent **generation_kwargs 로 forward 됨.
+
+    AgentAnalyzeRequest schema 에 두 필드가 정의돼야 Pydantic silent-drop 없이
+    run_agent 까지 전달된다 (spec §10.4 결정론 측정).
+    """
+    fake = AgentRunResult(
+        response=_final_response("분석 결과"),
+        iterations=1,
+        messages=[],
+        report=None,
+    )
+    captured_kwargs: dict[str, object] = {}
+
+    async def _mock_run_agent(messages: object, gateway: object, **kwargs: object) -> AgentRunResult:
+        captured_kwargs.update(kwargs)
+        return fake
+
+    log_text = "2026-05-19 14:30:01 ERROR: test\n"
+    with patch("macro_logbot.app.run_agent", new=_mock_run_agent):
+        response = client_with_mock_gateway.post(
+            "/agent/analyze",
+            json={"log_text": log_text, "temperature": 0, "seed": 42},
+        )
+    assert response.status_code == 200
+    assert captured_kwargs.get("temperature") == 0
+    assert captured_kwargs.get("seed") == 42
+
+
+def test_agent_analyze_temperature_seed_omitted_when_not_provided(
+    client_with_mock_gateway: TestClient,
+) -> None:
+    """temperature/seed 미지정 시 run_agent kwargs 에 포함되지 않음 (LiteLLM 기본값 유지)."""
+    fake = AgentRunResult(
+        response=_final_response("분석 결과"),
+        iterations=1,
+        messages=[],
+        report=None,
+    )
+    captured_kwargs: dict[str, object] = {}
+
+    async def _mock_run_agent(messages: object, gateway: object, **kwargs: object) -> AgentRunResult:
+        captured_kwargs.update(kwargs)
+        return fake
+
+    log_text = "2026-05-19 14:30:01 ERROR: test\n"
+    with patch("macro_logbot.app.run_agent", new=_mock_run_agent):
+        response = client_with_mock_gateway.post(
+            "/agent/analyze",
+            json={"log_text": log_text},
+        )
+    assert response.status_code == 200
+    assert "temperature" not in captured_kwargs
+    assert "seed" not in captured_kwargs

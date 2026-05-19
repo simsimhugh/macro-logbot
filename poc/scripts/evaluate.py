@@ -364,12 +364,12 @@ def main(argv: list[str] | None = None) -> int:
         ),
     )
     parser.add_argument(
-        "--session-cumulative",
+        "--continue-session",
         action="store_true",
         default=False,
         help=(
-            "spec §10.6 cumulative mode: 첫 case 응답의 session_id 를 받아 "
-            "후속 case payload 에 echo. 기본 off (매 case 신규 session)."
+            "첫 case 응답의 session_id 를 받아 후속 case payload 에 echo. "
+            "기본 off (매 case 신규 session)."
         ),
     )
     args = parser.parse_args(argv)
@@ -413,7 +413,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     model = args.model or DEFAULT_MODEL
     results: list[dict[str, Any]] = []
-    cumulative_session_id: str | None = None
+    continued_session_id: str | None = None
     for idx, case_id in enumerate(case_ids):
         print(f"=== {case_id} ({idx + 1}/{len(case_ids)}) ===")
         result = evaluate_case(
@@ -424,13 +424,13 @@ def main(argv: list[str] | None = None) -> int:
             args.http_timeout,
             judge_model=judge_model,
             judge_api_key=judge_api_key,
-            session_id=cumulative_session_id,
+            session_id=continued_session_id,
         )
-        # spec §10.6: cumulative mode — 첫 case 응답의 session_id 를 후속 case 에 echo.
-        if args.session_cumulative and cumulative_session_id is None:
+        # 첫 case 응답의 session_id 를 후속 case 에 echo (--continue-session 옵션).
+        if args.continue_session and continued_session_id is None:
             resp_sid = result.get("backend_response", {}).get("session_id")
             if resp_sid:
-                cumulative_session_id = str(resp_sid)
+                continued_session_id = str(resp_sid)
         report_path = write_report(date_dir, case_id, result)
         print(f"  -> {report_path}")
         results.append(result)
