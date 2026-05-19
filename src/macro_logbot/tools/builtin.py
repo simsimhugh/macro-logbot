@@ -13,6 +13,7 @@ Spec reference: docs/design/02-설계문서.md (v1.1) §5.3
 
 from __future__ import annotations
 
+import os
 import platform
 import re
 import subprocess
@@ -20,6 +21,8 @@ import sys
 from importlib import metadata
 from pathlib import Path
 from typing import Any
+
+from macro_logbot.knowledge_base import SQLiteKBStore
 
 # MVP 수준 — subprocess 호출 timeout 일괄 적용 (deadlock 방지).
 _SUBPROCESS_TIMEOUT_SEC = 15
@@ -29,6 +32,32 @@ _READ_FILE_MAX_BYTES = 2_000_000
 
 # git --oneline 출력의 hash 부분 검증 (4~40자 hex). control char/빈줄/오염 차단.
 _GIT_HASH_RE = re.compile(r"[0-9a-f]{4,40}")
+
+# retrieve_similar_cases 보안 가드 — error_signature 길이 cap (WARN-3 sec MED).
+_MAX_SIGNATURE_LEN = 4096
+
+# retrieve_similar_cases top_k 범위 (1..50).
+_TOP_K_MIN = 1
+_TOP_K_MAX = 50
+
+# KB 모듈-레벨 singleton — env MACRO_LOGBOT_KB_PATH 또는 default .macro-logbot/kb.db.
+# 미설정/미존재 시 None (fallback empty result, PoC 환경 호환).
+_kb_store: SQLiteKBStore | None = None
+
+
+def _get_kb_store() -> SQLiteKBStore | None:
+    """KB singleton 반환. 초기화 실패 시 None (PoC fallback)."""
+    global _kb_store
+    if _kb_store is not None:
+        return _kb_store
+    kb_path_str = os.environ.get("MACRO_LOGBOT_KB_PATH", "")
+    kb_path = Path(kb_path_str) if kb_path_str else Path(".macro-logbot") / "kb.db"
+    try:
+        kb_path.parent.mkdir(parents=True, exist_ok=True)
+        _kb_store = SQLiteKBStore(kb_path)
+    except OSError:
+        return None
+    return _kb_store
 
 
 def _safe_resolve(path: str) -> Path | None:
@@ -381,21 +410,45 @@ def retrieve_similar_cases(
     error_signature: str,
     top_k: int = 5,
 ) -> dict[str, Any]:
-    """과거 유사 에러 분석 사례 — KB (spec §5.5) 미구현 placeholder.
+    """과거 유사 에러 분석 사례 — KB (spec §5.5) SQLiteKBStore 검색.
 
-    KB 구현 PR 후 실제 검색 로직 추가 (task-MVP-003-x).
+    Phase 1 keyword substring 매칭 (error_signature / root_cause LIKE).
+    KB 미초기화 (PoC 환경) 시 빈 결과 fallback.
 
-    `top_k` 인자는 인터페이스 호환용 — placeholder 단계에서는 무시됨 (KB
-    실구현 PR 에서 적용).
+    보안:
+      - error_signature 길이 cap (_MAX_SIGNATURE_LEN = 4096).
+      - top_k 범위 (1..50) 검증.
 
     Returns:
-      {"error_signature": str, "similar_cases": [], "note": str} 혹은 {"error": str}.
+      {"error_signature": str, "similar_cases": [{...}], "note": str | None}
+      혹은 {"error": str}.
     """
     if not error_signature or not isinstance(error_signature, str):
         return {"error": "error_signature required"}
-    _ = top_k
+    if len(error_signature) > _MAX_SIGNATURE_LEN:
+        return {
+            "error": (
+                f"error_signature too long: {len(error_signature)} chars "
+                f"(max {_MAX_SIGNATURE_LEN})"
+            )
+        }
+    if not isinstance(top_k, int) or top_k < _TOP_K_MIN or top_k > _TOP_K_MAX:
+        return {"error": f"top_k must be between {_TOP_K_MIN} and {_TOP_K_MAX}"}
+
+    store = _get_kb_store()
+    if store is None:
+        return {
+            "error_signature": error_signature,
+            "similar_cases": [],
+            "note": "KB 미초기화 — MACRO_LOGBOT_KB_PATH 미설정 또는 DB 생성 실패 (PoC fallback)",
+        }
+
+    cases = store.search(error_signature, top_k=top_k)
+    similar: list[dict[str, Any]] = [
+        c.model_dump(exclude_none=True) for c in cases
+    ]
     return {
         "error_signature": error_signature,
-        "similar_cases": [],
-        "note": "KB (spec §5.5) 미구현 placeholder — 후속 PR (task-MVP-003-x)",
+        "similar_cases": similar,
+        "note": None,
     }

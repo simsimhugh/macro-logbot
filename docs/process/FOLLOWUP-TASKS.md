@@ -177,15 +177,29 @@
 - **처리 PR**: PR #19 (`feat/tools-remaining-4`) — `git_log`, `find_test_history`, `get_environment_info`, `retrieve_similar_cases` 4 함수 + 4 ToolSpec 추가, spec §5.3 9 tools 인터페이스 완성. 출력 키도 spec §5.3 표 (`test_runs[]`, `similar_cases[]`) 와 정합.
 - **잔여**: `find_test_history` 는 사외 PoC mock (`{"test_runs": []}`), `retrieve_similar_cases` 는 KB §5.5 미구현 placeholder (`{"similar_cases": []}`) — 실제 연동은 task-MVP-003-x.
 
-### task-MVP-003-x — `find_test_history` 사내 DB 연동 + `retrieve_similar_cases` KB 통합 + scope 인자 처리
+### task-MVP-003-x — `find_test_history` 사내 DB 연동 + scope 인자 처리
 - **출처**: PR #19 의도된 단순화 (mock + placeholder) + architect WARN-3 + security WARN-3 + code-reviewer WARN-5
 - **scope**:
   - `find_test_history` — 사내 MACRO test DB 접속 client 도입 + 실제 test_id 별 run history 반환. 사내 운영 진입 시점. `limit` 인자 실제 적용.
-  - `retrieve_similar_cases` — spec §5.5 Knowledge Base (`archived_cases` 테이블) 구현 후 keyword/signature 매칭 (Phase 1) 또는 벡터 임베딩 (Phase 2) 검색 로직 통합. **WARN-3 (sec MED)**: `error_signature` 길이 cap (`_MAX_SIGNATURE_LEN`), `top_k` 범위 (1..50) 검증.
+  - ~~`retrieve_similar_cases` — spec §5.5 Knowledge Base (`archived_cases` 테이블) 구현 후 keyword/signature 매칭 (Phase 1) 또는 벡터 임베딩 (Phase 2) 검색 로직 통합. **WARN-3 (sec MED)**: `error_signature` 길이 cap (`_MAX_SIGNATURE_LEN`), `top_k` 범위 (1..50) 검증.~~ **PR #21 처리 완료** — `SQLiteKBStore` Phase 1 + 보안 가드 도입.
   - **WARN-3 (arch LOW + code-r WARN-5)**: `get_environment_info` 의 `scope` 인자가 현재 silent 무시. ToolSpec description 에 "현재 무시됨 — 향후 필터링용 인터페이스 호환" 으로 명시하거나 실제 필터 (e.g. `scope="packages"` 만 반환) 구현.
-- **suggested branch**: `feat/tools-real-integration` (또는 KB PR 과 묶음)
+- **suggested branch**: `feat/tools-real-integration`
 - **reviewer scope**: 일반 (전체 reviewer cycle)
-- **priority**: medium — `find_test_history` 는 사내 운영 진입 시점, `retrieve_similar_cases` 는 KB §5.5 PR 후
+- **priority**: medium — `find_test_history` 는 사내 운영 진입 시점
+
+### task-KB-001 — KB Phase 2 벡터 임베딩 (RAG / case-based reasoning)
+- **출처**: PR #21 의도된 단순화 (Phase 1 keyword LIKE 만) — spec §5.5 Phase 2 선택 항목
+- **scope**: `SQLiteKBStore.search` 를 벡터 임베딩으로 업그레이드. sentence-transformers 또는 sqlite-vec / pgvector 평가 후 retrieval scoring 개선. `verified-master` source 가중치 우선 부여. Phase 1 LIKE fallback 유지.
+- **suggested branch**: `feat/kb-vector-search`
+- **reviewer scope**: 일반 (전체 reviewer cycle — 신규 외부 dep 포함)
+- **priority**: low — PoC validation 후 (KB 누적 케이스 충분해진 시점)
+
+### task-KB-002 — `archived_cases` populating 흐름 (분석 완료 후 자동 add)
+- **출처**: PR #21 의도된 단순화 — KB store 구현만, write 흐름 미연결
+- **scope**: Agent Core 의 `crystallize_report` 노드 종료 직후 `SQLiteKBStore.add` 호출 (spec §5.5 "Writer 위치" 참조). `source: poc` 또는 `production` 자동 태그. verifier 승격 (`source: verified-master`) hook 별도. task-MVP-004 (endpoint session 통합) 와 함께 진행.
+- **suggested branch**: `feat/kb-auto-archive`
+- **reviewer scope**: 일반 (전체 reviewer cycle)
+- **priority**: medium — task-MVP-004 (endpoint session 통합) 완료 후
 
 ### task-TEST-001 — MCP tools 테스트 보강 (branch coverage + schema 내용 검증)
 - **출처**: PR #19 test-engineer (WARN-5/6/7/8/9) + architect WARN-4 (LOW) + code-reviewer WARN-6 (LOW)
