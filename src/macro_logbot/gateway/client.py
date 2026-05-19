@@ -3,9 +3,9 @@
 Spec reference: docs/design/02-설계문서.md (v1.1) §4 LG · §7
 
 Supported model prefixes:
-  openai/     — e.g. "openai/gpt-4o-mini"
+  openai/     — e.g. "openai/gpt-4o"
   anthropic/  — e.g. "anthropic/claude-haiku-3-5"
-  gemini/     — e.g. "gemini/gemini-1.5-flash"
+  gemini/     — e.g. "gemini/gemini-2.5-flash-lite"
   groq/       — e.g. "groq/llama3-8b-8192"
 
 Provider API keys are read by LiteLLM directly from the environment:

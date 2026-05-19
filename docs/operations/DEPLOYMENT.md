@@ -106,7 +106,7 @@ nano .env          # 아래 .env 작성 가이드 참고
 | `MACRO_LOGBOT_LLM_PROVIDER` | (미설정) | `openai` / `anthropic` / custom | LiteLLM custom_provider |
 | `MACRO_LOGBOT_DEFAULT_MODEL` | `gemini/gemini-2.5-flash-lite` | `<사내-모델-이름>` | 기본 LLM 모델 |
 | `GEMINI_API_KEY` | `<발급 key>` (사외 PoC 용) | (미설정 — 사내 endpoint 사용) | Gemini API key |
-| `OPENAI_API_KEY` | (사외 PoC, 사용 시) | (미설정) | OpenAI API key — `MACRO_LOGBOT_DEFAULT_MODEL=openai/gpt-4o-mini` 등 사용 시 |
+| `OPENAI_API_KEY` | (사외 PoC, 사용 시) | (미설정) | OpenAI API key — `MACRO_LOGBOT_DEFAULT_MODEL=openai/gpt-4o` 등 사용 시 |
 | `ANTHROPIC_API_KEY` | (사외 PoC, 사용 시) | (미설정) | Anthropic API key — Claude 모델 사용 시 |
 | `GROQ_API_KEY` | (사외 PoC, 사용 시) | (미설정) | Groq API key — Llama 3.3 등 사용 시 (14,400 RPD free) |
 
