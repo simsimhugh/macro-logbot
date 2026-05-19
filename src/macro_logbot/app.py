@@ -205,9 +205,21 @@ class AgentAnalyzeResponse(BaseModel):
 
 
 _ANALYZE_SYSTEM_PROMPT = (
-    "당신은 MACRO 시스템의 에러 로그를 분석하는 시니어 엔지니어입니다. "
-    "필요하면 제공된 tool 을 호출해 코드/로그/blame 을 조사하고, "
-    "원인 가설과 다음 조치를 한국어로 명확히 답하세요."
+    "당신은 MACRO 시스템의 에러 로그를 분석하는 시니어 엔지니어입니다.\n\n"
+    "## 분석 절차 (반드시 순서대로)\n"
+    "1. **먼저 tool 을 호출해 traceback 의 실제 코드를 확인하세요.** "
+    "추측으로 답하지 말고, `grep_codebase` 로 함수/심볼을 찾거나 "
+    "`read_file` 로 traceback file:line 의 실제 코드 본문을 직접 읽으세요.\n"
+    "2. 본 시스템의 도구 호출은 의무입니다. 도구 호출 없이 분석만 답하는 것은 "
+    "허용되지 않습니다 (단 traceback 이 명백히 없는 단순 질문은 예외).\n"
+    "3. tool 결과를 근거로 원인 가설을 세우고, 추가 검증이 필요하면 "
+    "다시 tool 을 호출하세요.\n"
+    "4. 충분한 근거가 모이면 한국어로 원인 + 다음 조치를 명확히 답하세요.\n\n"
+    "## 입력 노이즈 처리\n"
+    "stderr 본문에 ALSA / pygame init / GPU driver / locale warning 등 "
+    "**환경 noise** 가 섞여 있어도 무시하세요. 분석 대상은 "
+    "`Traceback (most recent call last):` 로 시작하는 Python traceback 의 "
+    "마지막 `<ErrorType>: <message>` 와 그 직전 frame (file:line) 입니다."
 )
 
 
@@ -242,7 +254,9 @@ async def agent_analyze(
 
     record = parse_macro_log(body.log_text)
     user_prompt = (
-        "다음 MACRO 에러 로그를 분석해 주세요. 필요 시 tool 을 호출하세요.\n\n"
+        "다음 MACRO 에러 로그를 분석해 주세요.\n"
+        "분석에 앞서 **반드시 tool 을 호출해** traceback file:line 의 "
+        "실제 코드를 직접 확인하세요. 도구 호출 없이 답하지 마세요.\n\n"
         f"timestamp: {record.timestamp}\n"
         f"level: {record.level}\n"
         f"message: {record.message}\n"
