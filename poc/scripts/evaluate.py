@@ -198,12 +198,15 @@ def evaluate_case(
             tool_calls = backend_response["tool_calls"]
         judge_scores = run_judge(ground_truth, analysis_text, tool_calls, judge_model)
         result.update(judge_scores)
-        # 4항목 평균 (1-A / 1-B / 2-A / 2-B 각 25%).
-        s1a = score["naive_score_0_to_1"]
-        s1b = float(judge_scores["score_1b"].get("score", 0.0))
-        s2a = float(judge_scores["score_2a"].get("score", 0.0))
-        s2b = float(judge_scores["score_2b"].get("score", 0.0))
-        result["naive_score_total"] = round((s1a + s1b + s2a + s2b) / 4, 3)
+        # naive_score_total — 측정 실패 (score=None) 항목 제외 후 유효 항목만 평균
+        # (architect WARN-2: 측정 실패와 진짜 0 점을 구분 — 체계적 하향 편향 회피).
+        valid_scores: list[float] = [score["naive_score_0_to_1"]]
+        for key in ("score_1b", "score_2a", "score_2b"):
+            raw = judge_scores[key].get("score")
+            if raw is not None:
+                valid_scores.append(float(raw))
+        result["naive_score_total"] = round(sum(valid_scores) / len(valid_scores), 3)
+        result["scored_axes"] = len(valid_scores)  # 4 가 정상, < 4 면 일부 측정 실패.
     return result
 
 
@@ -310,7 +313,11 @@ def main(argv: list[str] | None = None) -> int:
         "--judge",
         default="none",
         choices=["none", "claude-haiku-4-5", "gemini/gemini-2.5-flash-lite"],
-        help="LLM judge 모델 (1-B/2-A/2-B 채점). none 이면 1-A 만 (기본 none)",
+        help=(
+            "LLM judge 모델 (1-B/2-A/2-B 채점). none 이면 1-A 만 (기본 none). "
+            "주의: 현 2-A/2-B 는 1차 /agent/analyze 응답 기반 interim 채점 — "
+            "spec §6.2 의 follow-up Q1/Q2/Q3 자동 호출 구현은 task-POC-001-x."
+        ),
     )
     parser.add_argument(
         "--anthropic-api-key",

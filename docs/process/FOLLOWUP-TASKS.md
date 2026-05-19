@@ -317,10 +317,26 @@
 - **size estimate**: workflow yml 1개 (30~50 lines)
 - **priority**: low (Stage 3 코드가 더 쌓인 후)
 
-### ~~task-POC-001~~ — 1-B/2-A/2-B Claude judge 채점 (PoC) ✅ **PR #27 머지**
+### ~~task-POC-001~~ — 1-B/2-A/2-B Claude judge 채점 (PoC) ✅ **PR #27 머지 (interim)**
 - **출처**: PR #14 (feat/poc-infrastructure) — 본 PR 은 1-A 결정론 채점만.
-- **처리 PR**: PR #27 (`feat/poc-claude-judge`) — `poc/scripts/claude_judge.py` 신규 (LiteLLM 사용, 신규 dep 없음). `judge_root_cause` (1-B) · `judge_tool_appropriateness` (2-A) · `judge_fix_direction` (2-B) 3 함수. `evaluate.py` 에 `--judge` / `--anthropic-api-key` 플래그 추가. `naive_score_total` 4항목 평균. `comparison.md` 컬럼 확장. 단위 테스트 6건 추가.
-- **잔여**: task-POC-002 (5→10 case 확장) — 정식 baseline 측정 시점에 진행.
+- **처리 PR**: PR #27 (`feat/poc-claude-judge`) — `poc/scripts/claude_judge.py` 신규 (LiteLLM 사용, 신규 dep 없음). `judge_root_cause` (1-B) · `judge_tool_appropriateness` (2-A) · `judge_fix_direction` (2-B) 3 함수. `evaluate.py` 에 `--judge` / `--anthropic-api-key` 플래그 추가. `naive_score_total` 4항목 평균 (측정 실패 None 항목 제외). `comparison.md` 컬럼 확장. 단위 테스트 6건. `seed=42` 결정성 baseline.
+- **잔여**:
+  - **task-POC-001-x (신규)**: 2-A/2-B 의 진짜 follow-up Q1/Q2/Q3 자동 호출 구현 (architect WARN-1 HIGH).
+  - **task-POC-002** (5→10 case 확장) — 정식 baseline 측정 시점에 진행.
+
+### task-POC-001-x — Follow-up 대화 (Q1/Q2/Q3) 자동 호출 + 2-A/2-B 진짜 채점
+- **출처**: PR #27 architect WARN-1 (HIGH) — 현 PR 은 1차 `/agent/analyze` 응답만으로 모든 4 항목 채점. spec §6.2 (`docs/process/04-PoC-운영가이드.md:236-258`) 의 2-A/2-B 는 본래 follow-up 대화 답변 채점 의도.
+- **scope**:
+  - `evaluate.py` 가 1차 분석 후 같은 session_id 로 Q1/Q2/Q3 자동 follow-up 호출 (task-MVP-004 의 session 통합 PR #25 활용).
+    - Q1: "어떤 추가 도구를 호출해보면 좋겠습니까?"
+    - Q2: "분석 결과를 어떻게 수정하시겠습니까?"
+    - Q3: "다른 가능성 있는 원인은?"
+  - 2-A judge — 1차 tool_calls + Q1 답변의 추가 tool_call 합쳐 채점.
+  - 2-B judge — Q2 답변의 fix 방향 + 1차 fix_hint 합쳐 채점.
+  - `comparison.md` 에 follow-up 채점 vs interim 채점 분리 컬럼.
+- **suggested branch**: `feat/poc-followup-questions`
+- **reviewer scope**: 일반
+- **priority**: medium — 본격 baseline 측정 (task-POC-002 후) 직전 처리
 
 ### task-POC-002 — error catalog 5 → 10 확장
 - **출처**: PR #14 — spec §10.4 / `docs/process/04-PoC-운영가이드.md` §4.2 의 Phase 1 카탈로그 10 개 명세 대비 본 PR 은 5 개만.

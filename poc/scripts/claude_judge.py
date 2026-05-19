@@ -26,15 +26,26 @@ _JSON_SYSTEM_PREFIX = (
     'Schema: {"score": <float>, "reasoning": <string>}'
 )
 
-# LiteLLM 호출 공통 kwargs.
+# LiteLLM 호출 공통 kwargs. seed=42 — LiteLLM provider 가 지원 시 결정성 ↑
+# (Anthropic/Gemini batch hashing 영향 일부 완화). spec §10.4 재현성 정합.
 _COMPLETION_KWARGS: dict[str, Any] = {
     "temperature": 0,
     "max_tokens": 256,
+    "seed": 42,
 }
 
 
 def _call_judge(system: str, user: str, model: str) -> dict[str, Any]:
-    """LiteLLM 으로 judge 호출. JSON parse 실패 시 score=0.0 + error reasoning 반환."""
+    """LiteLLM 으로 judge 호출. 측정 실패 시 score=None + error 필드 반환.
+
+    architect WARN-2 (PR #27): 측정 실패 (JSON parse / litellm 호출 실패 / 네트워크
+    timeout 등) 를 진짜 0 점과 구분 필요. naive_score_total 평균 산식에서 None 항목은
+    제외하고 denominator 조정 (호출처 책임).
+
+    Returns:
+      성공: {"score": float, "reasoning": str}
+      실패: {"score": None, "reasoning": str, "error": str}
+    """
     messages = [
         {"role": "system", "content": system},
         {"role": "user", "content": user},
@@ -47,9 +58,13 @@ def _call_judge(system: str, user: str, model: str) -> dict[str, Any]:
         reasoning = str(parsed.get("reasoning", ""))
         return {"score": score, "reasoning": reasoning}
     except json.JSONDecodeError as exc:
-        return {"score": 0.0, "reasoning": f"JSON parse error: {exc}"}
+        return {"score": None, "reasoning": f"JSON parse error: {exc}", "error": "json_decode"}
     except Exception as exc:  # noqa: BLE001
-        return {"score": 0.0, "reasoning": f"judge call error: {type(exc).__name__}: {exc}"}
+        return {
+            "score": None,
+            "reasoning": f"judge call error: {type(exc).__name__}: {exc}",
+            "error": "call_failure",
+        }
 
 
 def judge_root_cause(ground_truth: str, response: str, model: str) -> dict[str, Any]:

@@ -63,8 +63,9 @@ def test_judge_root_cause_json_parse_failure() -> None:
             response="some response",
             model="claude-haiku-4-5",
         )
-    assert result["score"] == 0.0
+    assert result["score"] is None
     assert "JSON parse error" in result["reasoning"]
+    assert result["error"] == "json_decode"
 
 
 # ---------------------------------------------------------------------------
@@ -91,8 +92,9 @@ def test_judge_tool_appropriateness_json_parse_failure() -> None:
             actual_tool_calls=[],
             model="claude-haiku-4-5",
         )
-    assert result["score"] == 0.0
+    assert result["score"] is None
     assert "JSON parse error" in result["reasoning"]
+    assert result["error"] == "json_decode"
 
 
 # ---------------------------------------------------------------------------
@@ -119,5 +121,6 @@ def test_judge_fix_direction_json_parse_failure() -> None:
             response_fix="",
             model="claude-haiku-4-5",
         )
-    assert result["score"] == 0.0
+    assert result["score"] is None
     assert "JSON parse error" in result["reasoning"]
+    assert result["error"] == "json_decode"
