@@ -349,6 +349,17 @@
 - **scope**: 인증 시도/실패, 비정상 요청, LLM 호출 오류 등을 표준 로깅 framework 으로 기록. 키/시크릿/PII 마스킹. spec §7.1 LG 책임에 포함될 가능성.
 - **priority**: deferred — `feat/agent-core` 또는 운영 진입 PR 시점
 
+### task-DOC-001 — Open WebUI 첫 사용 가이드 / API key rotation / backup-restore
+- **출처**: PR #22 docs(deployment) — 배포 가이드 scope 외 항목
+- **scope**: `docs/operations/` 추가 문서:
+  - Open WebUI 첫 접속 → 모델 선택 → MACRO 에러 로그 붙여넣기 walk-through
+  - `MACRO_LOGBOT_API_KEY` rotation 절차 (서비스 재시작 없는 rolling update 포함)
+  - `.open-webui-data/` 볼륨 backup / restore 절차
+- **suggested branch**: `docs/ops-user-guide`
+- **reviewer scope**: 메타 (architect + verifier)
+- **size estimate**: docs ~100 lines
+- **priority**: low — 운영 투입 직전
+
 ---
 
 ## Priority Order (실행 순서)
