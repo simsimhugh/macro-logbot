@@ -325,6 +325,9 @@ def _kb_auto_archive(kb_store: SQLiteKBStore, report: Report) -> None:
 
 
 # 미사용 import 방어 — get_openai_tools_schema 는 외부 모듈에서 import 가능하도록
-# 재노출 목적. underscore prefix getter 는 internal 의미 + patch.object 가 __all__ 무관
-# 하게 동작하므로 export 에서 제외 (code-r WARN-6).
-__all__ = ["app", "get_gateway", "get_openai_tools_schema", "_reset_singletons_for_test"]
+# 재노출 목적. underscore prefix internal 헬퍼 (_reset_singletons_for_test 등) 는
+# __all__ 에서 제외 — production `from app import *` 시 public surface 오염 방지
+# (code-r/sec/test WARN: public/internal 신호 충돌). 테스트는 `from macro_logbot.app
+# import _reset_singletons_for_test` 또는 `app_module._reset_singletons_for_test()`
+# 로 명시 접근 가능 (관례 호환).
+__all__ = ["app", "get_gateway", "get_openai_tools_schema"]

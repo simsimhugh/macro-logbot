@@ -5,6 +5,7 @@ from __future__ import annotations
 import sqlite3
 import time
 from collections.abc import Iterator
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -537,22 +538,33 @@ def test_agent_analyze_kb_archive_failure_keeps_200(
 # ---------------------------------------------------------------------------
 
 
-def test_singleton_thread_safety_double_checked_lock() -> None:
-    """10 thread 동시 호출 시 _get_session_store() 가 인스턴스 1개만 생성."""
+def test_singleton_thread_safety_double_checked_lock(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """10 thread 동시 호출 + threading.Barrier 강제 동시 진입 시 인스턴스 1개만 생성.
+
+    test-e WARN-1 fix: SQLite 파일을 tmp_path 안에 격리 (`.macro-logbot-sessions.db` cwd
+    오염 방지). teardown 보장.
+    code-r WARN-4 (LOW) 부분 보강: `threading.Barrier(10)` 으로 동시 진입 시점 동기화 —
+    GIL 의존 줄여 race 재현력 ↑.
+    """
     import threading
 
     import macro_logbot.app as app_module
     from macro_logbot.session import SQLiteSessionStore
 
-    # 싱글톤 초기화 — None 상태에서 경쟁 진입 보장.
+    # SQLite 파일 격리 + 환경 정리.
+    monkeypatch.setenv("MACRO_LOGBOT_SESSION_DB", str(tmp_path / "test.db"))
     app_module._reset_singletons_for_test()
 
     results: list[SQLiteSessionStore] = []
-    lock = threading.Lock()
+    results_lock = threading.Lock()
+    barrier = threading.Barrier(10)  # 동시 진입 강제.
 
     def call_get() -> None:
+        barrier.wait()  # 10 thread 가 동시 진입 시점 동기화.
         store = app_module._get_session_store()
-        with lock:
+        with results_lock:
             results.append(store)
 
     threads = [threading.Thread(target=call_get) for _ in range(10)]
@@ -562,11 +574,12 @@ def test_singleton_thread_safety_double_checked_lock() -> None:
         t.join()
 
     assert len(results) == 10
-    # 모든 호출이 동일 인스턴스를 반환해야 함 (identity check).
     first = results[0]
     assert all(r is first for r in results), (
         f"singleton 위반 — {len({id(r) for r in results})} 개 인스턴스 생성됨"
     )
+    # teardown — singleton 다시 None 으로 (다음 테스트 격리).
+    app_module._reset_singletons_for_test()
 
 
 @pytest.mark.asyncio

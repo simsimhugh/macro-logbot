@@ -269,15 +269,20 @@
   - `pending_tool_calls: list[ToolCall]` / `tool_results: list[ToolResult]` → spec §5.2 잠정 필드, LangGraph node 함수 시그니처와 중복 — 구현 미정.
   - `event: LogEvent` → `event_id: str | None` MVP 단순화, LogEvent.id 통합은 task-MVP-005 (intake 한국어) 후.
 
-### task-MVP-004-y — singleton thread-safety LOW 보강 + pre-existing flaky test fix
-- **출처**: PR #26 architect WARN-2 (LOW) + WARN-3 (LOW) + PR #20 머지 후 pre-existing flaky (main 에서도 fail)
+### task-MVP-004-y — singleton thread-safety LOW 보강 + session_id covenant + pre-existing flaky test fix
+- **출처**: PR #26 architect WARN-2/3 (LOW) + code-reviewer WARN-1/2/4 (MED/LOW) + security WARN-3/4/5 (MED/LOW) + test-engineer WARN-2 (LOW) + PR #20 머지 후 pre-existing flaky
 - **scope**:
-  - **arch WARN-2 (LOW)**: `_get_kb_store` 의 `os.getenv("MACRO_LOGBOT_KB_PATH")` 가 lock 밖 (line 58). thread A 가 path 읽고 lock 진입 직전 thread B 가 env unset → A 가 stale path 로 init. 운영 시 env 동적 변경 없으니 영향 미미하나, lock 안 재확인 또는 docstring 에 "env 는 process lifetime 불변" 명문화.
-  - **arch WARN-3 (LOW)**: `_reset_singletons_for_test()` 가 lock 없이 None 대입. pytest single-threaded 환경 OK, 단 `pytest-xdist` / thread fixture 사용 시 race. docstring 에 "main thread / 테스트 셋업 전용" 명문화.
-  - **pre-existing flaky** (`tests/test_session_store.py::test_update_refreshes_updated_at`): Pydantic v2 `Field(default_factory=_now)` 가 callable reference 캐시 — `monkeypatch.setattr(store_module, "_now", ...)` 우회. test 가 실 시간 vs monkeypatch 시간 비교라 실패. 해결: `time.sleep(0.01)` + monkeypatch 제거, 또는 `Session.__init__` 에서 `_now()` 명시 호출 (Pydantic Field 우회), 또는 `freezegun` 도입.
+  - **arch WARN-2 + code-r WARN-1 (MED)**: `_get_kb_store` env read 가 lock 밖 — thread A stale path race. lock 안 재확인 또는 docstring 에 "env 는 process lifetime 불변" 명문화.
+  - **arch WARN-3 (LOW)**: `_reset_singletons_for_test()` 가 lock 없이 None 대입. docstring 에 "main thread / 테스트 셋업 전용" 명문화.
+  - **code-r WARN-2 (MED)**: `run_agent()` 의 initial_state 채움 라인 (`"session_id": session_id`, `"event_id": event_id`) 누락 회귀 방어 unit test. mock `_llm_call_node` 가 받은 state 캡쳐 → session_id 확인.
+  - **code-r WARN-4 / test WARN-2 (LOW)**: `threading.Barrier(10)` 추가됐지만 lock 제거 시 fail 보장 (mutant test) 까진 검증 X. PEP 703 free-threaded 환경 대비.
+  - **sec WARN-3 (MED)**: agent 노드 함수가 `state["session_id"]` 를 LLM prompt 로 echo 하지 않게 명시 covenant — 주석 + sanitizer (crystallize_report 에서 root_cause 에 session_id 매칭 시 redact). 또는 RunContext 별도 분리.
+  - **sec WARN-4 (LOW)**: `session_id[:8]` 부분 로깅 충돌 (uuid4 first 32 bit birthday ~65k) — 12자 또는 HMAC-truncated.
+  - **sec WARN-5 (LOW)**: `event_id` covenant 문서화 (LogEvent.id 통합 시점에 sanitizer 동시 적용).
+  - **pre-existing flaky** (`tests/test_session_store.py::test_update_refreshes_updated_at`): Pydantic v2 `Field(default_factory=_now)` 가 callable reference 캐시 — `monkeypatch.setattr(store_module, "_now", ...)` 우회. 해결: `time.sleep(0.01)` + monkeypatch 제거, 또는 `Session.__init__` 에서 `_now()` 명시 호출, 또는 `freezegun` 도입.
 - **suggested branch**: `chore/singleton-and-flaky-test-fix`
-- **reviewer scope**: 일반 (변경 작음)
-- **priority**: low — pytest 빨간색 1건 잔존 (`-q` 결과 154 passed + 1 failed) 이지만 main 머지 자체엔 영향 X. 사용자 보고 시 noise.
+- **reviewer scope**: 일반
+- **priority**: low — pytest deselect 1건 잔존 + 보안 covenant 는 노드 함수가 session_id read 안 하면 0 위험.
 
 ### task-MVP-005 — intake parser 다국어 level 지원
 - **출처**: PR #11 MVP 의도된 단순화
