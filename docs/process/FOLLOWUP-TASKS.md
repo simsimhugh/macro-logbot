@@ -132,12 +132,25 @@
 - **처리 PR**: PR #20 (`feat/session-sqlite`) — `SQLiteSessionStore` + `SessionStore` Protocol 도입. `src/macro_logbot/session/store.py`. messages 직렬화 (단일 table). `InMemorySessionStore` 유지 (fallback/test).
 - **잔여**: `tool_history` / `follow_up_messages` / `report` 컬럼 확장 → task-MVP-002-x. endpoint 통합 → task-MVP-004.
 
-### task-MVP-002-x — Session 확장 컬럼 (tool_history / follow_up_messages / report)
-- **출처**: PR #20 의도된 단순화 (messages 만 직렬화, spec §5.4 4개 컬럼 미구현)
-- **scope**: `sessions` 테이블에 `tool_history_json`, `follow_up_messages_json`, `report_json` 컬럼 추가. spec §5.4 데이터 모델 완성. 정규화 또는 JSON column 확장 선택.
+### task-MVP-002-x — Session 확장 컬럼 (event_id / status / tool_history / follow_up_messages / report)
+- **출처**: PR #20 의도된 단순화 (messages 만 직렬화, spec §5.4 5개 컬럼 미구현) + architect WARN-2/4 (LOW)
+- **scope**: `sessions` 테이블에 spec §5.4 line 199~205 의 잔여 5개 필드 추가:
+  - `event_id TEXT` — Log Event 와의 1:N 관계 키 (spec §5.4 line 201).
+  - `status TEXT` — 분석 진행 상태 (`intake/analyzing/reported/followup` — §5.2 노드 상태와 연동).
+  - `tool_history_json TEXT` — `{ tool_name, args, result, ts }` 리스트.
+  - `follow_up_messages_json TEXT` — 1차 리포트 이후 대화.
+  - `report_json TEXT` — `{ root_cause, related_code_refs[], confidence, reasoning_summary }`.
+  - **arch WARN-4 (LOW)**: WAL mode 설정 (`PRAGMA journal_mode=WAL`) 을 매 connection 마다가 아닌 첫 init 1회로 최적화 (idempotent 라 안전, 단순한 마이크로 최적화).
 - **suggested branch**: `feat/session-columns`
 - **reviewer scope**: 일반 (전체 reviewer cycle)
 - **priority**: medium — multi-turn 분석 리포트 저장 필요 시점
+
+### task-MVP-002-y — Session retention 30일 cleanup
+- **출처**: PR #20 architect WARN-4 (LOW) — spec §5.4 line 209 `Retention: 분석 완료 후 30일 보관` 정책 미구현
+- **scope**: `SQLiteSessionStore` 에 `cleanup_expired(before: datetime)` 또는 `cleanup_older_than(days: int)` 메서드 추가. FastAPI startup hook 또는 별도 cron 으로 일 1회 호출. 검증셋 export 흐름은 별도 정의 필요.
+- **suggested branch**: `feat/session-retention`
+- **reviewer scope**: 일반
+- **priority**: low — 사외 PoC 단계 무영향, 사내 운영 진입 전
 
 ### ~~task-MVP-003~~ — MCP tools 나머지 4개 (spec §5.3) ✅ **PR #19 머지**
 - **처리 PR**: PR #19 (`feat/tools-remaining-4`) — `git_log`, `find_test_history`, `get_environment_info`, `retrieve_similar_cases` 4 함수 + 4 ToolSpec 추가, spec §5.3 9 tools 인터페이스 완성. 출력 키도 spec §5.3 표 (`test_runs[]`, `similar_cases[]`) 와 정합.

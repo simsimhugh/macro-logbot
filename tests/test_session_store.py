@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 
 from macro_logbot.gateway import Message
+from macro_logbot.gateway.models import FunctionCall, ToolCall
 from macro_logbot.session import (
     InMemorySessionStore,
     SessionStore,
@@ -139,3 +140,60 @@ def test_sqlite_store_protocol(tmp_path: Path) -> None:
     assert sqlite_store.get(s.id) is not None
     sqlite_store.update(s)
     assert sqlite_store.delete(s.id) is True
+
+
+def test_sqlite_store_tool_calls_round_trip(tmp_path: Path) -> None:
+    """spec §5.4 messages[] 의 tool_calls / tool_call_id / name 5필드 round-trip 보존.
+
+    agent loop multi-turn (assistant.tool_calls → tool.response) 시점에 surprise
+    방지. Pydantic v2 model_dump/model_validate 가 nested ToolCall.function.arguments
+    (JSON 문자열) 까지 통과시킴을 명시 검증.
+    """
+    store = SQLiteSessionStore(tmp_path / "sessions.db")
+    session = store.create()
+
+    # assistant message — tool_calls 호출 결정.
+    assistant = Message(
+        role="assistant",
+        content=None,
+        tool_calls=[
+            ToolCall(
+                id="call_001",
+                function=FunctionCall(
+                    name="read_file",
+                    arguments='{"path": "src/app.py", "max_lines": 50}',
+                ),
+            )
+        ],
+    )
+    # tool message — assistant 의 tool_call_id 에 대응하는 결과.
+    tool_response = Message(
+        role="tool",
+        tool_call_id="call_001",
+        name="read_file",
+        content='{"path": "src/app.py", "content": "..."}',
+    )
+    session.messages.extend([assistant, tool_response])
+    store.update(session)
+
+    fetched = store.get(session.id)
+    assert fetched is not None
+    assert len(fetched.messages) == 2
+
+    # assistant.tool_calls round-trip — nested FunctionCall.arguments JSON 보존.
+    fetched_assistant = fetched.messages[0]
+    assert fetched_assistant.role == "assistant"
+    assert fetched_assistant.content is None
+    assert fetched_assistant.tool_calls is not None
+    assert len(fetched_assistant.tool_calls) == 1
+    tc = fetched_assistant.tool_calls[0]
+    assert tc.id == "call_001"
+    assert tc.type == "function"
+    assert tc.function.name == "read_file"
+    assert tc.function.arguments == '{"path": "src/app.py", "max_lines": 50}'
+
+    # tool message — tool_call_id 및 name 보존.
+    fetched_tool = fetched.messages[1]
+    assert fetched_tool.role == "tool"
+    assert fetched_tool.tool_call_id == "call_001"
+    assert fetched_tool.name == "read_file"
