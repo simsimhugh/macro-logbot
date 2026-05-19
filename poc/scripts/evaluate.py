@@ -356,6 +356,8 @@ def main(argv: list[str] | None = None) -> int:
     if args.judge != "none":
         judge_model = args.judge
         # provider 별 default env 매핑 — LiteLLM 식별자 prefix 로 분기.
+        # else "" 분기는 argparse choices 가 _JUDGE_MODELS 강제하므로 사실상
+        # 도달 불가 (defensive — provider 추가 후 whitelist 갱신 누락 시 안전망).
         if judge_model.startswith("claude"):
             env_var = "ANTHROPIC_API_KEY"
         elif judge_model.startswith("gemini/"):

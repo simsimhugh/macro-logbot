@@ -242,6 +242,8 @@ JSON schema (`case-<id>.json`):
 | 2-A | Follow-up — 도구 재호출 적절성 · 새 단서 발굴 · 일관성 | 25% | Claude Code judge |
 | 2-B | Follow-up — 수정 방향(fix_hint) 정합성 | 25% | Claude Code judge |
 
+> **judge 모델 선택 원칙**: judge 는 analysis 모델과 **다른 provider** 권고 (self-bias 회피). 현 default analysis = `gemini/gemini-2.5-flash-lite` → judge default = `groq/llama-3.3-70b-versatile` (provider 독립, 14,400 RPD 무료, PR #31). 모델 변경 시 `poc/README.md §Judge 모델 선택 원칙` 참고.
+
 case별 분류:
 - `full`: 80% 이상
 - `partial`: 50~79%

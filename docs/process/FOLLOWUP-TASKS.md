@@ -319,7 +319,7 @@
 
 ### ~~task-POC-001~~ — 1-B/2-A/2-B Claude judge 채점 (PoC) ✅ **PR #27 머지 (interim)**
 - **출처**: PR #14 (feat/poc-infrastructure) — 본 PR 은 1-A 결정론 채점만.
-- **처리 PR**: PR #27 (`feat/poc-claude-judge`) — `poc/scripts/claude_judge.py` 신규 (LiteLLM 사용, 신규 dep 없음). `judge_root_cause` (1-B) · `judge_tool_appropriateness` (2-A) · `judge_fix_direction` (2-B) 3 함수. `evaluate.py` 에 `--judge` / `--anthropic-api-key` 플래그 추가. `naive_score_total` 4항목 평균 (측정 실패 None 항목 제외). `comparison.md` 컬럼 확장. 단위 테스트 6건. `seed=42` 결정성 baseline.
+- **처리 PR**: PR #27 (`feat/poc-claude-judge`) — `poc/scripts/claude_judge.py` 신규 (LiteLLM 사용, 신규 dep 없음). `judge_root_cause` (1-B) · `judge_tool_appropriateness` (2-A) · `judge_fix_direction` (2-B) 3 함수. `evaluate.py` 에 `--judge` / `--judge-api-key` 플래그 추가 (PR #31 에서 `--anthropic-api-key` → `--judge-api-key` 로 generic 화 + provider prefix 기반 env auto-detect). `naive_score_total` 4항목 평균 (측정 실패 None 항목 제외). `comparison.md` 컬럼 확장. 단위 테스트 6건. `seed=42` 결정성 baseline.
 - **잔여**:
   - **task-POC-001-x (신규)**: 2-A/2-B 의 진짜 follow-up Q1/Q2/Q3 자동 호출 구현 (architect WARN-1 HIGH).
   - ~~**task-POC-002**~~ (5→10 case 확장) — PR #30 에서 처리 완료.
@@ -380,6 +380,22 @@
 - **scope**: `poc/scripts/evaluate.py` 가 현재 `POST /agent/analyze` 단일 호출. spec `docs/design/02-설계문서.md` §9.4 + `docs/process/04-PoC-운영가이드.md` §5.3 는 `POST /events` → session_id polling → `GET /sessions/<id>/report` 흐름. **task-MVP-004 (session 통합) 완료 후** evaluate.py 마이그레이션, 또는 단기적으로 04-PoC-운영가이드 §5.3 endpoint 명세를 현행 MVP 와 일치하게 annotation.
 - **suggested branch**: `feat/poc-events-endpoint` (task-MVP-004 후) 또는 `docs/poc-guide-endpoint-annotation` (단기)
 - **priority**: medium — task-MVP-004 와 묶음
+
+### task-POC-006 — judge calibration + provider env mapping dict refactor
+- **출처**: PR #31 architect WARN-LOW-1 + code-reviewer LOW-1.
+- **scope (calibration)**: `temperature=0 + seed=42` 결정성 best-effort 지만 Groq Llama 3.3 70B 가 0.5↔1.0 boundary 일관성 사전 검증 없음. baseline 첫 case (E001) N≥3~5 dry-run → score variance 측정 → 0.5/1.0 swing 발견 시 `evaluate.py` 에 `--judge-runs N` 옵션 + median 자동 산출.
+- **scope (refactor)**: `evaluate.py:358-366` provider→env if/elif chain 을 `claude_judge._PROVIDER_ENV: dict[str, str]` 로 데이터 driven 화. 4번째 provider 추가 시점에 처리.
+- **suggested branch**: `feat/poc-judge-calibration`
+- **priority**: low — baseline 측정 결과 보고 0.5↔1.0 swing 빈도 확인 후 결정.
+
+### task-SEC-013 — `.env` perms + 외부 LLM judge 송신 한계 문서
+- **출처**: PR #31 security WARN-LOW-1/LOW-2.
+- **scope**:
+  - `.env.example` 에 `# 권장: chmod 600 .env (다른 user 읽기 차단)` 1줄 추가.
+  - `poc/README.md §한계` 에 "외부 LLM judge (Groq/Anthropic/Gemini) 송신 — traceback 본문 포함. 사내 운영 데이터 송신 금지" 1줄 추가.
+  - 사내 진입 시 secret store 이전 (`task-SEC-002` SSO/OAuth 묶기).
+- **suggested branch**: `docs/sec-env-and-judge-boundary`
+- **priority**: low — 사외 PoC 영향 0, 사내 진입 시점에 묶음 처리.
 
 ---
 

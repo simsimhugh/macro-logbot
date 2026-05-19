@@ -34,6 +34,16 @@ python poc/scripts/evaluate.py --cases E001,E002,E003,E004,E005,E006,E007,E008,E
 
 5. **결과**: `poc/reports/<YYYY-MM-DD>/{<case>.json,comparison.md}`.
 
+## Judge 모델 선택 원칙
+
+baseline 측정 결과의 fairness/재현성을 위해 judge 모델은 다음 기준으로 선정한다:
+
+1. **Analysis provider 와 다른 provider 권고** — self-bias 회피 (analysis 가 같은 family 의 모델로 채점되면 prompt phrasing/format 친화도가 채점에 편향 영향). 현재 analysis default 는 `gemini/gemini-2.5-flash-lite` → judge default 는 **Groq Llama 3.3 70B (`groq/llama-3.3-70b-versatile`)** 권장 (provider 독립, 14,400 RPD 무료).
+2. **결정성** — `temperature=0 + seed=42` (`claude_judge.py:35-39`) — provider 별 batch hashing 영향으로 variance 잔존 가능. 본격 baseline 측정 시 동일 case **N=3 run 후 median** 권고 (§결정성 참고).
+3. **모델 capacity** — 0.0/0.5/1.0 3-tier rubric 안정적 수행 위해 instruction-following + JSON format adherence 강한 70B 이상 또는 frontier-class 권장. Anthropic Claude Haiku 4.5 는 유료지만 단단함 (신규 가입 $5 free credit), Gemini Pro/Flash 는 무료 quota 도 있으나 analysis 와 같은 provider 라 self-bias 위험.
+
+판정 모델 변경 시 본 README §측정 명령 예시 + `_JUDGE_MODELS` 화이트리스트 (`claude_judge.py:24`) + 설계문서 §10.1 표를 함께 동기화.
+
 ## 채점 범위
 
 | 단계 | 평가 항목 | 비중 | 채점자 | 상태 |

@@ -161,7 +161,12 @@ def test_call_failure_returns_error_dict_with_redacted_detail() -> None:
 
 
 def test_judge_root_cause_with_groq_model() -> None:
-    """Groq Llama 3.3 70B model 식별자로도 정상 호출되는지 (whitelist 통과)."""
+    """groq 모델 식별자로 호출 시 api_key 가 LiteLLM kwargs 로 직접 전달되는지.
+
+    참고: `_JUDGE_MODELS` whitelist 는 argparse choices 레벨에서만 강제 —
+    `judge_root_cause` 함수 자체는 model 검사를 수행하지 않는다. 본 테스트는
+    provider switch (Anthropic → Groq) 회귀 가드 (api_key + model kwargs 전달).
+    """
     payload = json.dumps({"score": 1.0, "reasoning": "groq judge ok"})
     with patch("litellm.completion", return_value=_make_litellm_response(payload)) as m:
         result = judge_mod.judge_root_cause(
