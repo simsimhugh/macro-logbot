@@ -413,6 +413,15 @@
 - **size estimate**: docs ~100 lines
 - **priority**: low — 운영 투입 직전
 
+### task-DEMO-001 — demo_session.py 개선 (cleanup + semantic 분리)
+- **출처**: PR #29 architect WARN-3 (LOW) + WARN-4 (LOW)
+- **scope**:
+  - **WARN-3**: `--log` 와 `--prompt` 동작 동일 (둘 다 `log_text` forward) — docstring 에 "현재 backend 동작 동일, semantic hint 용 분리" 명시 또는 통합.
+  - **WARN-4**: `--case` 모드의 `tempfile.mkdtemp` cleanup — 매 실행마다 `/tmp/demo-*` 누적. `shutil.rmtree(workdir, ignore_errors=True)` REPL 종료 시점에 호출 또는 `tempfile.TemporaryDirectory` context manager 로 wrap.
+- **suggested branch**: `chore/demo-session-cleanup`
+- **reviewer scope**: 일반
+- **priority**: low — 데모 안정성
+
 ---
 
 ## Priority Order (실행 순서)

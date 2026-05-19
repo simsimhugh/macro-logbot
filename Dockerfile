@@ -40,7 +40,10 @@ COPY pyproject.toml README.md ./
 COPY src ./src
 
 # production install — dev tools (pytest/ruff/mypy) 제외.
-# PIP_TRUSTED_HOST 있으면 사내 mirror 인증서 검증 skip (사내 self-signed CA 대응).
+# PIP_TRUSTED_HOST 있으면 사내 mirror 인증서 검증 skip (self-signed CA 환경 우회).
+# 보안 trade-off: MITM 방어 약화 + supply-chain 무결성 검증 우회. 정공법은 사내 CA bundle
+# 을 image 에 COPY 또는 컨테이너에 마운트. `--trusted-host` 는 HTTP / self-signed 환경
+# 임시 우회용으로만 사용 (architect WARN-1 PR #29).
 ARG PIP_TRUSTED_HOST
 RUN pip install --upgrade pip \
     && pip install . ${PIP_TRUSTED_HOST:+--trusted-host ${PIP_TRUSTED_HOST}}

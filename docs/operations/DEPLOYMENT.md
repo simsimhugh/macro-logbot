@@ -162,7 +162,7 @@ curl -X POST http://localhost:8000/v1/chat/completions \
 2. Settings → Connections → OpenAI API → URL: `http://macro-logbot-backend:8000/v1`, Key: `MACRO_LOGBOT_API_KEY` 값.
 3. 모델 선택 → 채팅 시작.
 
-### multi-turn 데모 CLI (PR #28 — task-MVP-004 활용)
+### multi-turn 데모 CLI (task-MVP-004 session_id 활용)
 
 `scripts/demo_session.py` 가 첫 분석 → 같은 session_id 로 follow-up 대화를 ENABLE.
 
