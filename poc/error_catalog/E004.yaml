@@ -1,0 +1,31 @@
+id: E004
+title: "TypeError str + int in render_status"
+category: type
+target_file: snake.py
+target_function: render_status
+injection_diff: |
+  --- a/snake.py
+  +++ b/snake.py
+  @@ -119,4 +119,5 @@ class SnakeGame:
+       def render_status(self) -> str:
+           """score line — UI/log 둘 다에서 사용."""
+  -        return "score: " + str(self.score)
+  +        # bug: int 를 str 캐스팅 없이 concat — TypeError.
+  +        return "score: " + self.score
+trigger: "python snake.py --headless --auto-play 5"
+ground_truth:
+  root_cause: "render_status 가 'score: ' 문자열에 int(self.score) 를 str 캐스팅 없이 연결 — TypeError: can only concatenate str (not 'int') to str"
+  root_cause_keywords:
+    - "TypeError"
+    - "concatenate"
+    - "str"
+    - "int"
+    - "render_status"
+  location:
+    file: snake.py
+    function: render_status
+    line: 122
+  fix_hint: "str(self.score) 로 캐스팅 또는 f-string 사용: f'score: {self.score}'"
+  expected_tool_calls:
+    - grep_codebase
+    - read_file

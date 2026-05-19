@@ -1,0 +1,35 @@
+id: E001
+title: "AttributeError on NoneType in update_position"
+category: runtime
+target_file: snake.py
+target_function: update_position
+injection_diff: |
+  --- a/snake.py
+  +++ b/snake.py
+  @@ -61,8 +61,9 @@ class SnakeGame:
+       def init_game(self) -> None:
+           """게임 상태 초기화 — head 및 body 배치, 첫 food spawn."""
+  -        self.head = Segment(GRID_WIDTH // 2, GRID_HEIGHT // 2)
+  -        self.body = [Segment(self.head.x - 1, self.head.y)]
+  +        # bug: forgot to construct Segment for head — leaves it None.
+  +        self.head = None
+  +        self.body = [Segment(GRID_WIDTH // 2 - 1, GRID_HEIGHT // 2)]
+           self.direction = "RIGHT"
+           self.score = 0
+           self.alive = True
+trigger: "python snake.py --headless --auto-play 5"
+ground_truth:
+  root_cause: "init_game 에서 head 를 Segment 객체로 초기화하지 않고 None 으로 둔 상태에서 update_position 이 self.head.x 에 접근하여 AttributeError 발생"
+  root_cause_keywords:
+    - "AttributeError"
+    - "NoneType"
+    - "head"
+    - "init"
+  location:
+    file: snake.py
+    function: update_position
+    line: 90
+  fix_hint: "init_game 에서 self.head = Segment(GRID_WIDTH // 2, GRID_HEIGHT // 2) 로 head 를 정상 초기화"
+  expected_tool_calls:
+    - grep_codebase
+    - read_file

@@ -31,6 +31,13 @@ dev = [
     "ruff>=0.4",
     "mypy>=1.10",
     "httpx>=0.27",  # FastAPI TestClient 의존
+    # PoC infra — poc/scripts + poc/targets/snake-game 만 의존. 런타임 backend 미사용.
+    # pygame (mainline) 은 Python 3.14 휠 미제공 → sdl2-config 빌드 필요.
+    # pygame-ce (community edition) 는 cp314 manylinux 휠 제공 + `import pygame`
+    # drop-in 호환. spec §10.4 의 "pygame Snake" 요구는 그대로 충족.
+    "pygame-ce>=2.5",
+    "pyyaml>=6.0",
+    "types-PyYAML>=6.0",  # mypy strict 모드 stub.
 ]
 
 [tool.setuptools.packages.find]
