@@ -3,9 +3,17 @@
 # NOTE: pyproject.toml 의 requires-python = ">=3.14" 제약 때문에 base 도
 # Python 3.14 가 필요하다. python:3.14-slim 이 가용하지 않으면 빌드 단계에서
 # 명시적으로 실패시켜 호환성을 보고하도록 한다 (silent downgrade 금지).
-FROM python:3.14-slim AS runtime
+#
+# 사외 PoC default. 사내 운영은 build args 로 사내 mirror swap.
+#   docker compose build --build-arg BASE_IMAGE=<사내-registry>/python:3.14-slim \
+#                        --build-arg PIP_INDEX_URL=https://<사내-pypi>/simple
+ARG BASE_IMAGE=python:3.14-slim
+ARG PIP_INDEX_URL=https://pypi.org/simple
 
-ENV PYTHONUNBUFFERED=1 \
+FROM ${BASE_IMAGE} AS runtime
+
+ENV PIP_INDEX_URL=${PIP_INDEX_URL} \
+    PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PIP_NO_CACHE_DIR=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1
