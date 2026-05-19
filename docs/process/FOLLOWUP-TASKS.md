@@ -317,13 +317,10 @@
 - **size estimate**: workflow yml 1개 (30~50 lines)
 - **priority**: low (Stage 3 코드가 더 쌓인 후)
 
-### task-POC-001 — 1-B/2-A/2-B Claude judge 채점 (PoC)
+### ~~task-POC-001~~ — 1-B/2-A/2-B Claude judge 채점 (PoC) ✅ **PR #27 머지**
 - **출처**: PR #14 (feat/poc-infrastructure) — 본 PR 은 1-A 결정론 채점만.
-- **scope**: spec §10.1 의 1-B (root_cause 의미 매칭) · 2-A (follow-up tool 적절성) · 2-B (수정 방향 정합성) 를 Claude Code judge 로 채점하는 별도 스크립트 (`poc/scripts/judge.py`) 또는 main session 호출 가이드. follow-up Q1/Q2/Q3 자동 호출 흐름 포함.
-- **suggested branch**: `feat/poc-judge`
-- **reviewer scope**: 일반 (전체 reviewer cycle)
-- **size estimate**: ~200 lines + tests + docs
-- **priority**: high — PoC baseline 매트릭스 합산 점수 필수
+- **처리 PR**: PR #27 (`feat/poc-claude-judge`) — `poc/scripts/claude_judge.py` 신규 (LiteLLM 사용, 신규 dep 없음). `judge_root_cause` (1-B) · `judge_tool_appropriateness` (2-A) · `judge_fix_direction` (2-B) 3 함수. `evaluate.py` 에 `--judge` / `--anthropic-api-key` 플래그 추가. `naive_score_total` 4항목 평균. `comparison.md` 컬럼 확장. 단위 테스트 6건 추가.
+- **잔여**: task-POC-002 (5→10 case 확장) — 정식 baseline 측정 시점에 진행.
 
 ### task-POC-002 — error catalog 5 → 10 확장
 - **출처**: PR #14 — spec §10.4 / `docs/process/04-PoC-운영가이드.md` §4.2 의 Phase 1 카탈로그 10 개 명세 대비 본 PR 은 5 개만.
@@ -416,7 +413,7 @@
 10. **task-MVP-004 / 005 / 009** — 운영·다국어·MCP 분리 (필요 시점)
 11. **task-006** — Python 3.14 CI matrix (Stage 3 진척 후)
 12. **task-POC-004** — `.env` 자동 로드 pytest 격리 (CI 통과 안정화)
-13. **task-POC-001** — 1-B/2-A/2-B Claude judge 채점 (PoC baseline 합산 점수)
+13. ~~**task-POC-001**~~ — 1-B/2-A/2-B Claude judge 채점 ✅ PR #27
 14. **task-POC-002** — error catalog 5 → 10 확장
 15. **task-POC-003** — 4 모델 매트릭스 비교
 16. **deferred 항목들** — 발견 시점에 처리

@@ -34,16 +34,31 @@ python poc/scripts/evaluate.py --cases E001,E002,E003,E004,E005
 
 5. **결과**: `poc/reports/<YYYY-MM-DD>/{<case>.json,comparison.md}`.
 
-## 채점 범위 (본 PR)
+## 채점 범위
 
-| 단계 | 평가 항목 | 비중 | 채점자 | 본 PR |
+| 단계 | 평가 항목 | 비중 | 채점자 | 상태 |
 |---|---|---|---|---|
 | 1-A | file:line substring 매칭 | 25% | 결정론 스크립트 | ✅ `evaluate.py` |
-| 1-B | root_cause 의미 매칭 | 25% | Claude judge | ❌ task-POC-001 |
-| 2-A | follow-up 도구 적절성 | 25% | Claude judge | ❌ task-POC-001 |
-| 2-B | follow-up 수정 방향 정합성 | 25% | Claude judge | ❌ task-POC-001 |
+| 1-B | root_cause 의미 매칭 | 25% | LLM judge | ✅ `claude_judge.py` (PR #27) |
+| 2-A | follow-up 도구 적절성 | 25% | LLM judge | ✅ `claude_judge.py` (PR #27) |
+| 2-B | follow-up 수정 방향 정합성 | 25% | LLM judge | ✅ `claude_judge.py` (PR #27) |
 
-본 PR 의 `evaluate.py` 는 1-A 만 자동 — file 이름과 line 번호의 substring 매칭 + `root_cause_keywords` 의 substring 매칭으로 0~1 naive score 계산. 본격 채점은 후속.
+`evaluate.py --judge claude-haiku-4-5` 옵션으로 1-A ~ 2-B 4단계 전체 채점 가능. judge 없이 실행 시 1-A 만 (기존 동작 유지).
+
+### 측정 명령 예시
+
+```bash
+# 1-A 만 (judge 없음 — 기본)
+python poc/scripts/evaluate.py --cases E001 --api-key $MACRO_LOGBOT_API_KEY
+
+# 4단계 전체 채점 (Claude Haiku judge)
+python poc/scripts/evaluate.py --cases E001 --judge claude-haiku-4-5 \
+    --anthropic-api-key sk-ant-...
+
+# Gemini judge 사용 시
+python poc/scripts/evaluate.py --cases E001,E002,E003 \
+    --judge gemini/gemini-2.5-flash-lite
+```
 
 ## case 추가
 
