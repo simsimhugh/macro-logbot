@@ -322,7 +322,7 @@
 - **처리 PR**: PR #27 (`feat/poc-claude-judge`) — `poc/scripts/claude_judge.py` 신규 (LiteLLM 사용, 신규 dep 없음). `judge_root_cause` (1-B) · `judge_tool_appropriateness` (2-A) · `judge_fix_direction` (2-B) 3 함수. `evaluate.py` 에 `--judge` / `--anthropic-api-key` 플래그 추가. `naive_score_total` 4항목 평균 (측정 실패 None 항목 제외). `comparison.md` 컬럼 확장. 단위 테스트 6건. `seed=42` 결정성 baseline.
 - **잔여**:
   - **task-POC-001-x (신규)**: 2-A/2-B 의 진짜 follow-up Q1/Q2/Q3 자동 호출 구현 (architect WARN-1 HIGH).
-  - **task-POC-002** (5→10 case 확장) — 정식 baseline 측정 시점에 진행.
+  - ~~**task-POC-002**~~ (5→10 case 확장) — PR #30 에서 처리 완료.
 
 ### task-POC-001-x — Follow-up 대화 (Q1/Q2/Q3) 자동 호출 + 2-A/2-B 진짜 채점
 - **출처**: PR #27 architect WARN-1 (HIGH) — 현 PR 은 1차 `/agent/analyze` 응답만으로 모든 4 항목 채점. spec §6.2 (`docs/process/04-PoC-운영가이드.md:236-258`) 의 2-A/2-B 는 본래 follow-up 대화 답변 채점 의도.
@@ -338,13 +338,10 @@
 - **reviewer scope**: 일반
 - **priority**: medium — 본격 baseline 측정 (task-POC-002 후) 직전 처리
 
-### task-POC-002 — error catalog 5 → 10 확장
+### ~~task-POC-002~~ — error catalog 5 → 10 확장 ✅ **PR #30 머지**
 - **출처**: PR #14 — spec §10.4 / `docs/process/04-PoC-운영가이드.md` §4.2 의 Phase 1 카탈로그 10 개 명세 대비 본 PR 은 5 개만.
-- **scope**: E006 (reversed if condition) · E007 (division by zero) · E008 (infinite loop / 타임아웃) · E009 (wrong variable assignment) · E010 (encoding error 한글 처리) — yaml 5 개 추가 + inject/trigger 검증.
-- **suggested branch**: `feat/poc-catalog-expand`
-- **reviewer scope**: 일반
-- **size estimate**: yaml 5개 + tests
-- **priority**: medium — task-POC-001 이후
+- **처리 PR**: PR #30 (`feat/poc-catalog-expand-10`) — E006 (AttributeError is_dead in step) · E007 (ZeroDivisionError ticks=0) · E008 (infinite loop spawn_food) · E009 (wrong assignment body insert) · E010 (UnicodeEncodeError ascii encode) yaml 5개 추가. inject/trigger 검증 완료. `tests/test_poc_catalog.py` 신규 (52 tests). `tests/test_poc_trigger.py` E008 timeout rc=2 허용 수정.
+- **잔여**: task-POC-003 (4 모델 매트릭스) — `--model` swap 으로 evaluate.py 가 이미 지원, scope 작은 후속.
 
 ### task-POC-003 — 4 모델 매트릭스 비교 (PoC)
 - **출처**: PR #14 — 본 PR `evaluate.py` 는 단일 `--model` 만 지원.
@@ -430,7 +427,7 @@
 11. **task-006** — Python 3.14 CI matrix (Stage 3 진척 후)
 12. **task-POC-004** — `.env` 자동 로드 pytest 격리 (CI 통과 안정화)
 13. ~~**task-POC-001**~~ — 1-B/2-A/2-B Claude judge 채점 ✅ PR #27
-14. **task-POC-002** — error catalog 5 → 10 확장
+14. ~~**task-POC-002**~~ — error catalog 5 → 10 확장 ✅ PR #30
 15. **task-POC-003** — 4 모델 매트릭스 비교
 16. **deferred 항목들** — 발견 시점에 처리
 

@@ -1,0 +1,36 @@
+id: E009
+title: "Wrong assignment direction in update_position body insert"
+category: logic
+target_file: snake.py
+target_function: update_position
+injection_diff: |
+  --- a/snake.py
+  +++ b/snake.py
+  @@ -86,8 +86,9 @@ class SnakeGame:
+       def update_position(self) -> None:
+           """방향에 따라 head 와 body 를 한 칸 이동."""
+           dx, dy = DIRECTIONS[self.direction]
+           new_x = self.head.x + dx
+           new_y = self.head.y + dy
+           # body 는 마지막을 떼어 head 자리에 넣는 방식 (간단 구현).
+  -        self.body.insert(0, Segment(self.head.x, self.head.y))
+  +        # bug: head 좌표에 body[0] 의 좌표를 덮어씀 — 이동 정보 소실.
+  +        self.head.x, self.head.y = self.body[0].x, self.body[0].y
+           self.body.pop()
+           self.head.x = new_x
+trigger: "python snake.py --headless --auto-play 5"
+ground_truth:
+  root_cause: "update_position 에서 body insert 대신 head 좌표를 body[0] 으로 덮어써서 이동 정보가 소실되고 head 가 body[0] 위치로 텔레포트 — detect_collision 이 즉시 self-collision True 반환"
+  root_cause_keywords:
+    - "update_position"
+    - "body"
+    - "head"
+    - "assignment"
+  location:
+    file: snake.py
+    function: update_position
+    line: 93
+  fix_hint: "self.body.insert(0, Segment(self.head.x, self.head.y)) 로 head 현재 위치를 body 앞에 삽입하는 원래 로직으로 복원"
+  expected_tool_calls:
+    - grep_codebase
+    - read_file
