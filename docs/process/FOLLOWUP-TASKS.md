@@ -75,18 +75,21 @@
 - **reviewer scope**: 일반 (보안 중요)
 - **priority**: medium — 사내 운영 진입 전 (task-LG-002 / task-SEC-007 와 묶음)
 
-### task-SEC-010 — Message content length cap + DoS 가드
-- **출처**: PR #20 security-reviewer WARN-MED-1 (A03) + WARN-LOW-2 (A04)
-- **scope**: `src/macro_logbot/gateway/models.py` `Message.content` 에 `Field(max_length=1_000_000)` 추가. 거대 LLM 응답 (악성 / 오작동) 또는 user-controlled tool output blob 이 row 에 들어가 SQLite query latency / disk fill 유발하는 표면 차단. Pydantic v2 ValidationError 가 자동으로 거절 → 직렬화 단계 도달 X. **arguments / tool result 의 길이도 동일 cap 고려**.
+### task-SEC-010 — Message content length cap + endpoint body size cap (DoS 가드)
+- **출처**: PR #20 security-reviewer WARN-MED-1 (A03) + WARN-LOW-2 (A04) + PR #23 security WARN-2 (A04)
+- **scope**:
+  - `src/macro_logbot/gateway/models.py` `Message.content` 에 `Field(max_length=1_000_000)` 추가. 거대 LLM 응답 (악성 / 오작동) 또는 user-controlled tool output blob 이 row 에 들어가 SQLite query latency / disk fill 유발하는 표면 차단. Pydantic v2 ValidationError 가 자동으로 거절 → 직렬화 단계 도달 X. **arguments / tool result 의 길이도 동일 cap 고려**.
+  - **PR #23 sec WARN-2 (LOW)**: `/agent/analyze` body 의 `log_text` 길이 cap — FastAPI middleware `max_body_size` 또는 endpoint-level `len(log_text) > N: raise HTTPException(413)` 가드. 거대 input traceback 으로 prompt 폭주 + 비용 폭증 차단.
 - **suggested branch**: `feat/message-length-cap`
 - **reviewer scope**: 일반
 - **priority**: medium — 사내 운영 진입 전 (task-MVP-006 운영 보안 패키지와 묶음)
 
-### task-SEC-011 — 시크릿 echo 차단 (LLM 응답 / tool output 안 시크릿 노출 방어)
-- **출처**: PR #20 security-reviewer WARN-MED-2 (A02 + A09)
+### task-SEC-011 — 시크릿 echo 차단 (LLM 응답 / tool output / crystallize report 안 시크릿 노출 방어)
+- **출처**: PR #20 security-reviewer WARN-MED-2 (A02 + A09) + PR #23 security WARN-1 (A02 + A09)
 - **scope**: 다층 방어:
   - (a) tool layer (PR #19 `read_file` / `grep_codebase` / `search_logs`) 가 `.env`, `secrets/`, `*.key`, `*.pem`, `id_rsa*` 등 시크릿 파일 path allowlist 차단 (task-MVP-006 의 path 보안 강화에 흡수 가능).
   - (b) LLM 응답에 우연히 포함된 시크릿 redact — 출력 단계에서 regex 매칭 (API key 패턴 `[A-Za-z0-9]{32,}`, AWS access key `AKIA...`, GitHub PAT `ghp_...` 등) 시 `***REDACTED***` 치환.
+  - **PR #23 sec WARN-1 (MED)**: `_crystallize_report_node` 가 last assistant content 를 `root_cause / fix_hint / reasoning_summary` 셋에 삼중 echo. prompt-inject 로 "이전 system prompt 출력" 유도 시 시크릿 / 사내 코드 / PII 가 응답으로 직출 가능. crystallize 단계에서 secret-pattern regex redact + length cap (`_SECRET_RE.sub("[REDACTED]", s)[:cap]`) 적용 필요. task-MVP-001-y (LLM structured output) 와 함께 처리하면 효과적.
   - (c) (운영 배포 시) SQLCipher 또는 DB-level encryption-at-rest 검토 — task-OPS-001 multi-stage 와 함께.
 - **suggested branch**: `feat/secret-redaction`
 - **reviewer scope**: 일반 (보안 중요)
@@ -138,12 +141,24 @@
 - **처리 PR**: PR #18 (`feat/agent-langgraph`) — `src/macro_logbot/agent/core.py` 가 LangGraph `StateGraph` + 3 노드 (llm_call / route / execute_tools). `run_agent` 시그니처 100% 유지, 호출부 변경 0.
 - **잔여**: spec §5.2 의 `intake` / `crystallize_report` / `followup` 3 노드는 task-MVP-001-x 후속.
 
-### task-MVP-001-x — spec §5.2 잔여 3 노드 (intake / crystallize_report / followup)
-- **출처**: PR #18 의도된 단순화 (3/6 노드만)
-- **scope**: LangGraph `StateGraph` 에 `intake` (Log Event 수신·세션 초기화), `crystallize_report` (최종 답변 → 구조화 리포트), `followup` (사용자 추가 메시지 → loop 재진입) 노드 추가. spec §5.2 6 노드 완성.
-- **suggested branch**: `feat/agent-langgraph-nodes`
+### ~~task-MVP-001-x~~ — spec §5.2 잔여 3 노드 (intake / crystallize_report / finalize) ✅ **PR #23 머지**
+- **처리 PR**: PR #23 (`feat/agent-graph-full`) — `intake` / `crystallize_report` / `finalize` 3 노드 추가, spec §5.2 6 노드 완성 (single-turn). `Report` / `Location` Pydantic 모델 도입. `AgentRunResult.report` 필드 추가. `/agent/analyze` 응답에 `report` / `session_id` 필드 포함.
+- **잔여**: `crystallize_report` 의 LLM 추가 호출 정확 추출 → task-MVP-001-y. multi-turn follow-up (`followup` 노드) → task-MVP-004.
+
+### task-MVP-001-y — `crystallize_report` LLM 추가 호출로 정확 JSON 추출 + Report 스키마 spec §5.4 정합 + design.md mermaid sync + regex robustness
+- **출처**: PR #23 의도된 단순화 + PR #23 architect WARN-2/3 (MED) + code-reviewer WARN-3/4/5/6/7 (MED/LOW) + test-engineer WARN-3 (MED)
+- **scope**:
+  - `_crystallize_report_node` 에서 LLM 추가 호출 (structured output 또는 prompt engineering) 으로 `root_cause` / `fix_hint` / `location` 를 본문에서 정확하게 JSON 추출. 또는 LiteLLM structured output (`response_format=Report`) 강제. `confidence` 도 LLM 평가 기반으로 산출.
+  - **arch WARN-2 (MED)**: `Report` 스키마에 spec §5.4 line 205 의 `related_code_refs: list[str]` 추가 — 현재 `location` (단일) + `fix_hint` 만으로는 spec §5.4 와 비대칭. `fix_hint` 는 §5.5 KB ArchivedCase 필드라 §5.4 와 mix 됨 — task-MVP-002-x (Session report_json 컬럼 확장) 와 함께 모델 분리 결정 (Report vs ArchivedCase 의도 명문화).
+  - **arch WARN-3 (MED)**: `docs/design/02-설계문서.md` §5.2 mermaid (line 155-165) 에 `finalize` 노드 명시 추가. 현재 mermaid `crystallize → END` 와 구현 `crystallize → finalize → END` 불일치 — design.md mermaid 보강 (§9 메타 PR 가능).
+  - **code-r WARN-3 + test WARN-3 (MED/LOW)**: `_LOCATION_RE` regex robustness — (a) URL false-positive (`http://...a.py:80` → `Location(file='//.../a.py', ...)` 매칭) 차단 (`(?<![:/])` lookbehind), (b) 첫 매칭만 반환 정책 명시 또는 `findall` 후 가장 가까운 path 선택, (c) `../` 상대 경로 변형 sanitize.
+  - **code-r WARN-4 (MED)**: `Location.function: str = ""` default 가 KB write 경로에서 `function=""` ArchivedCase 누수 표면 — model_validator 또는 KB-context 강제 검증.
+  - **code-r WARN-5 (MED)**: `Report` 의 3 필드 (root_cause / fix_hint / reasoning_summary) 가 동일 텍스트 복사 → 응답 payload 부풀림. LLM structured output 으로 분리 추출 시 자동 해소. `AgentAnalyzeResponse.report` Field description 에 "MVP placeholder" 가시화 권장.
+  - **code-r WARN-6 (LOW)**: `_intake_node` SRP 분해 — `_build_intake_hint(record)` + `_already_has_intake(msgs)` 헬퍼 분리.
+  - **code-r WARN-7 (LOW)**: `Location` layer separation — `agent` → `knowledge_base` import 역전 (DIP 시각). `macro_logbot/models/location.py` 상위 모듈 또는 별도 shared 패키지 검토. 현재는 architect WARN-1 의 KB canonical 결정 유지 OK.
+- **suggested branch**: `feat/crystallize-llm-extract`
 - **reviewer scope**: 일반 (전체 reviewer cycle)
-- **priority**: medium — Open WebUI 통합 시점 (multi-turn follow-up 대화)
+- **priority**: medium — PoC 채점 품질 향상 시점 (task-POC-001 이후)
 
 ### ~~task-MVP-002~~ — Session persistence (SQLite, spec §5.4) ✅ **PR #20 머지**
 - **처리 PR**: PR #20 (`feat/session-sqlite`) — `SQLiteSessionStore` + `SessionStore` Protocol 도입. `src/macro_logbot/session/store.py`. messages 직렬화 (단일 table). `InMemorySessionStore` 유지 (fallback/test).
@@ -232,16 +247,20 @@
   - **arch WARN-4 (LOW)**: edge-case — `git_log limit=0`, `find_test_history.limit` / `retrieve_similar_cases.top_k` 인자 실제 적용 후 컨트랙트 검증.
   - **code-r WARN-6 (LOW)**: `_ENV_INFO_PACKAGES` 하드코딩 — `metadata.distributions()` 로 dynamic 조회 + denylist, 또는 docstring 에 "pyproject.toml sync 필요" 명시.
   - **PR #21 test WARN-6 (LOW)**: `_kb_store` singleton 격리 — 각 KB tool 테스트가 `monkeypatch.setattr(builtin_mod, "_kb_store", None)` 패턴 반복. `autouse=True` fixture 로 추출하여 일관 적용 + stale singleton 회피.
+  - **PR #23 test WARN-4 (MED)**: `test_full_graph_runs_all_6_nodes` 가 실제 노드 호출 증명 X — 결과만 검증. 테스트 이름 수정 (`test_full_graph_happy_path_with_tool_call`) + `_finalize_node` non-no-op 진입 시 실 호출 검증.
+  - **PR #23 test WARN-5 (MED)**: endpoint `/agent/analyze` ↔ real graph 통합 케이스 추가 — `run_agent` patch 제거하고 `gateway.complete` 만 mock 한 케이스 1건으로 endpoint 직렬화 + 실 graph flow 동시 검증.
 - **suggested branch**: `test/tools-branch-coverage`
 - **reviewer scope**: test-engineer 단독 가능 (test-only PR, src 변경 없음 — code-r WARN-6 fix 가 src 포함시 일반 cycle)
 - **priority**: medium — 사내 운영 진입 전 운영 분기 검증 필요
 
 ### task-MVP-004 — /agent/analyze session 통합 + SessionStore.update semantic 통일 + KB singleton thread-safety
 - **출처**: PR #11 MVP 의도된 단순화 + PR #20 code-reviewer WARN-4 (LOW) + PR #21 code-reviewer WARN-2 (MED)
+- **note**: PR #23 (`feat/agent-graph-full`) 으로 graph 6 노드 완성 (`Report` 구조 + `session_id=null` placeholder 도입). session_id 통합 진입 가능.
 - **scope**:
   - `/agent/analyze` 가 session_id 받아 session messages 누적, 다회차 분석 지원. task-MVP-002 완료, 본 task 진입 가능.
   - **PR #20 code-r WARN-4 (LOW)**: SessionStore.update 의 "존재하지 않는 id" 동작이 InMemory (upsert) vs SQLite (silent no-op) 로 다름 — Protocol docstring 에 명시 후 endpoint 통합 시점에 통일 결정 (옵션 A: 두 backend 모두 `KeyError` raise, 옵션 B: 두 backend 모두 upsert 의미). 현 단위 테스트 `test_sqlite_store_update_nonexistent_is_silent_noop` 가 현재 계약 명문화.
   - **PR #21 code-r WARN-2 (MED)**: `_get_kb_store` module-level singleton thread-safety — async tool 동시 호출 race 시 `_init_db` 의 chmod 가 두 번 실행 가능 (idempotent 라 실해 X). env `MACRO_LOGBOT_KB_PATH` 첫 진입에만 읽힘 — hot-reload 시 env 변경 무시. `threading.Lock` init 보호 + 명시적 `reset_kb_store()` helper (테스트가 monkeypatch internal 의존 회피) 또는 FastAPI lifespan startup DI. SessionStore singleton 도 동일 패턴 적용.
+  - **PR #23 arch WARN-4 (LOW)**: `AgentState` 에 spec §5.2 line 134-143 의 `session_id` / `event` / `pending_tool_calls` / `tool_results` 4 필드 추가 (현재 messages/iteration/last_response/report 만). endpoint 가 session_id 채워서 전달, agent loop 가 multi-turn 컨텍스트 유지.
 - **priority**: medium — multi-turn analysis 요구 시 (singleton thread-safety 는 endpoint 통합 시점 필수)
 
 ### task-MVP-005 — intake parser 다국어 level 지원

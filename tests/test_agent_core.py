@@ -51,12 +51,22 @@ def _mock_gateway(responses: list[ChatCompletionResponse]) -> LLMGateway:
 
 @pytest.mark.asyncio
 async def test_run_agent_no_tool_calls_returns_immediately() -> None:
+    from macro_logbot.agent import Report
+
     gw = _mock_gateway([_resp(content="done", tool_calls=None)])
     result = await run_agent([Message(role="user", content="hi")], gw)
     assert result.iterations == 1
     assert result.response.choices[0].message.content == "done"
-    # messages: [user, assistant].
-    assert len(result.messages) == 2
+    # messages: [system(intake), user, assistant].
+    # intake 노드가 [INTAKE] system 메시지를 prepend 한다.
+    assert len(result.messages) == 3
+    assert result.messages[0].role == "system"
+    assert result.messages[0].content is not None
+    assert result.messages[0].content.startswith("[INTAKE]")
+    # crystallize_report 노드가 항상 실행되므로 report 는 None 이 아님 (PR #23 test WARN-7).
+    assert result.report is not None
+    assert isinstance(result.report, Report)
+    assert result.report.root_cause == "done"
 
 
 @pytest.mark.asyncio
@@ -85,9 +95,10 @@ async def test_run_agent_executes_tool_round_trip(
     result = await run_agent([Message(role="user", content="read the file")], gw)
     assert result.iterations == 2
     assert result.response.choices[0].message.content == "analysis complete"
-    # messages: [user, assistant(tool_calls), tool(result), assistant(final)]
-    assert len(result.messages) == 4
-    tool_msg = result.messages[2]
+    # messages: [system(intake), user, assistant(tool_calls), tool(result), assistant(final)]
+    # intake 노드가 [INTAKE] system 메시지를 prepend 한다.
+    assert len(result.messages) == 5
+    tool_msg = result.messages[3]
     assert tool_msg.role == "tool"
     assert tool_msg.tool_call_id == "call-1"
     assert tool_msg.content is not None
@@ -113,7 +124,8 @@ async def test_run_agent_handles_invalid_json_arguments(
     gw = _mock_gateway([bad, final])
 
     result = await run_agent([Message(role="user", content="x")], gw)
-    tool_msg = result.messages[2]
+    # messages: [system(intake), user, assistant(bad_tool_calls), tool(error), assistant(final)]
+    tool_msg = result.messages[3]
     assert tool_msg.role == "tool"
     assert tool_msg.content is not None
     assert "invalid JSON" in tool_msg.content
@@ -141,7 +153,8 @@ async def test_run_agent_tool_error_propagates_to_messages(
     final = _resp(content="ok")
     gw = _mock_gateway([first, final])
     result = await run_agent([Message(role="user", content="x")], gw)
-    tool_msg = result.messages[2]
+    # messages: [system(intake), user, assistant(tool_calls), tool(error), assistant(final)]
+    tool_msg = result.messages[3]
     assert tool_msg.content is not None
     assert "outside working directory" in tool_msg.content
 
