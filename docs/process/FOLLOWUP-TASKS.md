@@ -114,13 +114,54 @@
 - **reviewer scope**: 일반 (의존성 변경은 §9 메타 아님 — 런타임 영향)
 - **priority**: medium — LiteLLM 3.14 지원 또는 Python downgrade 결정 후 즉시
 
-### task-SEC-002 — /v1/chat/completions 인증 미들웨어
+### task-SEC-002 — SSO 인증 통합 (Hybrid B+C+API key fallback)
+
+architect 설계 plan: [`docs/design/sso-plan.md`](../design/sso-plan.md). 권고 방식: **Hybrid = B(reverse proxy oauth2-proxy 주력) + 일부 C(Open WebUI 측 OIDC) + 영구 API key fallback(service account)**. `AuthBackend` 추상화로 dev/PoC ↔ 사내 production swap. 6 sub-task 로 분해 (각각 별도 PR):
+
 - **출처**: PR #8 security-reviewer (issuecomment-4479896415) LOW — 사내 운영 진입 차단 사유
-- **scope**: `/v1/chat/completions` 에 API key 또는 JWT 인증 미들웨어 추가. spec §5.1 직접 인용. Open WebUI 통합 PR 또는 직전 선결.
-- **suggested branch**: `feat/gateway-auth`
+- **관련 설계**: `docs/design/sso-plan.md` (architect agent 2026-05-19, PR #38 정착)
+
+#### task-SEC-002-a — `AuthBackend` Protocol + `Principal` 모델 + `verify_api_key` 호환 리팩토링
+- **scope**: `src/macro_logbot/auth.py:57-98` 의 `verify_api_key` 를 `AuthBackend` Protocol + `APIKeyAuthBackend` / `HeaderForwardAuthBackend` / `OIDCAuthBackend` / `ChainedAuthBackend` 구조로 리팩토링. `Principal` Pydantic 모델 (`id`, `email`, `name`, `scopes`, `source`) 도입. `verify_api_key` → `Depends(get_principal)` 교체 (backward-compat 유지). 기존 `tests/test_auth*.py` 호환 + Principal 반환 검증.
+- **suggested branch**: `feat/auth-backend-abstraction`
 - **reviewer scope**: 일반 (전체 reviewer cycle — security 중요)
-- **size estimate**: app.py + middleware ~50 lines + tests ~80 lines
+- **size estimate**: src ~150 lines + tests ~120 lines
 - **priority**: **high** — 사내 운영 진입 / Open WebUI 통합 PR 선결
+
+#### task-SEC-002-b — `HeaderForwardAuthBackend` + scope 분리
+- **scope**: `HeaderForwardAuthBackend` 구현 — `MACRO_LOGBOT_AUTH_TRUSTED_PROXY_IPS` env (CIDR 리스트) 로 spoofing 방어. proxy IP 외 `X-Forwarded-User` 헤더 무시 + WARN 로깅. `Principal.scopes` 에 `["chat","analyze"]` (사용자) / `["webhook"]` (service account) / `["admin","kb.verify"]` (관리자) 분리. 엔드포인트별 scope 가드 적용.
+- **suggested branch**: `feat/auth-header-forward-backend`
+- **reviewer scope**: 일반 (전체 reviewer cycle — security 중요)
+- **size estimate**: src ~80 lines + tests ~100 lines
+- **priority**: **high** — task-SEC-002-a 완료 후
+
+#### task-SEC-002-c — `OIDCAuthBackend` (Authlib) + JWKS 검증
+- **scope**: `OIDCAuthBackend` 구현 — `Authlib` JWKS 검증. `MACRO_LOGBOT_OIDC_ISSUER` + `MACRO_LOGBOT_OIDC_JWKS_URL` env. JWKS 캐시 600s (Authlib 기본). Samsung 사내 IdP protocol (SAML vs OIDC vs 자체) 확정 후 진행 — RISK-SSO-1.
+- **suggested branch**: `feat/auth-oidc-backend`
+- **reviewer scope**: 일반 (전체 reviewer cycle — security 중요)
+- **size estimate**: src ~100 lines + tests ~100 lines
+- **priority**: **high** — 사내 IdP protocol 확정 후 즉시 (현재 차단: RISK-SSO-1)
+
+#### task-SEC-002-d — `sessions.owner_principal` 컬럼 + IDOR 회피 + session principal scoping
+- **scope**: `sessions` 테이블에 `owner_principal TEXT NOT NULL DEFAULT 'anonymous'` 컬럼 추가 (기존 row 마이그레이션 안전). `SQLiteSessionStore.get(session_id, principal)` 시그니처 확장 — owner mismatch 시 `None` 반환 (404 동일 처리, IDOR 회피). `AgentState` 에 `principal: Principal | None` 필드 추가. task-MVP-002-x 와 묶음 권장.
+- **suggested branch**: `feat/session-principal-scoping`
+- **reviewer scope**: 일반 (전체 reviewer cycle — security 중요)
+- **size estimate**: src ~60 lines + tests ~80 lines + 마이그레이션 SQL 1개
+- **priority**: **high** — 다중 사용자 운영 진입 전 (task-SEC-002-a 완료 후)
+
+#### task-SEC-002-e — `audit.py` 모듈 + 이벤트 로깅
+- **scope**: 신규 `src/macro_logbot/audit.py` — JSON logger + `audit.log_event(event_type, principal, details)` API. 이벤트: `auth.success`, `auth.failure`, `session.access`, `session.access_denied`(IDOR), `kb.write`. PII 마스킹: `email_domain_only()`, `principal_hash()` 헬퍼. 로그 sink: stdout JSON line + optional `MACRO_LOGBOT_AUDIT_LOG_PATH` env 파일.
+- **suggested branch**: `feat/audit-logging`
+- **reviewer scope**: 일반 (전체 reviewer cycle)
+- **size estimate**: src ~120 lines + tests ~80 lines
+- **priority**: medium — task-SEC-002-b 완료 후
+
+#### task-SEC-002-f — `docker-compose.internal.yml` + oauth2-proxy + spec/DEPLOYMENT 문서 갱신
+- **scope**: `docker-compose.internal.yml` 추가 — oauth2-proxy 컨테이너 + Open WebUI `WEBUI_AUTH_TRUSTED_EMAIL_HEADER`. `DEPLOYMENT.md` 사내 운영 절차 갱신 (env 비교표 4개 행 추가, SSO 통합 절차 섹션). `docs/design/02-설계문서.md` §5.1 / §12 보안 검증 갱신 (Trust boundary 표 + spoofing 방어 명시). production gate env `MACRO_LOGBOT_AUTH_BACKEND` 기본값 `chained` 설정.
+- **suggested branch**: `feat/internal-compose-sso`
+- **reviewer scope**: 일반 (전체 reviewer cycle)
+- **size estimate**: compose ~50 lines + docs ~100 lines
+- **priority**: **high** — 사내 운영 manifest 투입 직전 (task-SEC-002-b/d 완료 후)
 
 ### ~~task-SEC-003 — LLMGateway.complete kwargs allowlist~~
 - **출처**: PR #8 security-reviewer (issuecomment-4479896415) LOW
@@ -407,6 +448,93 @@
 - **장기 (LOW)**: `DEFAULT_MODEL` 상수를 `src/macro_logbot/config.py` 단일 모듈로 추출 → evaluate.py/app.py/compose default 가 import.
 - **suggested branch**: `fix/default-model-source-of-truth`
 - **priority**: medium — 본 PR #33 의 짝꿍, 같은 sprint 안 처리 권고.
+
+### task-AGENT-001 — system prompt ALSA noise filter 패턴 확장
+- **출처**: PR #34 architect / code-reviewer 권고 (system prompt 강화 후속).
+- **scope**: `src/macro_logbot/app.py` 의 `_ANALYZE_SYSTEM_PROMPT` 노이즈 필터 항목 (현재 ALSA / pygame init / GPU driver / locale warning) 에 사내 환경 추가 noise 패턴 보강 — 사내 stderr 에 자주 나타나는 pattern (예: glibc warnings, KDE/GNOME desktop noise, Samsung-specific tooling output) 카탈로그화. 우선 외부 PoC 회귀 없음 확인 후 사내 데이터 수집 시점에 갱신.
+- **suggested branch**: `feat/system-prompt-noise-filter-expansion`
+- **reviewer scope**: 일반
+- **size estimate**: prompt diff ~20 lines + 회귀 테스트 1개
+- **priority**: low — 측정 결과(self-judging) 정상 동작 중, 사내 데이터 확보 후 처리
+
+### task-AGENT-002 — system prompt tool 호출 의무 wording 정량화
+- **출처**: PR #34 code-reviewer 권고 (현재 "반드시 순서대로" 는 정성 표현).
+- **scope**: tool 호출 실패 시 retry / escalate 정책 명문화 — "tool 호출이 N회 실패하면 사용자에게 보고하고 중단", "tool 호출 없이 응답 시도 시 자체 검증" 등. system prompt 또는 별도 agent 정책 문서로 분리. 영향 측정 필요 (variance 증가 가능).
+- **suggested branch**: `feat/system-prompt-tool-policy-quantified`
+- **reviewer scope**: 일반
+- **size estimate**: prompt + agent 코드 ~40 lines + 측정 보고
+- **priority**: medium — fallback parser metadata (task-AGENT-009) 머지 후 측정 가능
+
+### task-AGENT-003 — fallback parser regex DoS guard 실측 효과 측정
+- **출처**: PR #35 architect WARN-LOW (fallback parser regex guard).
+- **scope**: `_MAX_FALLBACK_CONTENT_LEN = 64 * 1024` 가 실측 효과 (regex catastrophic backtracking 회피) 가 적절한지 재조정. 적대적 input (긴 `<function=>` 중첩, unterminated `<tool_call>`) 으로 timeout 측정 + 적정값 산정.
+- **suggested branch**: `perf/fallback-parser-guard-measurement`
+- **reviewer scope**: 일반 + test-engineer 중점
+- **size estimate**: bench script + tests ~80 lines
+- **priority**: medium — task-TEST-002 와 묶음 가능
+
+### task-SEC-014 — fallback parser prompt injection vector 검토
+- **출처**: PR #35 security-reviewer WARN-MED (4 패턴 inject regex).
+- **scope**: fallback parser 가 사용하는 4 패턴 (`<function=>`, `<tool_call>`, ` ```json `, `<|python_tag|>`) 이 사용자 input 에 포함될 경우 prompt injection vector 가 될 수 있는지 분석. 가능하다면 input sanitization (escape / reject) 또는 trust boundary 명문화. 위험도 high — 사용자 stderr 가 LLM context 에 그대로 들어가므로 공격자가 stderr 에 fake tool call 주입 시 tool 임의 호출 가능.
+- **suggested branch**: `feat/fallback-parser-injection-guard`
+- **reviewer scope**: 일반 + security-reviewer 중점
+- **size estimate**: input sanitizer ~80 lines + injection 테스트 케이스 ~120 lines
+- **priority**: **high** — 보안 critical, fallback parser 도입 직후 우선 처리
+
+### task-TEST-002 — fallback parser regex catastrophic backtracking 테스트
+- **출처**: PR #35 test-engineer WARN-LOW + PR #38 test-engineer WARN-MED (scope 정형화).
+- **scope**: fallback parser 의 4 regex 패턴 (`re.DOTALL` 사용) 이 적대적 input 에서 catastrophic backtracking 발생 안 하는지 테스트 추가.
+  - **fixture taxonomy (필수)**:
+    - F1: unterminated tag at 63KB — `<function=name>` open 후 close 누락 + payload 63KB 채움. 4 패턴 각각 변형.
+    - F2: nested braces at 63KB — `{a:{a:{a:...}}}` 깊은 중첩.
+    - F3: high-density alternation — `<tool_call>{...}</tool_call>` 반복 1000회.
+    - F4: DOTALL max-ambiguous — `<function=`/`{`/` ```json `/`<|python_tag|>` 모든 패턴이 겹치도록 구성.
+  - **timeout 메커니즘 (Python `re` 자체 timeout 없음)**: `pytest-timeout` marker (`@pytest.mark.timeout(3)`) 사용. signal.alarm 또는 threading.Timer 는 cross-platform 호환 문제.
+  - **boundary 검증**: 입력 길이 65KB → `_MAX_FALLBACK_CONTENT_LEN` 가드가 발동, `None` 반환 + WARNING 로그 검증.
+- **suggested branch**: `test/fallback-parser-backtracking`
+- **reviewer scope**: 일반 + test-engineer 중점
+- **size estimate**: tests ~120 lines (4 fixtures × 4 패턴 + boundary + timeout fixtures)
+- **priority**: medium — task-AGENT-003 과 묶음 가능. **deliverable 분리**: 본 task → CI 영구 `tests/test_fallback_parser_backtracking.py` (회귀). task-AGENT-003 → 1회성 `bench/bench_fallback_parser.py` (threshold 산정).
+
+### task-AGENT-009-b — `_fallback_used` HTTP/SIEM observability surface 노출
+- **출처**: PR #37 architect WARN-1 (issuecomment-4489914067).
+- **scope**: PR #37 가 도입한 `ChatCompletionResponse._fallback_used` / `_fallback_pattern` 은 Pydantic v2 `PrivateAttr` 라서 `model_dump()` / `model_dump_json()` / FastAPI `response_model` 직렬화에서 제외 — HTTP 응답 / OpenAPI / SIEM 에 노출 안 됨. observability 의 절반만 달성 (gateway logger warning + Python caller attribute 만). 해결책 옵션:
+  - (a) `meta: dict | None` public field 추가 (`{"fallback_used": "...", "fallback_pattern": "..."}`)
+  - (b) FastAPI response header (`X-MacroLogBot-Fallback-Used: layer2_regex_inject`) — header 만 노출, body 안 건드림
+  - (c) `/agent/analyze` 응답에만 `meta.fallback_used` 추가 (chat_completions 는 OpenAI 호환 유지)
+- **suggested branch**: `feat/fallback-meta-public-surface`
+- **reviewer scope**: 일반 + architect 중점 (OpenAI 호환성 vs observability trade-off)
+- **size estimate**: src ~40 lines + tests ~60 lines
+- **priority**: **high** — PR #37 의 목적 (operational blind spot 해소) 미달성. PR #37 머지 직후 즉시 처리.
+
+### task-AGENT-009-c — Layer 1+Layer 2 동시 발생 시 trace 보존
+- **출처**: PR #37 architect WARN-2 + code-reviewer INFO-2.
+- **scope**: 현재 Layer 1 retry 후 Layer 2 inject 발생 시 `_fallback_used` 가 `layer2_regex_inject` 로 덮어써져 layer 1 trace 사라짐. 두 layer 의 발생 여부를 모두 보존:
+  - 옵션 1: `_fallback_used` 를 list (`["layer1_no_tools_retry", "layer2_regex_inject"]`) 로 변경
+  - 옵션 2: 별도 `_fallback_layers: dict[str, bool]` ({"layer1": True, "layer2": True})
+  - 옵션 3: bitmask enum (`Fallback.LAYER1 | Fallback.LAYER2`)
+- **suggested branch**: `feat/fallback-multi-layer-trace`
+- **reviewer scope**: 일반
+- **size estimate**: src ~30 lines + tests ~40 lines
+- **priority**: low — 운영 진단 시 layer 1 trace 가 필요한 경우 발생. task-AGENT-009-b 와 묶음 가능.
+
+### task-AGENT-009-d — `_MAX_FALLBACK_CONTENT_LEN` 초과 시 metadata 테스트
+- **출처**: PR #37 test-engineer WARN-LOW-1 (issuecomment-4489920151).
+- **scope**: content 가 `_MAX_FALLBACK_CONTENT_LEN = 64 * 1024` 초과 시 `_parse_fallback_tool_calls` 가 조기 `None` 반환 → `_fallback_used` None 유지 동작은 올바르나 테스트 없음. 65KB content + 4 패턴 inject 케이스 추가.
+- **suggested branch**: `test/fallback-content-cap-metadata`
+- **reviewer scope**: 일반 + test-engineer 중점
+- **size estimate**: tests ~30 lines
+- **priority**: low — task-TEST-002 와 묶음 가능.
+
+### task-AGENT-009-e — `BadRequestError` 외 retry-trigger 예외의 metadata 정의
+- **출처**: PR #37 test-engineer WARN-LOW-2.
+- **scope**: 현재 Layer 1 은 `"tool_use_failed"` 포함 `BadRequestError` 만 처리. 다른 예외 (ConnectionError, TimeoutError, RateLimitError 등) retry 경로의 `_fallback_used` 값 미정의. 정책 결정:
+  - 옵션 (a): `BadRequestError` 만 Layer 1 fallback, 다른 예외는 fallback 안 함 (현재 동작 명문화).
+  - 옵션 (b): Tool 사용 가능 모델 → Tool 미사용 모델 로 fallback 시 다양한 예외 트리거. 별도 `layer1_retry_reason` attribute 추가.
+- **suggested branch**: `feat/fallback-retry-trigger-policy`
+- **reviewer scope**: 일반 + architect
+- **size estimate**: docs + tests ~50 lines
+- **priority**: low — 현재 동작이 안전 default. 결정 미루기 OK.
 
 ---
 
