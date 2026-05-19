@@ -1,0 +1,33 @@
+id: E002
+title: "IndexError in update_position body.pop"
+category: runtime
+target_file: snake.py
+target_function: update_position
+injection_diff: |
+  --- a/snake.py
+  +++ b/snake.py
+  @@ -90,7 +90,8 @@ class SnakeGame:
+           new_y = self.head.y + dy
+           # body 는 마지막을 떼어 head 자리에 넣는 방식 (간단 구현).
+           self.body.insert(0, Segment(self.head.x, self.head.y))
+  -        self.body.pop()
+  +        # bug: off-by-one — pop index 가 길이를 벗어남.
+  +        self.body.pop(len(self.body))
+           self.head.x = new_x
+           self.head.y = new_y
+trigger: "python snake.py --headless --auto-play 5"
+ground_truth:
+  root_cause: "update_position 에서 self.body.pop(len(self.body)) 호출 — pop 의 index 가 길이와 같아 off-by-one IndexError 발생"
+  root_cause_keywords:
+    - "IndexError"
+    - "pop"
+    - "body"
+    - "off-by-one"
+  location:
+    file: snake.py
+    function: update_position
+    line: 94
+  fix_hint: "self.body.pop() (마지막 원소 제거, 기본 인자) 또는 self.body.pop(len(self.body) - 1) 로 수정"
+  expected_tool_calls:
+    - grep_codebase
+    - read_file

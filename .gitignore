@@ -62,3 +62,7 @@ Thumbs.db
 
 # --- docker-compose runtime artifacts ---
 .open-webui-data/
+
+# --- PoC 산출물 (큰 산출물 — 별도 commit) ---
+poc/reports/
+poc/targets/snake-game/injected/

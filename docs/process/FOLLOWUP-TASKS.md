@@ -155,6 +155,38 @@
 - **size estimate**: workflow yml 1개 (30~50 lines)
 - **priority**: low (Stage 3 코드가 더 쌓인 후)
 
+### task-POC-001 — 1-B/2-A/2-B Claude judge 채점 (PoC)
+- **출처**: PR #14 (feat/poc-infrastructure) — 본 PR 은 1-A 결정론 채점만.
+- **scope**: spec §10.1 의 1-B (root_cause 의미 매칭) · 2-A (follow-up tool 적절성) · 2-B (수정 방향 정합성) 를 Claude Code judge 로 채점하는 별도 스크립트 (`poc/scripts/judge.py`) 또는 main session 호출 가이드. follow-up Q1/Q2/Q3 자동 호출 흐름 포함.
+- **suggested branch**: `feat/poc-judge`
+- **reviewer scope**: 일반 (전체 reviewer cycle)
+- **size estimate**: ~200 lines + tests + docs
+- **priority**: high — PoC baseline 매트릭스 합산 점수 필수
+
+### task-POC-002 — error catalog 5 → 10 확장
+- **출처**: PR #14 — spec §10.4 / `docs/process/04-PoC-운영가이드.md` §4.2 의 Phase 1 카탈로그 10 개 명세 대비 본 PR 은 5 개만.
+- **scope**: E006 (reversed if condition) · E007 (division by zero) · E008 (infinite loop / 타임아웃) · E009 (wrong variable assignment) · E010 (encoding error 한글 처리) — yaml 5 개 추가 + inject/trigger 검증.
+- **suggested branch**: `feat/poc-catalog-expand`
+- **reviewer scope**: 일반
+- **size estimate**: yaml 5개 + tests
+- **priority**: medium — task-POC-001 이후
+
+### task-POC-003 — 4 모델 매트릭스 비교 (PoC)
+- **출처**: PR #14 — 본 PR `evaluate.py` 는 단일 `--model` 만 지원.
+- **scope**: `--models gemini/...,openai/...,anthropic/...,groq/...` 다중 swap + per-model 결과 분리 저장 + comparison.md 의 모델 매트릭스 (`docs/process/04-PoC-운영가이드.md` §6.4 표 형식). 약한 LLM 강화 사이클의 baseline 필수.
+- **suggested branch**: `feat/poc-multi-model`
+- **reviewer scope**: 일반
+- **size estimate**: evaluate.py ~80 lines + tests + docs
+- **priority**: medium — task-POC-001/002 이후
+
+### task-POC-004 — `.env` 자동 로드로 pytest 401 발생 (chore)
+- **출처**: PR #14 verifier — 본 PR 작업 중 pre-existing 발견 (main 에서도 재현). litellm/python-dotenv 가 import 시 `.env` 를 흡수 → `MACRO_LOGBOT_API_KEY` set + `AUTH_REQUIRED=true` 상태에서 `tests/test_endpoint_chat_completions.py` · `test_endpoint_agent_analyze.py` 가 401 반환 (TestClient 가 Bearer header 미부착).
+- **scope**: `conftest.py` 에 `MACRO_LOGBOT_API_KEY` · `MACRO_LOGBOT_AUTH_REQUIRED` env clear fixture (autouse) 또는 dotenv 자동 로드 비활성화. 본 PR 은 무관 — `.env` 미제거 시 pre-existing 동일 실패.
+- **suggested branch**: `chore/test-env-isolation`
+- **reviewer scope**: 일반
+- **size estimate**: conftest.py 수정 ~20 lines
+- **priority**: medium — CI 통과 안정성에 직결
+
 ---
 
 ## Deferred (INFO/COMMENT 등급 — 즉시 처리 불필요, 발견 시점에 처리)
@@ -204,7 +236,11 @@
 9. **task-SEC-001** — LiteLLM pin 상향 (LiteLLM 3.14 지원 또는 Python downgrade 결정 후)
 10. **task-MVP-004 / 005 / 009** — 운영·다국어·MCP 분리 (필요 시점)
 11. **task-006** — Python 3.14 CI matrix (Stage 3 진척 후)
-12. **deferred 항목들** — 발견 시점에 처리
+12. **task-POC-004** — `.env` 자동 로드 pytest 격리 (CI 통과 안정화)
+13. **task-POC-001** — 1-B/2-A/2-B Claude judge 채점 (PoC baseline 합산 점수)
+14. **task-POC-002** — error catalog 5 → 10 확장
+15. **task-POC-003** — 4 모델 매트릭스 비교
+16. **deferred 항목들** — 발견 시점에 처리
 
 ---
 

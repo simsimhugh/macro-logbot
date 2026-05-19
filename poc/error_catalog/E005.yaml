@@ -1,0 +1,34 @@
+id: E005
+title: "KeyError on lowercased direction in update_position"
+category: runtime
+target_file: snake.py
+target_function: update_position
+injection_diff: |
+  --- a/snake.py
+  +++ b/snake.py
+  @@ -85,7 +85,8 @@ class SnakeGame:
+
+       def update_position(self) -> None:
+           """방향에 따라 head 와 body 를 한 칸 이동."""
+  -        dx, dy = DIRECTIONS[self.direction]
+  +        # bug: DIRECTIONS 의 키는 대문자인데 lower() 한 키로 조회 → KeyError.
+  +        dx, dy = DIRECTIONS[self.direction.lower()]
+           new_x = self.head.x + dx
+           new_y = self.head.y + dy
+           # body 는 마지막을 떼어 head 자리에 넣는 방식 (간단 구현).
+trigger: "python snake.py --headless --auto-play 5"
+ground_truth:
+  root_cause: "update_position 이 DIRECTIONS dict 에서 self.direction.lower() 키를 조회 — DIRECTIONS 의 키는 대문자(UP/DOWN/LEFT/RIGHT) 이므로 KeyError"
+  root_cause_keywords:
+    - "KeyError"
+    - "DIRECTIONS"
+    - "direction"
+    - "lower"
+  location:
+    file: snake.py
+    function: update_position
+    line: 89
+  fix_hint: "self.direction (lower 미적용) 그대로 사용 또는 DIRECTIONS 의 키를 lower 형식으로 통일"
+  expected_tool_calls:
+    - grep_codebase
+    - read_file
