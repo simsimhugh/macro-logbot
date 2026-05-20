@@ -352,6 +352,90 @@ Q3. "어떻게 수정하면 좋을까? 코드 변경 예시를 보여줘."
 - 다음 시도: ...
 ```
 
+### 7.5 측정 인프라 invariant (false positive 재발 방지)
+
+**Why**: PR #51 (N=10 baseline 보고서) 가 "F2 (workspace boundary) 해소 ✅" 결론을 **false positive** 로 머지함. 실제로는 backend container 의 `read_file`/`grep_codebase` 가 모두 `Permission denied` 였음에도, 1-A heuristic 의 file_match/line_match 가 agent 의 **traceback echo** 만으로 통과했기 때문 (PR #52 으로 인프라 자체는 fix). 재발 방지를 위해 본 invariant 를 측정 절차의 일부로 명문화.
+
+**측정 결과를 신뢰하기 위한 4 가지 invariant**:
+
+1. **Tool 호출 결과 success rate ≥ 80%**
+   - session DB (`.macro-logbot-sessions.db`) 의 messages 중 `role="tool"` 의 content 에 `"error"` key 가 있는 비율 < 20%
+   - evaluate.py 의 fail-fast guard 가 자동 검출 (§7.5.1)
+2. **traceback echo 와 코드 read 의 구별**
+   - 1-A heuristic 의 file_match/line_match 가 통과한 case 중, agent 의 tool_calls 가 0 회 또는 모두 error 이면 **traceback echo 로 분류**
+   - 본 case 는 "F2 해소" 의 증거로 채택 금지
+3. **structured Report 의 채움 경로 구별**
+   - `report.location.file/line` 이 채워졌어도 **traceback fallback** 인지 **코드 read 후 도출** 인지 구별
+   - crystallize 의 fallback log 또는 tool_calls history 검증
+4. **deterministic 검증**
+   - 같은 fixture (E*.yaml) + 같은 seed (42) 에서 N>1 run 의 1-A variance 가 std > 0.3 이면 sampling stochasticity 의심
+   - LM Studio Gemma 는 `seed` parameter 무시 — 사내 LLM 측정 시 동일 환경 재현성 별도 검증
+
+#### 7.5.1 evaluate.py fail-fast guard (자동 invariant 1)
+
+`evaluate_case` 가 backend response 를 받은 직후 다음 검사를 수행:
+
+```python
+# Tool error sentinel — backend container 가 workspace 접근 실패한 경우
+TOOL_ERROR_SENTINELS = (
+    "Permission denied",
+    "PermissionError",
+    '"error":',  # tool result 의 JSON error key
+)
+sentinel_hits = [s for s in TOOL_ERROR_SENTINELS if s in analysis_text]
+if sentinel_hits:
+    result["infra_error"] = {
+        "sentinels_hit": sentinel_hits,
+        "reason": "backend tool 호출이 fail (workspace permission 등 인프라 문제)",
+    }
+    # 본 case 는 1-A score 가 통과해도 measurement infra 문제로 분류
+```
+
+본 guard 의 hit 여부는 case 결과 JSON 의 `infra_error` key 로 기록. 비교 보고서 작성 시 본 flag 가 있는 case 는 신뢰 어려운 측정으로 disclaim.
+
+#### 7.5.2 session DB 검증 (수동 invariant 2/3)
+
+비교 보고서 작성 전, 다음 명령으로 tool result success rate 측정:
+
+```bash
+docker exec macro-logbot-backend python3 -c "
+import sqlite3, json
+conn = sqlite3.connect('/app/.macro-logbot-sessions.db')
+ok = err = 0
+for (blob,) in conn.execute('SELECT messages_json FROM sessions ORDER BY updated_at DESC LIMIT 30'):
+    for m in json.loads(blob):
+        if m.get('role') == 'tool':
+            if '\"error\"' in (m.get('content','')[:50]): err += 1
+            else: ok += 1
+print(f'tool success: {ok}/{ok+err} = {ok/(ok+err)*100:.1f}%')
+"
+```
+
+본 검증의 success rate < 80% 면 measurement 인프라 문제 의심.
+
+### 7.6 본 Claude main session 의 평가 워크플로우 (보고서 작성 전 체크리스트)
+
+**Why**: PR #51 (N=10 보고서) 의 false positive 결론이 본 main session 의 측정 검증 부재 때문이었음. 보고서 작성 전 다음 체크리스트 강제.
+
+#### 7.6.1 측정 raw output 검증 (필수, 보고서 작성 전)
+
+- [ ] `poc/reports/<date>/<case>.json` 의 `score_1a.naive_score_0_to_1` 분포 확인 — variance 큰 case (std > 0.3) 식별
+- [ ] **§7.5.2 의 session DB tool result success rate ≥ 80%** 확인
+- [ ] **§7.5.1 의 `infra_error` flag 가 있는 case 제외** — fail-fast guard 가 표시한 case 는 score 무효
+- [ ] file_match/line_match=True 인 case 중 tool_calls=0 또는 모두 error 인 case 식별 → **"traceback echo" 로 분류, "F2 해소" 증거에서 제외**
+
+#### 7.6.2 결론의 disclaim 의무
+
+- [ ] "F2 해소", "자율분석 X%", "structured Report Y%" 같은 결론은 §7.6.1 의 4 가지 invariant 통과 후에만 작성
+- [ ] **한 invariant 라도 실패 시** 보고서에 **명시적 disclaim** 추가. 예시:
+  - "tool result success rate 0% — 본 측정의 F2/2-A 결론은 인프라 문제로 신뢰 어려움"
+  - "1-A heuristic 의 file:line 매칭은 traceback echo 가능성 — 코드 read 기반 분석 능력 측정 아님"
+- [ ] median run 채점 시 **선택된 run number** (예: `E001 → N5`) 명시 — reproducibility 보장
+
+#### 7.6.3 본 sprint 교훈 적용 (PR #51 → PR #52 → PR #53)
+
+PR #51 의 §3 표 "F2 해소 ✅ (tool 호출 시도 100%)" 가 본 invariant 의 **#1 (tool 결과 success rate)** 를 검증 안 한 직접 결과. "tool 호출 시도" 와 "tool 호출 성공" 을 구별 안 한 conflate. 향후 보고서는 본 invariant 통과 evidence 없이는 "해소" 표현 사용 **금지**.
+
 ## 8. 약한 LLM 강화 사이클 (핵심 미션)
 
 ### 8.1 사이클 정의

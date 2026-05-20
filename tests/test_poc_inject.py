@@ -94,3 +94,16 @@ def test_all_catalog_cases_apply_cleanly(tmp_path: Path) -> None:
         injected = (sub / "snake.py").read_text(encoding="utf-8")
         original = SNAKE_ORIGINAL.read_text(encoding="utf-8")
         assert injected != original, f"{case_id}: patch applied but no diff"
+
+
+def test_inject_files_are_world_readable(tmp_path: Path) -> None:
+    """PR #52 regression — inject 후 snake.py / case.yaml 의 mode == 0o644.
+
+    backend container 의 uid (예: macrologbot uid=10001) 가 host 의 evaluator uid
+    (예: hugh uid=1000) 가 만든 파일을 read 할 수 있어야 함.
+    """
+    inject_mod.inject("E001", tmp_path)
+    snake_mode = (tmp_path / "snake.py").stat().st_mode & 0o777
+    yaml_mode = (tmp_path / "case.yaml").stat().st_mode & 0o777
+    assert snake_mode == 0o644, f"snake.py mode {oct(snake_mode)} != 0o644"
+    assert yaml_mode == 0o644, f"case.yaml mode {oct(yaml_mode)} != 0o644"
