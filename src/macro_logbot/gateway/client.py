@@ -20,6 +20,7 @@ import os
 import re
 import time
 import types
+import uuid
 from typing import Any
 
 import litellm
@@ -43,6 +44,12 @@ _FALLBACK_MODEL = "gemini/gemini-2.5-flash-lite"
 _LLM_BASE_URL_ENV = "MACRO_LOGBOT_LLM_BASE_URL"
 _LLM_API_KEY_ENV = "MACRO_LOGBOT_LLM_API_KEY"
 _LLM_PROVIDER_ENV = "MACRO_LOGBOT_LLM_PROVIDER"
+
+# 사내 API gateway 커스텀 헤더 env (DS API HUB x-dep-ticket 인증 방식). 
+_LLM_X_DEP_TICKET_ENV = "MACRO_LOGBOT_LLM_X_DEP_TICKET"
+_LLM_SEND_SYSTEM_NAME_ENV = "MACRO_LOGBOT_LLM_SEND_SYSTEM_NAME"
+_LLM_USER_ID_ENV = "MACRO_LOGBOT_LLM_USER_ID"
+_LLM_USER_TYPE_ENV = "MACRO_LOGBOT_LLM_USER_TYPE"
 
 # task-SEC-003: complete(**kwargs) 자유 패스스루 차단 → allowlist 외 ValueError.
 # OpenAI / LiteLLM 호환 generation 파라미터 + tool calling 만 허용.
@@ -259,6 +266,19 @@ class LLMGateway:
         self.custom_llm_provider: str | None = custom_llm_provider or os.environ.get(
             _LLM_PROVIDER_ENV
         )
+        # 사내 DS API HUB 커스텀 헤더 — x-dep-ticket 설정 시 extra_headers 로 주입.
+        # static 부분만 __init__ 에 보관 — Prompt-Msg-Id / Completion-Msg-Id 는
+        # complete() 안에서 매 호출마다 새 UUID 로 생성 (traceability).
+        x_dep_ticket = os.environ.get(_LLM_X_DEP_TICKET_ENV)
+        if x_dep_ticket:
+            self._extra_headers: dict[str, str] | None = {
+                "x-dep-ticket": x_dep_ticket,
+                "Send-System-Name": os.environ.get(_LLM_SEND_SYSTEM_NAME_ENV, "macro-logbot"),
+                "User-Id": os.environ.get(_LLM_USER_ID_ENV, "macro-logbot"),
+                "User-Type": os.environ.get(_LLM_USER_TYPE_ENV, "AD_ID"),
+            }
+        else:
+            self._extra_headers = None
 
     async def complete(
         self,
@@ -293,6 +313,12 @@ class LLMGateway:
             extra["api_key"] = self.api_key
         if self.custom_llm_provider is not None:
             extra["custom_llm_provider"] = self.custom_llm_provider
+        if self._extra_headers is not None:
+            extra["extra_headers"] = {
+                **self._extra_headers,
+                "Prompt-Msg-Id": str(uuid.uuid4()),
+                "Completion-Msg-Id": str(uuid.uuid4()),
+            }
 
         # Layer 1: BadRequestError(tool_use_failed) 자동 retry (1회).
         # Groq 의 native tool parser 가 LLM 출력 변환 실패 시 tools 없이 재호출
