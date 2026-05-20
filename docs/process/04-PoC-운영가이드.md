@@ -147,9 +147,30 @@ ground_truth:
 
 **카탈로그 갱신 정책**: 평가 사이클을 돌리며 macro-logbot이 너무 잘 풀거나(쉬움) 너무 못 푸는(난해) case가 보이면 카탈로그 PR로 보강.
 
-## 5. 스크립트 사용법
+## 5. 측정 환경 변수
 
-### 5.1 inject.py — 에러 주입
+PoC 실행 전 아래 환경 변수를 `.env` 또는 셸에 설정한다.
+
+| 환경 변수 | 기본값 | 출처 | 설명 |
+|---|---|---|---|
+| `MACRO_LOGBOT_ENV` | (미설정) | PR #43 | `poc` 로 설정 시 workspace 확장 허용 게이트 활성화 — **PoC 필수** |
+| `MACRO_LOGBOT_POC_WORKSPACE_ALLOWED` | `/tmp/poc-cases` | PR #43 | `MACRO_LOGBOT_ENV=poc` 활성화 시 Tool System 이 접근 허용하는 workdir 루트 |
+| `MACRO_LOGBOT_MODEL_CONTEXT_LIMIT` | `16384` | PR #45 | agent loop 의 컨텍스트 토큰 상한. 80% watermark 초과 시 오래된 메시지 group 단위 pop. Gemma 3 12B 등 소형 모델은 `8192` 권장 |
+| `MACRO_LOGBOT_POC_CASES_ROOT` | `/tmp/poc-cases` | PR #44 | inject workdir 루트 — inject.py 가 `<case_id>-<RANDOM>/` 하위 폴더를 생성하는 기준 경로. docker-compose 에서 `:ro` mount 로 연결 |
+
+> **보안 게이트**: `MACRO_LOGBOT_ENV=poc` 없이 실행하면 production fail-closed 모드 — Tool System 이 cwd 외부 경로 접근을 거부. PoC 측정 시에만 `poc` 로 설정할 것.
+
+inject workdir 경로 패턴:
+```
+/tmp/poc-cases/<case_id>-<RANDOM>/   # PR #44 inject.py 생성
+```
+docker-compose 에서 `/tmp/poc-cases` 를 `:ro` 마운트하여 컨테이너에서 읽기 전용으로 접근.
+
+---
+
+## 6. 스크립트 사용법
+
+### 6.1 inject.py — 에러 주입
 
 ```bash
 # 단일 case
@@ -164,7 +185,7 @@ python scripts/inject.py --all
 2. 카탈로그의 `injection_diff`를 `git apply` (또는 patch)
 3. 결과 디렉토리에 `case.yaml` 메타 사본 저장
 
-### 5.2 trigger.py — 에러 발생·캡처
+### 6.2 trigger.py — 에러 발생·캡처
 
 ```bash
 python scripts/trigger.py --case E001
@@ -176,7 +197,7 @@ python scripts/trigger.py --case E001
 3. `injected/<case-id>/error_log.txt`에 저장
 4. exit code 검증 (예상과 다르면 트리거 실패로 표시)
 
-### 5.3 evaluate.py — 평가 매트릭스 자동 실행
+### 6.3 evaluate.py — 평가 매트릭스 자동 실행
 
 ```bash
 # 모든 모델 × 모든 case
@@ -188,19 +209,27 @@ python scripts/evaluate.py --models groq/llama-3.1-70b-versatile --cases E001 E0
 # Quick mode (test-engineer agent가 PR에서 호출)
 python scripts/evaluate.py --quick   # cases 3개 × default model 1개만
 
+# 세션 누적 모드 (PR #42 — 이전 --session-cumulative 에서 rename)
+python scripts/evaluate.py --continue-session
+
 # KB Ablation Study (KB on/off 3 모드 비교 — 약한 LLM 강화 사이클 핵심)
 python scripts/evaluate.py --models all --cases all --kb-mode isolated      # KB off (baseline)
 python scripts/evaluate.py --models all --cases all --kb-mode cumulative    # KB 누적 (운영 시뮬레이션)
 python scripts/evaluate.py --models all --cases all --kb-mode pre-seeded    # KB 사전 채움 (운영 초기 시뮬레이션)
 ```
 
+> **PR #42 변경사항**:
+> - `--session-cumulative` → `--continue-session` 으로 rename
+> - 페이로드 `temperature=0`, `seed=42` 자동 적용 (결정론적 재현)
+> - 4-channel total scoring 공식: `score = 0.25·(1-A) + 0.25·(1-B) + 0.25·(2-A) + 0.25·(2-B)`
+
 동작 (한 case 기준):
-1. `error_log.txt` + 카탈로그 메타를 macro-logbot 형식 페이로드로 변환
+1. `error_log.txt` + 카탈로그 메타를 macro-logbot 형식 페이로드로 변환 (`temperature=0`, `seed=42` 자동 포함)
 2. `MACRO_LOGBOT_DEFAULT_MODEL` 환경변수로 LLM swap
 3. macro-logbot에 POST `/events` → session_id 받음
 4. session_id 분석 완료까지 polling (timeout 5분)
 5. `/sessions/<id>/report`로 1차 리포트 GET
-6. Follow-up 자동 질문 N개 (§6.2) 진행
+6. Follow-up 자동 질문 N개 (§7.2) 진행
 7. 결과 저장:
    ```
    poc/reports/<date>-<model>/case-<id>.json
@@ -231,9 +260,9 @@ JSON schema (`case-<id>.json`):
 }
 ```
 
-## 6. 채점 (Claude Code judge)
+## 7. 채점 (Claude Code judge)
 
-### 6.1 4단계 가중 합산 (Stage 2 spec §10.1 동일)
+### 7.1 4단계 가중 합산 (Stage 2 spec §10.1 동일)
 
 | 단계 | 평가 항목 | 비중 | 채점자 |
 |---|---|---|---|
@@ -249,7 +278,7 @@ case별 분류:
 - `partial`: 50~79%
 - `fail`: <50%
 
-### 6.2 Follow-up 자동 질문 세트 (모든 case 공통)
+### 7.2 Follow-up 자동 질문 세트 (모든 case 공통)
 
 ```
 Q1. "이 원인의 근거를 좀 더 자세히 설명해줘. 어떤 도구·코드를 보고 판단했어?"
@@ -259,7 +288,7 @@ Q3. "어떻게 수정하면 좋을까? 코드 변경 예시를 보여줘."
 
 세 답변을 받으면 한 case의 follow-up data 완성.
 
-### 6.3 Claude Code judge 실행 흐름
+### 7.3 Claude Code judge 실행 흐름
 
 1. `evaluate.py` 완료 후 매트릭스의 32개 JSON 생성
 2. 사용자가 main session(이 세션)에 명령:
@@ -271,7 +300,7 @@ Q3. "어떻게 수정하면 좋을까? 코드 변경 예시를 보여줘."
    - 2-A, 2-B: follow-up 답변 검토 후 라벨 부여
 5. 결과를 `poc/reports/<date>/comparison.md`로 작성
 
-### 6.4 비교 리포트 형식
+### 7.4 비교 리포트 형식
 
 ```markdown
 # macro-logbot PoC 평가 결과 — <date>
@@ -301,9 +330,9 @@ Q3. "어떻게 수정하면 좋을까? 코드 변경 예시를 보여줘."
 - 다음 시도: ...
 ```
 
-## 7. 약한 LLM 강화 사이클 (핵심 미션)
+## 8. 약한 LLM 강화 사이클 (핵심 미션)
 
-### 7.1 사이클 정의
+### 8.1 사이클 정의
 
 ```mermaid
 flowchart LR
@@ -316,7 +345,7 @@ flowchart LR
     pr --> base
 ```
 
-### 7.2 개선 전략 카탈로그
+### 8.2 개선 전략 카탈로그
 
 각 사이클에서 다음 중 하나(또는 조합) 적용:
 
@@ -331,7 +360,7 @@ flowchart LR
 | **Structured output schema** | LLM 호출 시 `response_format` | JSON schema 강제 |
 | **Max iterations 조정** | env var | 너무 적으면 미완 / 너무 많으면 noise |
 
-### 7.3 사이클 PR 단위
+### 8.3 사이클 PR 단위
 
 각 사이클은 별도 PR:
 - 브랜치: `experiment/<name>-cycle-<N>` (예: `experiment/cot-cycle-2`)
@@ -339,14 +368,14 @@ flowchart LR
 - test-engineer agent가 `evaluate.py --quick` 실행 후 결과 차이 자동 비교
 - 개선 폭이 의미 있으면 (Δ ≥ +5%p) verifier가 머지 승인
 
-### 7.4 사이클 종료 조건
+### 8.4 사이클 종료 조건
 
 - Groq Llama 자율 해결률 ≥ 60% 달성 시
 - 또는 한 사이클 적용 후 Δ < 1%p (개선 없음)이 3회 연속
 
 종료 후 모든 사이클 시도·결과를 `poc/reports/cycles-summary.md`로 정리.
 
-### 7.5 KB 누적 효과 (Ablation 측정)
+### 8.5 KB 누적 효과 (Ablation 측정)
 
 약한 LLM 강화 사이클에서 Knowledge Base(KB §5.5)의 기여는 별도 측정. 시간이 지나며 KB가 baseline을 어떻게 끌어올리는지 정량화.
 
@@ -364,7 +393,7 @@ flowchart LR
 - 사이클 PR마다 3 모드 모두 측정 → `poc/reports/<cycle-id>/comparison.md`에 9 column 매트릭스 (3 KB mode × 3 단계: 사이클 전 / 사이클 적용 / 사이클 후)
 - 사이클이 KB 활용 전략을 개선하면 cumulative·pre-seeded 모드에서 Δ 증가가 우선 관찰됨
 
-## 8. 운영 후 사내 적용 (v1.0 → 운영)
+## 9. 운영 후 사내 적용 (v1.0 → 운영)
 
 사외 PoC가 baseline 충족하면:
 1. **사내 LLM endpoint 정보 확보** (사내 LLM 운영팀 답변 — `docs/requirements/02-사내-사전확인-체크리스트.md` 섹션 A)
@@ -373,7 +402,7 @@ flowchart LR
 4. **자율 해결률 ≥ 70% 달성 검증** (Stage 2 spec §10.2 운영 목표)
 5. 미달 시 → 약한 LLM 강화 사이클을 사내 LLM 대상으로 재진행
 
-## 9. 본 PoC를 다른 Claude Code가 재현하는 법
+## 10. 본 PoC를 다른 Claude Code가 재현하는 법
 
 본 가이드 외에 필요한 것:
 - `docs/process/03-개발-프로세스.md` (자동화 매뉴얼)
@@ -404,7 +433,7 @@ python poc/scripts/evaluate.py --models all --cases all
 - PR·머지 자동화 → `docs/process/03-개발-프로세스.md`
 - 사이클 운영 → 본 문서
 
-## 10. 본 문서 갱신 정책
+## 11. 본 문서 갱신 정책
 
 - 카탈로그 추가·제거: `docs/<...>` 브랜치 PR
 - 채점 방식 변경: `meta` label, 사람 final review 권장 (재현 안정성 영향)
