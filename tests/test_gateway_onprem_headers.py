@@ -48,6 +48,15 @@ def test_extra_headers_populated_when_ticket_set(
     assert "Completion-Msg-Id" not in gw._extra_headers
 
 
+def test_extra_headers_none_when_ticket_whitespace_only(
+    clean_env: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """공백만 있는 ticket env → _extra_headers None (운영자 실수 방어)."""
+    monkeypatch.setenv("MACRO_LOGBOT_LLM_X_DEP_TICKET", "   ")
+    gw = LLMGateway()
+    assert gw._extra_headers is None
+
+
 def test_extra_headers_uses_defaults_when_optional_not_set(
     clean_env: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:

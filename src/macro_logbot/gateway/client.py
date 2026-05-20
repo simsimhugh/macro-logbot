@@ -45,7 +45,10 @@ _LLM_BASE_URL_ENV = "MACRO_LOGBOT_LLM_BASE_URL"
 _LLM_API_KEY_ENV = "MACRO_LOGBOT_LLM_API_KEY"
 _LLM_PROVIDER_ENV = "MACRO_LOGBOT_LLM_PROVIDER"
 
-# 사내 API gateway 커스텀 헤더 env (DS API HUB x-dep-ticket 인증 방식). 
+# 사내 API gateway 커스텀 헤더 env (DS API HUB x-dep-ticket 인증 방식).
+# extra_headers forward 는 LiteLLM 의 OpenAI-compat provider 한정 — 사내 endpoint 가
+# OpenAI 호환 (/v1/chat/completions) 인 한 정상 동작. Anthropic/Gemini native 경로는
+# 일부 header drop 가능 (각 provider 의 transformer 동작 의존).
 _LLM_X_DEP_TICKET_ENV = "MACRO_LOGBOT_LLM_X_DEP_TICKET"
 _LLM_SEND_SYSTEM_NAME_ENV = "MACRO_LOGBOT_LLM_SEND_SYSTEM_NAME"
 _LLM_USER_ID_ENV = "MACRO_LOGBOT_LLM_USER_ID"
@@ -269,16 +272,16 @@ class LLMGateway:
         # 사내 DS API HUB 커스텀 헤더 — x-dep-ticket 설정 시 extra_headers 로 주입.
         # static 부분만 __init__ 에 보관 — Prompt-Msg-Id / Completion-Msg-Id 는
         # complete() 안에서 매 호출마다 새 UUID 로 생성 (traceability).
-        x_dep_ticket = os.environ.get(_LLM_X_DEP_TICKET_ENV)
+        # strip() — env 가 공백만 있는 경우 (운영자 실수) 망가진 헤더 forward 회피.
+        self._extra_headers: dict[str, str] | None = None
+        x_dep_ticket = (os.environ.get(_LLM_X_DEP_TICKET_ENV) or "").strip()
         if x_dep_ticket:
-            self._extra_headers: dict[str, str] | None = {
+            self._extra_headers = {
                 "x-dep-ticket": x_dep_ticket,
                 "Send-System-Name": os.environ.get(_LLM_SEND_SYSTEM_NAME_ENV, "macro-logbot"),
                 "User-Id": os.environ.get(_LLM_USER_ID_ENV, "macro-logbot"),
                 "User-Type": os.environ.get(_LLM_USER_TYPE_ENV, "AD_ID"),
             }
-        else:
-            self._extra_headers = None
 
     async def complete(
         self,
