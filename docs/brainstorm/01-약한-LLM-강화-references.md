@@ -2,7 +2,7 @@
 
 > **목적**: 본 sprint 의 점수 천장 (Gemma 3 12B Q4 = 73.27/100, fail case E008 의 control-flow 분석 실패 + E001 N2 의 tool calling 무한 loop) 돌파.
 >
-> **본 doc 의 위치**: docs/process/ 의 정식 spec 이 아닌 **브레인스토밍 노트** + **본 PoC 의 architectural 의사결정 reference**. 정식 적용 시 별도 PR + reviewer cycle.
+> **본 doc 의 위치**: docs/process/ 의 정식 spec 이 아닌 **living brainstorm document** — 관리 정책은 [`docs/brainstorm/README.md`](README.md) 참조. 정식 적용 시 docs/design/ 으로 승격 (별도 PR + reviewer cycle).
 >
 > 사용자 명시 (2026-05-21):
 > - "약한 모델 강화 = 본 PoC 핵심 미션"
