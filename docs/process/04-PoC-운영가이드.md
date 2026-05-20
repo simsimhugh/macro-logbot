@@ -509,6 +509,86 @@ flowchart LR
 4. **자율 해결률 ≥ 70% 달성 검증** (Stage 2 spec §10.2 운영 목표)
 5. 미달 시 → 약한 LLM 강화 사이클을 사내 LLM 대상으로 재진행
 
+### 9.1 사내 LLM endpoint 설정 (`.env.bak`)
+
+```bash
+# 사내 LLM
+MACRO_LOGBOT_LLM_BASE_URL=https://<사내-llm-endpoint>/v1
+MACRO_LOGBOT_LLM_API_KEY=<사내-api-key>
+MACRO_LOGBOT_LLM_PROVIDER=openai           # 또는 사내 provider (vLLM, TGI 등)
+MACRO_LOGBOT_DEFAULT_MODEL=<사내-model-id>   # 예: company-llm-13b
+MACRO_LOGBOT_MODEL_CONTEXT_LIMIT=<context-len>  # 사내 모델의 context window
+
+# 측정 환경 (사외와 동일)
+MACRO_LOGBOT_ENV=poc
+MACRO_LOGBOT_POC_WORKSPACE_ALLOWED=/tmp/poc-cases
+MACRO_LOGBOT_API_KEY=<원하는-bearer-key>
+MACRO_LOGBOT_AUTH_REQUIRED=true
+```
+
+backend container 재기동:
+```bash
+docker compose down && docker compose up -d
+docker compose logs -f backend  # healthy 확인
+```
+
+### 9.2 측정 실행 (one-shot 스크립트)
+
+repo 의 `poc/scripts/run-onprem-baseline.sh` (PR #54 신규):
+```bash
+cd /path/to/macro-logbot
+./poc/scripts/run-onprem-baseline.sh        # N=3, default
+./poc/scripts/run-onprem-baseline.sh 5      # N=5
+```
+
+내부 동작 = `poc/scripts/evaluate.py` 를 N 회 반복 + N=3 baseline 보고서 작성용 raw output 생성.
+
+### 9.3 결과 위치
+
+- **raw output**: `/tmp/baseline-onprem-<YYYYMMDD>/reports/N{1..N}/<YYYY-MM-DD>/E*.json`
+- **run log**: `/tmp/baseline-onprem-<YYYYMMDD>/run.log`
+- **comparison.md** (자동 생성): 각 run 의 `reports/N{N}/<YYYY-MM-DD>/comparison.md`
+
+§7.5 invariant 검증:
+```bash
+docker exec <backend-container> python3 -c "
+import sqlite3, json
+conn = sqlite3.connect('/app/.macro-logbot-sessions.db')
+ok = err = 0
+for (blob,) in conn.execute('SELECT messages_json FROM sessions ORDER BY updated_at DESC LIMIT 30'):
+    for m in json.loads(blob):
+        if m.get('role') == 'tool':
+            if '\"error\"' in (m.get('content','')[:50]): err += 1
+            else: ok += 1
+print(f'tool success: {ok}/{ok+err} = {ok/(ok+err)*100:.1f}%')
+"
+# 결과 < 80% 면 인프라 문제 — 사외와 같은 문제 의심, fix 후 재측정
+```
+
+### 9.4 사외 Claude 와 공유 (raw JSON 전달)
+
+본인 (사외 main Claude) 이 4-channel judge + 비교 보고서 작성하려면 raw JSON 30 개 필요.
+
+**Secret redact 후 전달**:
+```bash
+ROOT=/tmp/baseline-onprem-<YYYYMMDD>
+
+# 1. hostname / 사내 IP 패턴 redact
+sed -i -E 's/[a-zA-Z0-9-]+\.<사내-domain>/<host-redacted>/g; s/10\.[0-9.]+/<ip-redacted>/g' \
+    $ROOT/reports/*/<YYYY-MM-DD>/*.json
+
+# 2. 사내 사용자명 / 경로 redact
+sed -i -E 's/\/home\/<사내-user>/\/home\/<user>/g' $ROOT/reports/*/<YYYY-MM-DD>/*.json
+
+# 3. 사내 모델 ID 가 secret 이면 redact (optional)
+# sed -i 's/<사내-model-id>/<model-redacted>/g' $ROOT/reports/*/<YYYY-MM-DD>/*.json
+
+# 4. tar.gz 압축
+tar czf onprem-baseline-$(date +%Y%m%d).tar.gz -C $ROOT reports/
+```
+
+본 tar.gz 만 사용자 PC 로 복사 → conversation 에 첨부. 사외 Claude 가 §7.5 invariant 재검증 + §7.1 의 30+70 채점 + N=3 (사외 Local Gemma) vs 사내 LLM 비교 보고서.
+
 ## 10. 본 PoC를 다른 Claude Code가 재현하는 법
 
 본 가이드 외에 필요한 것:
