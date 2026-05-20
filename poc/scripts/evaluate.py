@@ -185,7 +185,11 @@ def evaluate_case(
     judge_model 지정 시 1-A 채점 후 LLM judge (1-B/2-A/2-B) 도 실행.
     session_id 지정 시 payload 에 포함 (spec §10.6 cumulative mode).
     """
-    workdir = Path(tempfile.mkdtemp(prefix=f"poc-{case_id}-"))
+    # workdir 위치 = docker-compose 의 backend volume mount (`/tmp/poc-cases:ro`) +
+    # backend tool 의 `MACRO_LOGBOT_POC_WORKSPACE_ALLOWED` 와 정합. env override 지원.
+    poc_cases_root = Path(os.environ.get("MACRO_LOGBOT_POC_CASES_ROOT", "/tmp/poc-cases"))
+    poc_cases_root.mkdir(parents=True, exist_ok=True)
+    workdir = Path(tempfile.mkdtemp(prefix=f"{case_id}-", dir=str(poc_cases_root)))
     started_at = _dt.datetime.now(_dt.UTC).isoformat()
     case_meta = inject(case_id, workdir)
     exit_code, stderr_text = trigger(workdir)
