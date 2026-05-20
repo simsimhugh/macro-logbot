@@ -46,7 +46,7 @@ if ! [[ "$CASES" =~ ^E[0-9]{3}(,E[0-9]{3})*$ ]]; then
 fi
 
 # --- env override ---
-PYTHON_BIN="${PYTHON_BIN:-python3}"
+# PYTHON_BIN 은 아래 "host Python 자동 검출" 에서 처리 (.venv 우선).
 RATE_LIMIT_COOLDOWN="${RATE_LIMIT_COOLDOWN:-0}"
 
 # --- repo root 자동 검출 ---
@@ -54,21 +54,33 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 cd "$REPO_ROOT"
 
-# --- env load ---
-if [ ! -f .env.bak ]; then
-    echo "ERROR: .env.bak not found in $REPO_ROOT" >&2
+# --- env load (.env.bak 우선, 없으면 .env — 사외 dev vs 사내 운영 양쪽 호환) ---
+if [ -f .env.bak ]; then
+    ENV_FILE=.env.bak
+elif [ -f .env ]; then
+    ENV_FILE=.env
+else
+    echo "ERROR: neither .env.bak nor .env found in $REPO_ROOT" >&2
     echo "       사내 LLM endpoint 설정 — docs/process/04-PoC-운영가이드.md §9.1" >&2
     exit 1
 fi
-set -a; . .env.bak; set +a
+set -a; . "$ENV_FILE"; set +a
 
-# --- host Python check ---
-if ! "$PYTHON_BIN" -c "import sys; assert sys.version_info >= (3, 8), sys.version" 2>/dev/null; then
-    echo "ERROR: $PYTHON_BIN 미지원 (Python 3.8+ 필요). PYTHON_BIN=python3.11 같이 override." >&2
+# --- host Python 자동 검출 (PYTHON_BIN env override → .venv → system) ---
+if [ -n "${PYTHON_BIN:-}" ]; then
+    PYTHON="$PYTHON"
+elif [ -x "${REPO_ROOT}/.venv/bin/python3" ]; then
+    PYTHON="${REPO_ROOT}/.venv/bin/python3"
+else
+    PYTHON="python3"
+fi
+
+if ! "$PYTHON" -c "import sys; assert sys.version_info >= (3, 8), sys.version" 2>/dev/null; then
+    echo "ERROR: $PYTHON 미지원 (Python 3.8+ 필요). PYTHON_BIN=python3.11 같이 override." >&2
     exit 1
 fi
-if ! "$PYTHON_BIN" -c "import yaml" 2>/dev/null; then
-    echo "ERROR: $PYTHON_BIN 에 PyYAML 미설치. $PYTHON_BIN -m pip install --user pyyaml" >&2
+if ! "$PYTHON" -c "import yaml" 2>/dev/null; then
+    echo "ERROR: $PYTHON 에 PyYAML 미설치. $PYTHON -m pip install --user pyyaml" >&2
     exit 1
 fi
 
@@ -100,7 +112,7 @@ echo "Model:            ${MACRO_LOGBOT_DEFAULT_MODEL:-default}"
 echo "LLM endpoint:     ${MACRO_LOGBOT_LLM_BASE_URL:-<not-set>}"
 echo "Backend container: $BACKEND_CONTAINER"
 echo "Started at:       $STARTED_AT"
-echo "Python:           $PYTHON_BIN ($("$PYTHON_BIN" -c 'import platform;print(platform.python_version())'))"
+echo "Python:           $PYTHON ($("$PYTHON" -c 'import platform;print(platform.python_version())'))"
 echo "Rate limit cooldown: ${RATE_LIMIT_COOLDOWN}s"
 echo ""
 
@@ -109,7 +121,7 @@ for i in $(seq 1 "$N"); do
     LOG_FILE="$ROOT/run-N$i.log"
     {
         echo "=== Run N$i start $(date +%H:%M:%S) ==="
-        "$PYTHON_BIN" poc/scripts/evaluate.py \
+        "$PYTHON" poc/scripts/evaluate.py \
             --cases "$CASES" \
             --model "${MACRO_LOGBOT_DEFAULT_MODEL:?MACRO_LOGBOT_DEFAULT_MODEL not set}" \
             --api-url "http://localhost:8000" \

@@ -536,13 +536,26 @@ docker compose logs -f backend  # healthy 확인
 
 repo 의 `poc/scripts/run-onprem-baseline.sh` (PR #54 신규, PR #57 robustness 강화):
 
-#### 9.2.1 host 의 Python 사전 조건
+#### 9.2.1 env file (`.env.bak` 또는 `.env`)
 
-본 스크립트는 host 의 Python 으로 `evaluate.py` 실행 (backend container 의 Python 3.14 와 별개). 의존성:
-- Python **3.8+** (PoC 스크립트 자체는 stdlib + yaml 만 사용, pyproject 의 `requires-python = ">=3.14"` 는 backend 의존)
+스크립트가 `.env.bak` 우선 → 없으면 `.env` fallback 으로 load:
+- **사외 dev**: `.env.bak` (pytest 충돌 회피)
+- **사내 운영**: `.env` (사내 convention)
+
+둘 다 없으면 fail-fast.
+
+#### 9.2.2 host Python 자동 검출 (PYTHON_BIN env override → `.venv` → system)
+
+본 스크립트는 host Python 으로 `evaluate.py` 실행. 의존성:
+- Python **3.8+** (PoC 스크립트는 stdlib + yaml 만 사용, pyproject 의 `requires-python = ">=3.14"` 는 backend 의존)
 - `pyyaml` 패키지
 
-사내 host 가 Python 3.14 미지원이면:
+**검출 순서** (script 가 자동):
+1. `PYTHON_BIN` env var 명시 — 사용자 override
+2. `${REPO_ROOT}/.venv/bin/python3` 실행 가능 시 — 사외 dev 환경 자동
+3. system `python3` — 사내 운영 환경 (사내 default Python)
+
+**사내 host 가 Python 3.14 미지원**이면:
 ```bash
 # 1. host 의 사용 가능한 Python 확인
 python3 --version   # 또는 python3.11, python3.12
@@ -550,11 +563,14 @@ python3 --version   # 또는 python3.11, python3.12
 # 2. PyYAML 설치 (user-only — 시스템 영향 0)
 python3 -m pip install --user pyyaml
 
-# 3. 스크립트 실행 시 PYTHON_BIN env override
+# 3. 그대로 실행 — 자동 검출이 system python3 사용
+./poc/scripts/run-onprem-baseline.sh 3
+
+# 또는 명시 override
 PYTHON_BIN=python3.11 ./poc/scripts/run-onprem-baseline.sh 3
 ```
 
-#### 9.2.2 기본 실행
+#### 9.2.3 기본 실행
 
 ```bash
 cd /path/to/macro-logbot
@@ -563,13 +579,13 @@ cd /path/to/macro-logbot
 ./poc/scripts/run-onprem-baseline.sh 3 E001,E002,E003  # subset cases
 ```
 
-#### 9.2.3 env override (사내 환경 맞춤)
+#### 9.2.4 env override (사내 환경 맞춤)
 
 | env | default | 의미 |
 |---|---|---|
-| `PYTHON_BIN` | `python3` | host 의 Python binary (예: `python3.11`) |
+| `PYTHON_BIN` | (자동 검출: `.venv/bin/python3` → system `python3`) | host Python override |
 | `MACRO_LOGBOT_BACKEND_CONTAINER` | (자동 검출: `docker compose ps -q macro-logbot-backend`) | docker-compose service 이름 다를 때 |
-| `RATE_LIMIT_COOLDOWN` | `0` | 사내 LLM 이 rate limit 시 case 간 sleep (sec) — 예: `RATE_LIMIT_COOLDOWN=2` |
+| `RATE_LIMIT_COOLDOWN` | `0` | 사내 LLM rate limit 시 case 간 sleep (sec) — 예: `RATE_LIMIT_COOLDOWN=2` |
 
 내부 동작 = `poc/scripts/evaluate.py` 를 N 회 반복 + 측정 시작 시각 `started_at` 캡쳐 (invariant 의 session 범위 제한) + run 별 log 분리 (`run-N{1..N}.log`) + 진행상황 화면 출력 (tee).
 
