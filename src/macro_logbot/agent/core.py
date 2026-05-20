@@ -23,6 +23,7 @@ import logging
 import os
 import re
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import TypedDict, cast
 
 import litellm
@@ -191,6 +192,25 @@ def _truncate_messages(
 # spec §5.5 Location — KB store 정의 (file/function/line) 재사용 (architect WARN-1 충돌 회피).
 _LOCATION_RE = re.compile(r"([\w./-]+\.py):(\d+)")
 
+# traceback fallback — stderr 에서 마지막 프레임 추출.
+_TRACEBACK_FRAME_RE = re.compile(r'File "([^"]+)", line (\d+), in (\S+)')
+
+# structured output 추출 prompt — JSON only, 다른 텍스트 없이.
+_CRYSTALLIZE_SYSTEM_PROMPT = """\
+당신은 에러 분석 결과를 JSON 으로 정확히 구조화하는 어시스턴트입니다.
+다음 JSON 형식으로만 출력하세요. 다른 텍스트 없이 JSON 만.
+
+{
+  "root_cause": "<error class + 원인 함수/변수 — 한 문장>",
+  "location": {"file": "<basename.py>", "function": "<func_name>", "line": <int or null>},
+  "fix_hint": "<구체적 코드 수정>",
+  "confidence": <0.0~1.0>,
+  "reasoning_summary": "<핵심 추론 요약>"
+}
+
+location 이 불명확하면 null 을 사용하세요: "location": null
+"""
+
 
 class Report(BaseModel):
     """crystallize_report 노드 출력 — 구조화 분석 결과.
@@ -350,14 +370,47 @@ async def _execute_tools_node(state: AgentState) -> AgentState:
     return {**state, "messages": [*state["messages"], *tool_messages]}
 
 
+def _location_from_traceback(stderr: str) -> Location | None:
+    """stderr traceback 의 마지막 프레임에서 Location 추출.
+
+    LLM 답변에 location 이 없을 때 user message (stderr) 에서 fallback.
+    """
+    matches = list(_TRACEBACK_FRAME_RE.finditer(stderr))
+    if not matches:
+        return None
+    m = matches[-1]
+    try:
+        return Location(
+            file=Path(m.group(1)).name,
+            function=m.group(3),
+            line=int(m.group(2)),
+        )
+    except ValidationError:
+        return None
+
+
+def _parse_structured_json(raw: str) -> dict[str, object] | None:
+    """LLM raw 응답에서 JSON 블록을 추출하고 파싱. 실패 시 None."""
+    # 마크다운 코드펜스 벗기기 (```json ... ```)
+    stripped = re.sub(r"^```(?:json)?\s*", "", raw.strip(), flags=re.IGNORECASE)
+    stripped = re.sub(r"\s*```$", "", stripped.strip())
+    try:
+        parsed = json.loads(stripped)
+        if isinstance(parsed, dict):
+            return parsed
+        return None
+    except json.JSONDecodeError:
+        return None
+
+
 async def _crystallize_report_node(state: AgentState) -> AgentState:
     """last assistant message → 구조화 Report 추출 (graph 종료 직전).
 
-    MVP 단순화:
-      - last assistant message 본문을 root_cause / reasoning_summary / fix_hint 에 복사.
-      - location: 첫 *.py:N regex 매칭, 없으면 None.
-      - confidence: 0.5 고정 (placeholder).
-    LLM 추가 호출로 정확 JSON 추출은 task-MVP-001-y.
+    추가 LLM 호출로 structured JSON 추출 (task-AGENT-011):
+      1. system prompt (JSON schema 강제) + last assistant content 로 LLM 호출.
+      2. 파싱 실패 시 1회 재시도.
+      3. location 이 None 이면 user message (stderr) traceback fallback.
+      4. 최종 실패 시 last assistant content 를 root_cause 에 그대로 복사 (MVP fallback).
     """
     # last assistant message 본문 추출.
     last_assistant_content = ""
@@ -366,22 +419,87 @@ async def _crystallize_report_node(state: AgentState) -> AgentState:
             last_assistant_content = m.content
             break
 
-    # location: 첫 *.py:N 매칭. line ≥ 1 강제 (KB Location 검증).
-    # LLM 답변에 line=0 또는 음수가 나오는 케이스 (드물지만) graph crash 방지.
-    location: Location | None = None
-    loc_match = _LOCATION_RE.search(last_assistant_content)
-    if loc_match:
+    # user message (stderr) 추출 — traceback fallback 용.
+    user_content = ""
+    for m in state["messages"]:
+        if m.role == "user" and m.content:
+            user_content = m.content
+            break
+
+    # structured JSON 추출 LLM 호출 (최대 2회).
+    parsed: dict[str, object] | None = None
+    crystallize_messages = [
+        Message(role="system", content=_CRYSTALLIZE_SYSTEM_PROMPT),
+        Message(role="user", content=last_assistant_content or "(분석 결과 없음)"),
+    ]
+    for _attempt in range(2):
         try:
-            location = Location(file=loc_match.group(1), line=int(loc_match.group(2)))
-        except ValidationError:
-            location = None
+            resp = await state["_gateway"].complete(
+                crystallize_messages,
+                model=state["_model"],
+                response_format={"type": "json_object"},
+            )
+            if resp.choices:
+                raw = resp.choices[0].message.content or ""
+                parsed = _parse_structured_json(raw)
+                if parsed is not None:
+                    break
+        except Exception:  # noqa: BLE001 — LLM 호출 실패 → fallback
+            break
+
+    # parsed 결과에서 필드 추출, 실패 시 MVP fallback.
+    if parsed is not None:
+        root_cause = str(parsed.get("root_cause") or last_assistant_content)
+        fix_hint = str(parsed.get("fix_hint") or last_assistant_content)
+        reasoning_summary = str(parsed.get("reasoning_summary") or last_assistant_content)
+        raw_confidence = parsed.get("confidence")
+        try:
+            confidence = float(raw_confidence) if raw_confidence is not None else 0.5  # type: ignore[arg-type]
+            confidence = max(0.0, min(1.0, confidence))
+        except (TypeError, ValueError):
+            confidence = 0.5
+
+        # location 추출.
+        location: Location | None = None
+        loc_data = parsed.get("location")
+        if isinstance(loc_data, dict):
+            try:
+                raw_line = loc_data.get("line")
+                if raw_line is not None:
+                    location = Location(
+                        file=str(loc_data.get("file") or ""),
+                        function=str(loc_data.get("function") or ""),
+                        line=int(raw_line),
+                    )
+            except (ValidationError, TypeError, ValueError):
+                location = None
+    else:
+        # LLM 호출/파싱 완전 실패 → MVP fallback.
+        root_cause = last_assistant_content
+        fix_hint = last_assistant_content
+        reasoning_summary = last_assistant_content
+        confidence = 0.5
+        location = None
+        # regex fallback (이전 MVP 동작 보존).
+        loc_match = _LOCATION_RE.search(last_assistant_content)
+        if loc_match:
+            try:
+                location = Location(
+                    file=loc_match.group(1), line=int(loc_match.group(2))
+                )
+            except ValidationError:
+                location = None
+
+    # traceback fallback — location 여전히 None 이고 user message 에 stderr 있으면.
+    if location is None and user_content:
+        location = _location_from_traceback(user_content)
 
     report = Report(
-        root_cause=last_assistant_content,
+        root_cause=root_cause,
         location=location,
-        fix_hint=last_assistant_content,
-        confidence=0.5,
-        reasoning_summary=last_assistant_content,
+        fix_hint=fix_hint,
+        confidence=confidence,
+        reasoning_summary=reasoning_summary,
     )
     return {**state, "report": report}
 
