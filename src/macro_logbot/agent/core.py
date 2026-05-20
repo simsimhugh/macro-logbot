@@ -555,14 +555,57 @@ async def _finalize_node(state: AgentState) -> AgentState:
     return state
 
 
+REPEAT_TOOL_CALL_THRESHOLD = 3
+
+
+def _tool_call_signature(msg: Message) -> tuple[tuple[str, str], ...] | None:
+    """assistant message 의 tool_calls signature — (name, args_json) sorted tuple.
+
+    Returns None if message has no tool_calls.
+    """
+    if not (msg.role == "assistant" and msg.tool_calls):
+        return None
+    return tuple(
+        sorted((tc.function.name, tc.function.arguments) for tc in msg.tool_calls)
+    )
+
+
+def _is_repeating_tool_calls(
+    messages: list[Message],
+    threshold: int = REPEAT_TOOL_CALL_THRESHOLD,
+) -> bool:
+    """최근 threshold 개의 assistant tool_call message 가 모두 같은 signature 면 True.
+
+    task-AGENT-022: PR #54 의 N=3 baseline 후 E001 N2 의 40-message 무한 loop 사례
+    (agent 가 같은 read_file + grep_codebase 무한 반복) 해소용.
+    """
+    sigs: list[tuple[tuple[str, str], ...]] = []
+    for m in reversed(messages):
+        sig = _tool_call_signature(m)
+        if sig is None:
+            continue
+        sigs.append(sig)
+        if len(sigs) >= threshold:
+            break
+    if len(sigs) < threshold:
+        return False
+    return all(s == sigs[0] for s in sigs)
+
+
 def _route_after_llm(state: AgentState) -> str:
-    """tool_calls 가 있고 iter ≤ max_iters 이면 execute_tools, 아니면 crystallize_report."""
+    """tool_calls 가 있고 iter ≤ max_iters 이면 execute_tools, 아니면 crystallize_report.
+
+    task-AGENT-022: 최근 N=3 회 assistant tool_call 이 모두 같은 signature 면 무한 loop
+    로 간주하고 crystallize_report 로 break — max_iters 도달 전 fail-fast.
+    """
     if state["iteration"] >= state["max_iters"]:
         return "crystallize_report"
     if not state["messages"]:
         return "crystallize_report"
     last = state["messages"][-1]
     if last.role == "assistant" and last.tool_calls:
+        if _is_repeating_tool_calls(state["messages"]):
+            return "crystallize_report"
         return "execute_tools"
     return "crystallize_report"
 
