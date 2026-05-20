@@ -6,7 +6,6 @@ task-AGENT-011: structured Report 변환 강화.
 from __future__ import annotations
 
 import time
-from pathlib import Path
 from unittest.mock import AsyncMock
 
 import pytest
@@ -25,8 +24,6 @@ from macro_logbot.gateway import (
     Message,
     Usage,
 )
-from macro_logbot.knowledge_base.store import Location
-
 
 # ---------------------------------------------------------------------------
 # helpers

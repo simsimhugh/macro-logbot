@@ -27,6 +27,7 @@ from pathlib import Path
 from typing import TypedDict, cast
 
 import litellm
+import litellm.exceptions
 from langgraph.graph import END, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 from pydantic import BaseModel, ValidationError
@@ -40,9 +41,9 @@ from macro_logbot.intake.parser import parse_macro_log
 from macro_logbot.knowledge_base.store import Location
 from macro_logbot.tools.registry import execute_tool, get_openai_tools_schema
 
-MAX_ITERS_DEFAULT = 20  # spec §5.2 default
-
 logger = logging.getLogger(__name__)
+
+MAX_ITERS_DEFAULT = 20  # spec §5.2 default
 
 # context 한계 — env override 가능 (default 16384, Gemma 3 12B 기준).
 _CONTEXT_LIMIT_ENV = "MACRO_LOGBOT_MODEL_CONTEXT_LIMIT"
@@ -428,30 +429,75 @@ async def _crystallize_report_node(state: AgentState) -> AgentState:
 
     # structured JSON 추출 LLM 호출 (최대 2회).
     parsed: dict[str, object] | None = None
+    _response_format_supported = True  # OSS 모델 미지원 시 False 로 전환.
     crystallize_messages = [
         Message(role="system", content=_CRYSTALLIZE_SYSTEM_PROMPT),
         Message(role="user", content=last_assistant_content or "(분석 결과 없음)"),
     ]
     for _attempt in range(2):
+        msgs = list(crystallize_messages)
+        if _attempt > 0:
+            # corrective prompt — 이전 시도가 JSON 형식 아닌 경우.
+            msgs.append(
+                Message(
+                    role="user",
+                    content="이전 답안이 JSON 형식 아닙니다. JSON 만 답하세요. 추가 설명 금지.",
+                )
+            )
+        extra_kwargs: dict[str, object] = dict(state["_generation_kwargs"])
+        if _response_format_supported:
+            extra_kwargs["response_format"] = {"type": "json_object"}
         try:
             resp = await state["_gateway"].complete(
-                crystallize_messages,
+                msgs,
                 model=state["_model"],
-                response_format={"type": "json_object"},
+                **extra_kwargs,
             )
+        except (
+            litellm.exceptions.UnsupportedParamsError,
+            litellm.exceptions.BadRequestError,
+        ) as exc:
+            if "response_format" in str(exc).lower():
+                # OSS 모델 미지원 — prompt-only fallback.
+                logger.info(
+                    "response_format unsupported for crystallize, "
+                    "using prompt-only JSON instruction"
+                )
+                _response_format_supported = False
+                extra_kwargs.pop("response_format", None)
+                try:
+                    resp = await state["_gateway"].complete(
+                        msgs,
+                        model=state["_model"],
+                        **extra_kwargs,
+                    )
+                except Exception as inner_exc:  # noqa: BLE001
+                    # crystallize 는 best-effort — LLM 호출 실패 시 MVP fallback.
+                    logger.warning("crystallize LLM call failed (inner): %s", inner_exc)
+                    break
+            else:
+                raise
+        except Exception as exc:  # noqa: BLE001
+            # crystallize 는 best-effort — rate limit / timeout / attr 오류 시 MVP fallback.
+            logger.warning("crystallize LLM call failed: %s", exc)
+            break
+        else:
             if resp.choices:
                 raw = resp.choices[0].message.content or ""
                 parsed = _parse_structured_json(raw)
                 if parsed is not None:
                     break
-        except Exception:  # noqa: BLE001 — LLM 호출 실패 → fallback
-            break
 
     # parsed 결과에서 필드 추출, 실패 시 MVP fallback.
     if parsed is not None:
-        root_cause = str(parsed.get("root_cause") or last_assistant_content)
-        fix_hint = str(parsed.get("fix_hint") or last_assistant_content)
-        reasoning_summary = str(parsed.get("reasoning_summary") or last_assistant_content)
+        def _extract_str(val: object) -> str:
+            """None 또는 공백 전용이면 last_assistant_content 로 fallback."""
+            s = str(val) if val is not None else ""
+            return s if s.strip() else last_assistant_content
+
+        root_cause = _extract_str(parsed.get("root_cause"))
+        fix_hint = _extract_str(parsed.get("fix_hint"))
+        reasoning_summary = _extract_str(parsed.get("reasoning_summary"))
         raw_confidence = parsed.get("confidence")
         try:
             confidence = float(raw_confidence) if raw_confidence is not None else 0.5  # type: ignore[arg-type]
