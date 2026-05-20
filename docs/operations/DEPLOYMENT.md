@@ -266,6 +266,20 @@ docker compose down -v   # 볼륨(Open WebUI 데이터) 포함 삭제
 
 ---
 
+## 사내 배포 진행 상황 (2026-05-20 기준)
+
+| 항목 | 상태 | 비고 |
+|---|---|---|
+| 사내 build 정상 | ✅ 완료 | 사내 미러 + `APT_MIRROR` / `PIP_TRUSTED_HOST` 설정으로 외부 인터넷 없이 빌드 성공 |
+| 사내 runtime 기동 | ✅ 완료 | backend container + Open WebUI 정상 기동 확인 |
+| 사내 LLM tool 지원 확인 | ✅ 완료 | multi-turn tool calling 지원 확인 (A-2 가정 검증 완료). 운영 가능 단계 진입 |
+| 사내 LLM 허가 | ⚠️ 대기 중 | 허가 미보유 → 사내 측정은 사용자 직접만 가능. main Claude 의 사내 측정 실행 불가 |
+| 사내 측정 + 평가 | 🔜 예정 | 사내 LLM 허가 획득 후 사용자 직접 `evaluate.py` 실행 |
+
+> **Note**: 사내 배포 환경에서 `docker compose up -d --build` 성공 = NFR-6 (Deployment Portability) 1차 검증 완료. AC-6 (사내 미러만으로 빌드·런타임 성공) 달성.
+
+---
+
 ## 관련 문서
 
 - [`.env.example`](../../.env.example) — 전체 환경변수 목록 + 주석
