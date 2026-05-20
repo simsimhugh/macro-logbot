@@ -54,6 +54,16 @@ DEFAULT_MODEL = "gemini/gemini-2.5-flash-lite"
 DEFAULT_COOLDOWN_SEC = 60  # Gemini free tier 5 RPM 보호.
 DEFAULT_HTTP_TIMEOUT = 120
 
+# Tool-error sentinel — backend container 의 read_file/grep_codebase 가 fail 한 경우
+# analysis text 에 echo 되는 키워드. PR #51 (N=10) 의 false positive 재발 방지용
+# (docs/process/04-PoC-운영가이드.md §7.5.1 참조).
+TOOL_ERROR_SENTINELS = (
+    "Permission denied",
+    "PermissionError",
+    "not a file:",
+    "[Errno 13]",
+)
+
 
 def call_backend(
     api_url: str,
@@ -227,6 +237,19 @@ def evaluate_case(
         "ground_truth": ground_truth,
         "score_1a": score,
     }
+    # PR #53: tool-error sentinel 검출 — backend tool 호출이 fail 한 case 를 분류.
+    # docs/process/04-PoC-운영가이드.md §7.5.1. score_1a 가 통과해도 (traceback echo
+    # 만으로 file_match=True) 인프라 문제일 가능성을 보고서가 신뢰하지 못하도록.
+    infra_hits = [s for s in TOOL_ERROR_SENTINELS if s in analysis_text]
+    if infra_hits:
+        result["infra_error"] = {
+            "sentinels_hit": infra_hits,
+            "reason": (
+                "backend tool 호출 fail (workspace permission 등 인프라 문제). "
+                "1-A heuristic 의 file:line 매칭은 traceback echo 가능성 — "
+                "보고서 작성 시 본 case 의 'F2 해소' 증거 채택 금지."
+            ),
+        }
     if session_id:
         result["session_id"] = session_id
     if judge_model:

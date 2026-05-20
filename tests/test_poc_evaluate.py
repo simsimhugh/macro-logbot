@@ -574,3 +574,155 @@ def test_evaluate_case_workdir_default_is_tmp_poc_cases(tmp_path: Path) -> None:
     assert workdir.is_relative_to(Path("/tmp/poc-cases")), (
         f"default workdir {workdir} 가 /tmp/poc-cases 하위가 아님"
     )
+
+
+# ---------------------------------------------------------------------------
+# PR #52 — workdir mode 0o755 (backend container uid mismatch)
+# ---------------------------------------------------------------------------
+
+
+def test_evaluate_case_workdir_mode_is_0o755(tmp_path: Path) -> None:
+    """PR #52 regression — evaluate_case 가 생성한 workdir 의 mode == 0o755.
+
+    backend container 의 uid 가 host evaluator uid 와 다를 때 read 가능하도록.
+    """
+    poc_root = tmp_path / "poc-cases"
+    captured_workdir: list[Path] = []
+
+    def _fake_inject(case_id: str, workdir: Path) -> dict[str, Any]:
+        captured_workdir.append(workdir)
+        return {"ground_truth": {}}
+
+    with (
+        patch.dict(os.environ, {"MACRO_LOGBOT_POC_CASES_ROOT": str(poc_root)}, clear=False),
+        patch.object(evaluate_mod, "inject", side_effect=_fake_inject),
+        patch.object(evaluate_mod, "trigger", return_value=(0, "traceback")),
+        patch.object(evaluate_mod, "call_backend", return_value={"analysis": "ok"}),
+    ):
+        evaluate_mod.evaluate_case(
+            "E001",
+            "http://localhost:8000",
+            "test-key",
+            None,
+        )
+
+    assert len(captured_workdir) == 1
+    mode = captured_workdir[0].stat().st_mode & 0o777
+    assert mode == 0o755, f"workdir mode {oct(mode)} != 0o755"
+
+
+# ---------------------------------------------------------------------------
+# PR #53 — infra_error sentinel 검출 (false positive 재발 방지)
+# docs/process/04-PoC-운영가이드.md §7.5.1
+# ---------------------------------------------------------------------------
+
+
+def test_evaluate_case_flags_infra_error_on_permission_denied(tmp_path: Path) -> None:
+    """analysis 에 'Permission denied' 가 포함되면 result["infra_error"] flag 설정."""
+    poc_root = tmp_path / "poc-cases"
+    with (
+        patch.dict(os.environ, {"MACRO_LOGBOT_POC_CASES_ROOT": str(poc_root)}, clear=False),
+        patch.object(evaluate_mod, "inject", return_value={"ground_truth": {}}),
+        patch.object(evaluate_mod, "trigger", return_value=(0, "traceback")),
+        patch.object(
+            evaluate_mod,
+            "call_backend",
+            return_value={"analysis": "read_file failed: Permission denied on snake.py"},
+        ),
+    ):
+        result = evaluate_mod.evaluate_case(
+            "E001",
+            "http://localhost:8000",
+            "test-key",
+            None,
+        )
+
+    assert "infra_error" in result, "fail-fast guard 가 Permission denied sentinel 미검출"
+    assert "Permission denied" in result["infra_error"]["sentinels_hit"]
+    assert "score_1a" in result, "infra_error 표시해도 score_1a 는 계산되어야 함 (분류만)"
+
+
+def test_evaluate_case_no_infra_error_on_clean_analysis(tmp_path: Path) -> None:
+    """clean analysis (sentinel 없음) 는 infra_error flag 없음."""
+    poc_root = tmp_path / "poc-cases"
+    with (
+        patch.dict(os.environ, {"MACRO_LOGBOT_POC_CASES_ROOT": str(poc_root)}, clear=False),
+        patch.object(evaluate_mod, "inject", return_value={"ground_truth": {}}),
+        patch.object(evaluate_mod, "trigger", return_value=(0, "traceback")),
+        patch.object(
+            evaluate_mod,
+            "call_backend",
+            return_value={"analysis": "snake.py line 90 의 head 초기화 누락 확인됨"},
+        ),
+    ):
+        result = evaluate_mod.evaluate_case(
+            "E001",
+            "http://localhost:8000",
+            "test-key",
+            None,
+        )
+
+    assert "infra_error" not in result
+
+
+def test_evaluate_case_infra_error_detects_multiple_sentinels(tmp_path: Path) -> None:
+    """여러 sentinel 동시 hit 시 모두 기록."""
+    poc_root = tmp_path / "poc-cases"
+    analysis = "read_file: Permission denied, list_directory [Errno 13] not a file: snake.py"
+    with (
+        patch.dict(os.environ, {"MACRO_LOGBOT_POC_CASES_ROOT": str(poc_root)}, clear=False),
+        patch.object(evaluate_mod, "inject", return_value={"ground_truth": {}}),
+        patch.object(evaluate_mod, "trigger", return_value=(0, "traceback")),
+        patch.object(evaluate_mod, "call_backend", return_value={"analysis": analysis}),
+    ):
+        result = evaluate_mod.evaluate_case(
+            "E001",
+            "http://localhost:8000",
+            "test-key",
+            None,
+        )
+
+    sentinels = result["infra_error"]["sentinels_hit"]
+    assert "Permission denied" in sentinels
+    assert "[Errno 13]" in sentinels
+    assert "not a file:" in sentinels
+
+
+def test_evaluate_case_infra_error_set_when_sentinel_overlaps_with_keyword(
+    tmp_path: Path,
+) -> None:
+    """sentinel 이 ground_truth.root_cause_keywords 와 겹쳐 score_1a 가 inflate 되더라도
+    infra_error flag 가 설정되어 보고서 판독자에게 경고 전달.
+
+    PR #51 false positive 의 정확한 패턴 — sentinel substring 이 ground_truth keyword
+    에도 포함되어 keyword_hits 가 올라가는 case (test-engineer PR #53 HIGH).
+    """
+    poc_root = tmp_path / "poc-cases"
+    gt = {
+        "location": {"file": "snake.py", "line": 90},
+        "root_cause_keywords": ["PermissionError", "open"],
+    }
+    # analysis 가 sentinel + keyword 양쪽 모두 포함 → score_1a.keyword_hits ≥ 1
+    # 그러나 infra_error flag 가 반드시 설정되어 보고서가 신뢰하지 못하도록.
+    analysis = "tool result: PermissionError on open(snake.py) at line 90"
+    with (
+        patch.dict(os.environ, {"MACRO_LOGBOT_POC_CASES_ROOT": str(poc_root)}, clear=False),
+        patch.object(evaluate_mod, "inject", return_value={"ground_truth": gt}),
+        patch.object(evaluate_mod, "trigger", return_value=(0, "traceback")),
+        patch.object(evaluate_mod, "call_backend", return_value={"analysis": analysis}),
+    ):
+        result = evaluate_mod.evaluate_case(
+            "E001",
+            "http://localhost:8000",
+            "test-key",
+            None,
+        )
+
+    # infra_error 는 반드시 있어야 함 — score 가 inflate 됐어도 신뢰 금지 표시
+    assert "infra_error" in result, (
+        "sentinel + keyword overlap 시 score_1a 가 inflate 되어도 infra_error 가 필수"
+    )
+    assert "PermissionError" in result["infra_error"]["sentinels_hit"]
+    # score_1a 가 inflate 된 사실을 evidence 로 기록 (PR #51 의 정확한 false positive 패턴)
+    assert result["score_1a"]["keyword_hits"] >= 1
+    assert result["score_1a"]["file_match"] is True
