@@ -19,10 +19,13 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
+import os
 import re
 from dataclasses import dataclass, field
 from typing import TypedDict, cast
 
+import litellm
 from langgraph.graph import END, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 from pydantic import BaseModel, ValidationError
@@ -37,6 +40,153 @@ from macro_logbot.knowledge_base.store import Location
 from macro_logbot.tools.registry import execute_tool, get_openai_tools_schema
 
 MAX_ITERS_DEFAULT = 20  # spec §5.2 default
+
+logger = logging.getLogger(__name__)
+
+# context 한계 — env override 가능 (default 16384, Gemma 3 12B 기준).
+_CONTEXT_LIMIT_ENV = "MACRO_LOGBOT_MODEL_CONTEXT_LIMIT"
+_CONTEXT_LIMIT_DEFAULT = 16384
+_CONTEXT_HIGH_WATERMARK = 0.80  # 80% 초과 시 truncate 시작
+_CONTEXT_TARGET = 0.70          # truncate 후 목표 — limit 의 70% 이하
+
+
+def _get_context_limit() -> int:
+    """env 에서 context limit 읽기 (int 변환 실패 또는 ≤ 0 이면 default 반환)."""
+    raw = os.environ.get(_CONTEXT_LIMIT_ENV, "")
+    try:
+        value = int(raw)
+    except ValueError:
+        return _CONTEXT_LIMIT_DEFAULT
+    if value <= 0:
+        logger.warning(
+            "%s env value %r is not positive; using default %d",
+            _CONTEXT_LIMIT_ENV,
+            raw,
+            _CONTEXT_LIMIT_DEFAULT,
+        )
+        return _CONTEXT_LIMIT_DEFAULT
+    return value
+
+
+def _build_tool_call_groups(messages: list[Message]) -> list[list[int]]:
+    """messages 에서 tool-call group 을 추출한다.
+
+    각 group = [assistant(tool_calls) 인덱스, *대응하는 tool 메시지 인덱스들].
+    assistant message 의 tool_calls 리스트에 있는 모든 tool_call_id 에 매칭되는
+    tool role 메시지들을 같은 group 으로 묶는다.
+
+    orphan tool 메시지 (대응 assistant 없음) 는 포함하지 않는다 — 이미 깨진
+    상태이므로 건드리지 않고 안전하게 보존한다.
+    """
+    groups: list[list[int]] = []
+    i = 0
+    while i < len(messages):
+        m = messages[i]
+        if m.role == "assistant" and m.tool_calls:
+            # 이 assistant message 의 모든 tool_call_id 수집.
+            expected_ids: set[str] = {
+                tc.id for tc in m.tool_calls if tc.id is not None
+            }
+            group: list[int] = [i]
+            j = i + 1
+            # 바로 뒤에 오는 tool 메시지들 중 matching ID 를 group 에 추가.
+            while j < len(messages) and messages[j].role == "tool":
+                if messages[j].tool_call_id in expected_ids:
+                    group.append(j)
+                j += 1
+            groups.append(group)
+            i = j  # group 끝 이후부터 재개
+        else:
+            i += 1
+    return groups
+
+
+def _truncate_messages(
+    messages: list[Message],
+    model: str | None,
+    limit: int,
+) -> list[Message]:
+    """누적 messages 가 limit × 80% 초과 시 가장 오래된 tool-call group 부터 제거.
+
+    보존 우선순위:
+      1. role=system  (모든 system 메시지)
+      2. role=user    (최신 user message 포함 전체)
+      3. 최근 N=2 group (assistant(tool_calls) + 대응 tool 메시지 묶음)
+    나머지 tool-call group 을 오래된 순서로 group 단위로 제거해
+    token count ≤ limit × 70% 가 될 때까지 반복.
+
+    group 단위 제거로 assistant(tool_calls) ↔ tool(tool_call_id) 1:1 짝을
+    유지하여 LiteLLM/OpenAI provider 400 (orphan tool_call_id) 를 방지한다.
+
+    WARN-2 (token_counter O(n²)): group 제거 전 token 을 1회 계산 후 dict 캐시.
+    group 제거 후에만 재계산하여 호출 횟수를 O(group_count) 로 줄인다.
+
+    litellm.token_counter 가 실패하면 truncate 를 생략하고 원본을 반환한다.
+    """
+    # BLOCK-2: limit ≤ 0 이면 truncate 불가 — 원본 그대로 반환.
+    if limit <= 0:
+        return messages
+
+    high = int(limit * _CONTEXT_HIGH_WATERMARK)
+    target = int(limit * _CONTEXT_TARGET)
+    _model = model or "gpt-4o"
+
+    # WARN-2: 초기 token count 1회 계산.
+    try:
+        token_count_fn = litellm.token_counter
+        before = token_count_fn(model=_model, messages=messages)  # type: ignore[arg-type]
+    except Exception:
+        return messages
+
+    if before <= high:
+        return messages
+
+    # tool-call group 수집 — group 단위로 oldest-first pop.
+    groups = _build_tool_call_groups(messages)
+
+    # 최근 2 group 보존 (인덱스 단위가 아닌 group 단위).
+    removable_groups = groups[:-2] if len(groups) > 2 else []
+
+    if not removable_groups:
+        return messages
+
+    working = list(messages)
+    current_tokens = before
+    total_removed = 0
+    # offset: 이미 제거된 메시지 수 — 원본 인덱스를 working 인덱스로 변환할 때 사용.
+    offset = 0
+
+    for group in removable_groups:
+        # group 내 인덱스를 오름차순 정렬 후 앞에서부터 제거.
+        # 제거할 때마다 offset 을 1씩 늘려 이후 인덱스를 보정한다.
+        for orig_idx in sorted(group):
+            real_idx = orig_idx - offset
+            if 0 <= real_idx < len(working):
+                working.pop(real_idx)
+                offset += 1
+                total_removed += 1
+        # WARN-2: group 제거 후 token 재계산 (per-message 아닌 per-group).
+        try:
+            current_tokens = token_count_fn(model=_model, messages=working)  # type: ignore[arg-type]
+        except Exception:
+            break
+        if current_tokens <= target:
+            break
+
+    try:
+        after_final = token_count_fn(model=_model, messages=working)  # type: ignore[arg-type]
+    except Exception:
+        after_final = -1
+
+    logger.info(
+        "context truncate: removed %d messages (%d groups), before=%d tokens, after=%d tokens, limit=%d",
+        total_removed,
+        len(removable_groups),
+        before,
+        after_final,
+        limit,
+    )
+    return working
 
 # spec §5.5 Location — KB store 정의 (file/function/line) 재사용 (architect WARN-1 충돌 회피).
 _LOCATION_RE = re.compile(r"([\w./-]+\.py):(\d+)")
@@ -145,8 +295,13 @@ async def _intake_node(state: AgentState) -> AgentState:
 async def _llm_call_node(state: AgentState) -> AgentState:
     """gateway.complete 호출 → assistant message 를 state.messages 에 추가."""
     tools = get_openai_tools_schema()
-    response = await state["_gateway"].complete(
+    msgs = _truncate_messages(
         state["messages"],
+        model=state["_model"],
+        limit=_get_context_limit(),
+    )
+    response = await state["_gateway"].complete(
+        msgs,
         model=state["_model"],
         tools=tools,
         **state["_generation_kwargs"],
