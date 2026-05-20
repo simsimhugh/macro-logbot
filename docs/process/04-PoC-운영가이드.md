@@ -373,14 +373,15 @@ Q3. "어떻게 수정하면 좋을까? 코드 변경 예시를 보여줘."
 
 #### 7.5.1 evaluate.py fail-fast guard (자동 invariant 1)
 
-`evaluate_case` 가 backend response 를 받은 직후 다음 검사를 수행:
+`evaluate_case` 가 backend response 를 받은 직후 다음 검사를 수행. **단일 source of truth = `poc/scripts/evaluate.py` 의 `TOOL_ERROR_SENTINELS` 상수** (본 doc 의 예시는 가독성용 mirror, 코드 변경 시 본 doc 도 동기화).
 
 ```python
 # Tool error sentinel — backend container 가 workspace 접근 실패한 경우
 TOOL_ERROR_SENTINELS = (
     "Permission denied",
     "PermissionError",
-    '"error":',  # tool result 의 JSON error key
+    "not a file:",
+    "[Errno 13]",
 )
 sentinel_hits = [s for s in TOOL_ERROR_SENTINELS if s in analysis_text]
 if sentinel_hits:
