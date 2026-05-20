@@ -221,7 +221,7 @@ python scripts/evaluate.py --models all --cases all --kb-mode pre-seeded    # KB
 > **PR #42 변경사항**:
 > - `--session-cumulative` → `--continue-session` 으로 rename
 > - 페이로드 `temperature=0`, `seed=42` 자동 적용 (결정론적 재현)
-> - 4-channel total scoring 공식: `score = 0.25·(1-A) + 0.25·(1-B) + 0.25·(2-A) + 0.25·(2-B)`
+> - 채점 공식: total 100 = 자동 30 (evaluate.py heuristic) + Claude judge 70 (§7.1 참조). 이전 4-channel 25%×4 대체.
 
 동작 (한 case 기준):
 1. `error_log.txt` + 카탈로그 메타를 macro-logbot 형식 페이로드로 변환 (`temperature=0`, `seed=42` 자동 포함)
@@ -262,21 +262,43 @@ JSON schema (`case-<id>.json`):
 
 ## 7. 채점 (Claude Code judge)
 
-### 7.1 4단계 가중 합산 (Stage 2 spec §10.1 동일)
+### 7.1 채점 공식 (Stage 2 spec §10.1 동일)
 
-| 단계 | 평가 항목 | 비중 | 채점자 |
-|---|---|---|---|
-| 1-A | 코드 위치 (file:line) exact match | 25% | 결정론적 스크립트 (`evaluate.py`) |
-| 1-B | root_cause 의미 매칭 | 25% | **Claude Code (현 세션) judge** |
-| 2-A | Follow-up — 도구 재호출 적절성 · 새 단서 발굴 · 일관성 | 25% | Claude Code judge |
-| 2-B | Follow-up — 수정 방향(fix_hint) 정합성 | 25% | Claude Code judge |
+**total = 100 = 자동 30 (evaluate.py heuristic) + Claude judge 70 (의미적)**
 
-> **judge 모델 선택 원칙**: judge 는 analysis 모델과 **다른 provider** 권고 (self-bias 회피). 현 default analysis = `gemini/gemini-2.5-flash-lite` → judge default = `groq/llama-3.3-70b-versatile` (provider 독립, 14,400 RPD 무료, PR #31). 모델 변경 시 `poc/README.md §Judge 모델 선택 원칙` 참고.
+#### 자동 채점 — 30점 (evaluate.py, gating)
 
-case별 분류:
-- `full`: 80% 이상
-- `partial`: 50~79%
-- `fail`: <50%
+| 평가 항목 | 점수 | 채점자 |
+|---|---|---|
+| 도구 호출 성공 (iter > 1, tool 응답 받음) | 5 | 결정론적 스크립트 (`evaluate.py`) |
+| structured Report 생성 (location ≠ None) | 5 | 결정론적 스크립트 |
+| file:line 추출 정확 (heuristic match) | 10 | 결정론적 스크립트 |
+| tool 사용 적절 (expected_tool_calls 일치) | 10 | 결정론적 스크립트 |
+
+#### Claude Code judge — 70점 (의미적 채점, spec §6.3)
+
+**root_cause 의미 정확성 (40점)**:
+
+| 등급 | 점수 | 기준 |
+|---|---|---|
+| 상 | 40 | error class + 원인 변수/함수 모두 정확. 사용자가 한 줄로 문제 인지 가능 |
+| 중 | 20 | error class 정확, 원인 추정 부분만 (추가 디버깅 필요) |
+| 하 | 5 | 잘못된 분석 / traceback keyword 반복 |
+
+**fix_hint 구체성 (30점)**:
+
+| 등급 | 점수 | 기준 |
+|---|---|---|
+| 상 | 30 | 구체적 코드 변경 (즉시 patch 가능). before/after 또는 정확한 변수/함수/line |
+| 중 | 15 | 일반적 fix (e.g., "guard 추가") |
+| 하 | 5 | 모호 (e.g., "코드 검토 권장") |
+
+> 이전 4-channel 25%×4 방식 대체. `evaluate.py` 의 자동 채점은 30점 부분만 측정. Claude judge 70점은 별도 단계 (수동 또는 후속 자동화).
+
+case별 종합 분류 (100점 만점):
+- `full`: 85점 이상
+- `partial`: 45~84점
+- `fail`: 44점 이하
 
 ### 7.2 Follow-up 자동 질문 세트 (모든 case 공통)
 
@@ -290,15 +312,15 @@ Q3. "어떻게 수정하면 좋을까? 코드 변경 예시를 보여줘."
 
 ### 7.3 Claude Code judge 실행 흐름
 
-1. `evaluate.py` 완료 후 매트릭스의 32개 JSON 생성
+1. `evaluate.py` 완료 후 자동 채점 30점 기록된 JSON 생성 (case당 1개)
 2. 사용자가 main session(이 세션)에 명령:
    > "poc/reports/2026-MM-DD/ 결과 채점해줘"
 3. main session이 모든 `case-<id>.json` + 해당 `error_catalog/<id>.yaml` 읽음
-4. 각 case별:
-   - 1-A: file/line exact match 자동 (이미 `evaluate.py`가 기록)
-   - 1-B: root_cause vs ground_truth.root_cause를 의미적 비교 → full/partial/fail 라벨 부여 (key가 합치하지 않더라도 같은 개념이면 full)
-   - 2-A, 2-B: follow-up 답변 검토 후 라벨 부여
-5. 결과를 `poc/reports/<date>/comparison.md`로 작성
+4. 각 case별 Claude judge 70점 채점 (spec §10.1 rubric 적용):
+   - **root_cause 의미 정확성 (40점)**: report.root_cause vs ground_truth.root_cause 의미 비교 → 상(40)/중(20)/하(5) 등급 부여. error class가 같더라도 원인 변수·함수까지 맞아야 상.
+   - **fix_hint 구체성 (30점)**: report.fix_hint 검토 → 즉시 patch 가능 수준이면 상(30), 일반 방향 제시면 중(15), 모호하면 하(5).
+5. 자동 30 + judge 70 합산 → case별 `full`/`partial`/`fail` 분류
+6. 결과를 `poc/reports/<date>/comparison.md`로 작성
 
 ### 7.4 비교 리포트 형식
 
