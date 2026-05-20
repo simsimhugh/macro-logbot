@@ -304,9 +304,15 @@ class LLMGateway:
 
         target_model = model or self.default_model
         # tool_calls / tool_call_id / name 등 None 이 아닌 모든 필드를 보존.
-        raw_messages: list[dict[str, Any]] = [
-            m.model_dump(exclude_none=True) for m in messages
-        ]
+        # 사내 DS API Gateway 규칙: tool_calls 있는 assistant 메시지에 content 필드 필수
+        # (null / missing 시 422 Unprocessable Entity). model_dump(exclude_none=True) 가
+        # content=None 일 때 key 자체를 제외하므로 명시적 content="" 보강.
+        raw_messages: list[dict[str, Any]] = []
+        for m in messages:
+            d = m.model_dump(exclude_none=True)
+            if d.get("role") == "assistant" and "tool_calls" in d and "content" not in d:
+                d["content"] = ""
+            raw_messages.append(d)
 
         # task-LG-002: 사내 LLM endpoint forward — None 제외해 LiteLLM 기본 동작 보존.
         extra: dict[str, Any] = {}
