@@ -22,8 +22,10 @@
 
 | invariant | 결과 | 신뢰도 |
 |---|---|---|
-| **#1 Tool result success rate ≥ 80%** | ✅ **91.8%** (101 ok / 9 err / 110 total) | PASS |
+| **#1 Tool result success rate ≥ 80%** | ✅ **91.8%** (101 ok / 9 err / 110 total) ¹ | PASS |
 | **#1 (자동) infra_error flag case** | ✅ **0/30** — fail-fast guard 통과 | PASS |
+
+¹ 본 수치는 `.macro-logbot-sessions.db` 의 `messages_json` 직접 query 결과 (raw JSON 30 개에는 messages history 미포함 — `report` 만 저장). 재현용 snapshot = `/tmp/baseline-n3-after-pr53/sessions-snapshot.db` + `invariant-check.txt` 보존. task-EVAL-007 (`AgentAnalyzeResponse.tool_call_summary` 필드 추가) 머지 후에는 raw JSON 만으로 자동 재계산 가능.
 | **#2 traceback echo vs 코드 read 구별** | ✅ tool success 91.8% + session DB 의 read_file content 검증 | PASS |
 | **#3 structured Report 채움 경로** | ✅ 30/30 모두 location ≠ None + 대부분 코드 read 후 도출 | PASS |
 | **#4 deterministic 검증** | ⚠️ **E006 std=0.427, E010 std=0.361 — variance 큼** | PARTIAL |
@@ -53,7 +55,11 @@
 
 ## 4. 4-channel total (§7.1, 100 점 만점)
 
-case 별 median run 의 4-channel 채점:
+case 별 median run 의 4-channel 채점.
+
+> **Judge source disclaim**: 본 보고서의 root_cause / fix_hint 채점은 본 PR 작성 Claude main session 의 self-judge. 외부 LLM 의 cross-validation 없음. 자동 30 점 (1-A heuristic) 만 결정론적 + 재현 가능. 외부 judge calibration 은 task-EVAL-008 (신규 follow-up) 으로 분리.
+
+> **§3 vs §4 metric 정합**: §3 의 "1-A mean ≥ 0.5" 자율해결률 80% 는 §7.1 채점 기준 변경 (4-channel 25%×4 → 30+70) 으로 superseded. **본 sprint 의 자율해결률은 §4 의 90% 가 single source**.
 
 | case | 자동 30 (1-A×30) | root_cause (40) | fix_hint (30) | total | 판정 |
 |---|---|---|---|---|---|
