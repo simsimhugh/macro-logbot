@@ -19,10 +19,13 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
+import os
 import re
 from dataclasses import dataclass, field
 from typing import TypedDict, cast
 
+import litellm
 from langgraph.graph import END, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 from pydantic import BaseModel, ValidationError
@@ -37,6 +40,95 @@ from macro_logbot.knowledge_base.store import Location
 from macro_logbot.tools.registry import execute_tool, get_openai_tools_schema
 
 MAX_ITERS_DEFAULT = 20  # spec §5.2 default
+
+logger = logging.getLogger(__name__)
+
+# context 한계 — env override 가능 (default 16384, Gemma 3 12B 기준).
+_CONTEXT_LIMIT_ENV = "MACRO_LOGBOT_MODEL_CONTEXT_LIMIT"
+_CONTEXT_LIMIT_DEFAULT = 16384
+_CONTEXT_HIGH_WATERMARK = 0.80  # 80% 초과 시 truncate 시작
+_CONTEXT_TARGET = 0.70          # truncate 후 목표 — limit 의 70% 이하
+
+
+def _get_context_limit() -> int:
+    """env 에서 context limit 읽기 (int 변환 실패 시 default 반환)."""
+    raw = os.environ.get(_CONTEXT_LIMIT_ENV, "")
+    try:
+        return int(raw)
+    except ValueError:
+        return _CONTEXT_LIMIT_DEFAULT
+
+
+def _truncate_messages(
+    messages: list[Message],
+    model: str | None,
+    limit: int,
+) -> list[Message]:
+    """누적 messages 가 limit × 80% 초과 시 가장 오래된 tool/assistant-tool 메시지부터 제거.
+
+    보존 우선순위:
+      1. role=system  (모든 system 메시지)
+      2. role=user    (최신 user message 포함 전체)
+      3. 최근 N=2 turn (assistant + tool pair)
+    나머지 tool / assistant(tool_calls) 메시지를 오래된 순서로 제거해
+    token count ≤ limit × 70% 가 될 때까지 반복.
+
+    litellm.token_counter 가 실패하면 truncate 를 생략하고 원본을 반환한다.
+    """
+    high = int(limit * _CONTEXT_HIGH_WATERMARK)
+    target = int(limit * _CONTEXT_TARGET)
+
+    # litellm.token_counter — 모델 미지정 시 cl100k_base 사용 (heuristic).
+    try:
+        token_count_fn = litellm.token_counter
+        before = token_count_fn(model=model or "gpt-4o", messages=messages)  # type: ignore[arg-type]
+    except Exception:
+        return messages
+
+    if before <= high:
+        return messages
+
+    # 제거 대상 인덱스 수집 — tool role 및 assistant(tool_calls only) 메시지.
+    # 최근 2 turn (assistant+tool pair) 은 보존한다.
+    removable: list[int] = []
+    for i, m in enumerate(messages):
+        if m.role == "tool":
+            removable.append(i)
+        elif m.role == "assistant" and not m.content and m.tool_calls:
+            removable.append(i)
+
+    # 최신 2개 항목은 보호 (recent N=2 turn).
+    removable = removable[:-2] if len(removable) > 2 else []
+
+    working = list(messages)
+    removed = 0
+    for idx in removable:
+        # 이미 제거된 항목을 건너뜀 (인덱스 shift 보정).
+        real_idx = idx - removed
+        if real_idx < 0 or real_idx >= len(working):
+            continue
+        working.pop(real_idx)
+        removed += 1
+        try:
+            after = token_count_fn(model=model or "gpt-4o", messages=working)  # type: ignore[arg-type]
+        except Exception:
+            break
+        if after <= target:
+            break
+
+    try:
+        after_final = token_count_fn(model=model or "gpt-4o", messages=working)  # type: ignore[arg-type]
+    except Exception:
+        after_final = -1
+
+    logger.warning(
+        "context truncate: removed %d messages, before=%d tokens, after=%d tokens, limit=%d",
+        removed,
+        before,
+        after_final,
+        limit,
+    )
+    return working
 
 # spec §5.5 Location — KB store 정의 (file/function/line) 재사용 (architect WARN-1 충돌 회피).
 _LOCATION_RE = re.compile(r"([\w./-]+\.py):(\d+)")
@@ -145,8 +237,13 @@ async def _intake_node(state: AgentState) -> AgentState:
 async def _llm_call_node(state: AgentState) -> AgentState:
     """gateway.complete 호출 → assistant message 를 state.messages 에 추가."""
     tools = get_openai_tools_schema()
-    response = await state["_gateway"].complete(
+    msgs = _truncate_messages(
         state["messages"],
+        model=state["_model"],
+        limit=_get_context_limit(),
+    )
+    response = await state["_gateway"].complete(
+        msgs,
         model=state["_model"],
         tools=tools,
         **state["_generation_kwargs"],
