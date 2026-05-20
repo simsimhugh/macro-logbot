@@ -162,6 +162,7 @@ async def test_run_agent_tool_error_propagates_to_messages(
 @pytest.mark.asyncio
 async def test_run_agent_max_iters_termination() -> None:
     # 매번 tool_call 만 반환 → max_iters 도달 시 종료.
+    # crystallize_report 노드가 추가 LLM 호출을 하므로 call_count = max_iters + 1.
     forever = _resp(
         content=None,
         tool_calls=[
@@ -172,12 +173,13 @@ async def test_run_agent_max_iters_termination() -> None:
         ],
         finish_reason="tool_calls",
     )
-    gw = _mock_gateway([forever] * 10)
+    crystallize_resp = _resp(content='{"root_cause":"loop","location":null,"fix_hint":"stop","confidence":0.5,"reasoning_summary":"loop"}')
+    gw = _mock_gateway([forever] * 3 + [crystallize_resp])
     result = await run_agent(
         [Message(role="user", content="loop")], gw, max_iters=3
     )
     assert result.iterations == 3
-    assert gw.complete.call_count == 3  # type: ignore[attr-defined]
+    assert gw.complete.call_count == 4  # 3 agent LLM + 1 crystallize  # type: ignore[attr-defined]
 
 
 @pytest.mark.asyncio
@@ -188,8 +190,13 @@ async def test_run_agent_default_max_iters_constant() -> None:
 
 @pytest.mark.asyncio
 async def test_run_agent_forwards_generation_kwargs() -> None:
-    """temperature/max_tokens 등 generation_kwargs 가 gateway.complete 로 forward 된다."""
-    gw = _mock_gateway([_resp(content="done")])
+    """temperature/max_tokens 등 generation_kwargs 가 gateway.complete 로 forward 된다.
+
+    crystallize_report 노드가 추가 LLM 호출을 하므로 총 2회 호출됨.
+    첫 번째 호출(agent LLM) 에서 generation_kwargs 가 전달되는지 확인.
+    """
+    crystallize_resp = _resp(content='{"root_cause":"done","location":null,"fix_hint":"ok","confidence":0.9,"reasoning_summary":"ok"}')
+    gw = _mock_gateway([_resp(content="done"), crystallize_resp])
     await run_agent(
         [Message(role="user", content="hi")],
         gw,
@@ -197,8 +204,9 @@ async def test_run_agent_forwards_generation_kwargs() -> None:
         temperature=0.7,
         max_tokens=128,
     )
-    gw.complete.assert_called_once()  # type: ignore[attr-defined]
-    call_kwargs = gw.complete.call_args.kwargs  # type: ignore[attr-defined]
-    assert call_kwargs["temperature"] == 0.7
-    assert call_kwargs["max_tokens"] == 128
-    assert call_kwargs["model"] == "openai/gpt-4o-mini"
+    assert gw.complete.call_count == 2  # agent LLM + crystallize  # type: ignore[attr-defined]
+    # 첫 번째 호출(agent LLM) 에서 generation_kwargs 확인.
+    first_call_kwargs = gw.complete.call_args_list[0].kwargs  # type: ignore[attr-defined]
+    assert first_call_kwargs["temperature"] == 0.7
+    assert first_call_kwargs["max_tokens"] == 128
+    assert first_call_kwargs["model"] == "openai/gpt-4o-mini"
