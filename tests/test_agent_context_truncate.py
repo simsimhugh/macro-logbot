@@ -140,3 +140,115 @@ def test_no_truncate_when_under_limit() -> None:
     # 300 < 800 → 변경 없음.
     assert result is msgs or result == msgs, "truncate 없이 원본을 반환해야 한다"
     assert len(result) == len(msgs)
+
+
+# ---------------------------------------------------------------------------
+# 테스트 5: tool_call_id pair-atomicity — assistant(tool_calls) + tool 묶음 단위 제거.
+# ---------------------------------------------------------------------------
+
+def _assistant_tool_with_id(call_id: str) -> Message:
+    """지정된 call_id 를 가진 assistant(tool_calls) 메시지."""
+    from macro_logbot.gateway import FunctionCall, ToolCall
+
+    return Message(
+        role="assistant",
+        content=None,
+        tool_calls=[
+            ToolCall(
+                id=call_id,
+                function=FunctionCall(name="read_file", arguments='{"path":"f"}'),
+            )
+        ],
+    )
+
+
+def _tool_with_id(call_id: str, content: str = "tool result") -> Message:
+    """지정된 tool_call_id 를 가진 tool 메시지."""
+    return Message(role="tool", tool_call_id=call_id, name="read_file", content=content)
+
+
+def test_truncate_preserves_tool_call_pair_atomicity() -> None:
+    """truncate 시 assistant(tool_calls) + 대응 tool 메시지를 group 단위로 제거한다.
+
+    group 단위 제거이므로 제거된 group 에 속한 모든 메시지가 함께 사라져야 하고,
+    보존된 group 의 메시지는 온전히 남아있어야 한다.
+    """
+    # group-A: call-a (오래된 turn — 제거 대상)
+    # group-B: call-b (중간 turn — 제거 대상)
+    # group-C: call-c (최근 turn 1 — 보존)
+    # group-D: call-d (최근 turn 2 — 보존)
+    msgs = [
+        _sys(),
+        _user(),
+        _assistant_tool_with_id("call-a"),  # group-A start
+        _tool_with_id("call-a", "res-a"),   # group-A end
+        _assistant_tool_with_id("call-b"),  # group-B start
+        _tool_with_id("call-b", "res-b"),   # group-B end
+        _assistant_tool_with_id("call-c"),  # group-C start (보존)
+        _tool_with_id("call-c", "res-c"),   # group-C end  (보존)
+        _assistant_tool_with_id("call-d"),  # group-D start (보존)
+        _tool_with_id("call-d", "res-d"),   # group-D end  (보존)
+    ]  # 10 * 100 = 1000 tokens > 1000 * 80% = 800 → truncate 실행
+
+    result = _truncate_messages(msgs, model=None, limit=1000)
+
+    result_ids = {m.tool_call_id for m in result if m.role == "tool"}
+    result_call_ids = {
+        tc.id
+        for m in result
+        if m.role == "assistant" and m.tool_calls
+        for tc in m.tool_calls
+    }
+
+    # group-C, group-D 는 보존되어야 한다.
+    assert "call-c" in result_ids, "최근 group-C tool 메시지가 보존되어야 한다"
+    assert "call-d" in result_ids, "최근 group-D tool 메시지가 보존되어야 한다"
+    assert "call-c" in result_call_ids, "최근 group-C assistant 메시지가 보존되어야 한다"
+    assert "call-d" in result_call_ids, "최근 group-D assistant 메시지가 보존되어야 한다"
+
+    # 제거된 group 은 assistant + tool 이 함께 사라져야 한다 (pair-atomic).
+    removed_tool_ids = {"call-a", "call-b"} - result_ids
+    removed_call_ids = {"call-a", "call-b"} - result_call_ids
+    # 둘 다 사라졌거나 둘 다 남아있어야 한다 (pair-atomic 보장).
+    assert removed_tool_ids == removed_call_ids, (
+        f"pair-atomic 위반: tool 제거={removed_tool_ids}, assistant 제거={removed_call_ids}"
+    )
+
+
+def test_truncate_no_orphan_tool_message() -> None:
+    """truncate 후 모든 tool 메시지는 대응하는 assistant.tool_calls 가 존재해야 한다.
+
+    즉 tool.tool_call_id 가 어떤 assistant message 의 tool_calls[*].id 에 있어야 한다.
+    """
+    msgs = [
+        _sys(),
+        _user(),
+        _assistant_tool_with_id("call-1"),
+        _tool_with_id("call-1", "r1"),
+        _assistant_tool_with_id("call-2"),
+        _tool_with_id("call-2", "r2"),
+        _assistant_tool_with_id("call-3"),
+        _tool_with_id("call-3", "r3"),
+        _assistant_tool_with_id("call-4"),
+        _tool_with_id("call-4", "r4"),
+        _assistant_tool_with_id("call-5"),
+        _tool_with_id("call-5", "r5"),
+    ]  # 12 * 100 = 1200 tokens > 800 → truncate 실행
+
+    result = _truncate_messages(msgs, model=None, limit=1000)
+
+    # 결과에서 assistant message 의 모든 tool_call_id 수집.
+    known_call_ids: set[str] = {
+        tc.id
+        for m in result
+        if m.role == "assistant" and m.tool_calls
+        for tc in m.tool_calls
+        if tc.id is not None
+    }
+    # 모든 tool 메시지의 tool_call_id 가 known_call_ids 에 있어야 한다.
+    for m in result:
+        if m.role == "tool":
+            assert m.tool_call_id in known_call_ids, (
+                f"orphan tool 메시지 발견: tool_call_id={m.tool_call_id!r} 에 대응하는 "
+                f"assistant message 없음. 남은 known_call_ids={known_call_ids}"
+            )
