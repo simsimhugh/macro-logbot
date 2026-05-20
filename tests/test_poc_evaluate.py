@@ -468,3 +468,109 @@ def test_main_no_continue_session_default(tmp_path: Path) -> None:
     assert rc == 0
     # 두 case 모두 session_id=None (cumulative off)
     assert all(sid is None for sid in recorded_session_ids)
+
+
+# ---------------------------------------------------------------------------
+# PR #44 — inject workdir 위치 검증 (MACRO_LOGBOT_POC_CASES_ROOT)
+# ---------------------------------------------------------------------------
+
+
+def test_evaluate_case_workdir_inside_poc_cases_root(tmp_path: Path) -> None:
+    """workdir 가 MACRO_LOGBOT_POC_CASES_ROOT 하위에 생성됨을 검증."""
+    poc_root = tmp_path / "poc-cases"
+
+    captured_workdir: list[Path] = []
+
+    def _fake_inject(case_id: str, workdir: Path) -> dict[str, Any]:
+        captured_workdir.append(workdir)
+        return {"ground_truth": {}}
+
+    with (
+        patch.dict(os.environ, {"MACRO_LOGBOT_POC_CASES_ROOT": str(poc_root)}, clear=False),
+        patch.object(evaluate_mod, "inject", side_effect=_fake_inject),
+        patch.object(evaluate_mod, "trigger", return_value=(0, "traceback")),
+        patch.object(evaluate_mod, "call_backend", return_value={"analysis": "ok"}),
+    ):
+        evaluate_mod.evaluate_case(
+            "E001",
+            "http://localhost:8000",
+            "test-key",
+            None,
+        )
+
+    assert len(captured_workdir) == 1
+    workdir = captured_workdir[0]
+    # workdir 가 poc_root 하위인지 확인
+    assert workdir.is_relative_to(poc_root), (
+        f"workdir {workdir} 가 poc_root {poc_root} 하위가 아님"
+    )
+    # prefix 가 case_id 로 시작하는지 확인
+    assert workdir.name.startswith("E001-"), (
+        f"workdir 이름 {workdir.name!r} 이 'E001-' 로 시작하지 않음"
+    )
+
+
+def test_evaluate_case_workdir_env_override_uses_custom_root(tmp_path: Path) -> None:
+    """MACRO_LOGBOT_POC_CASES_ROOT env override 시 해당 경로를 workdir root 로 사용."""
+    custom_root = tmp_path / "custom-root"
+    # custom_root 는 사전에 존재하지 않음 — evaluate_case 가 mkdir 해야 함.
+    assert not custom_root.exists()
+
+    captured_workdir: list[Path] = []
+
+    def _fake_inject(case_id: str, workdir: Path) -> dict[str, Any]:
+        captured_workdir.append(workdir)
+        return {"ground_truth": {}}
+
+    with (
+        patch.dict(os.environ, {"MACRO_LOGBOT_POC_CASES_ROOT": str(custom_root)}, clear=False),
+        patch.object(evaluate_mod, "inject", side_effect=_fake_inject),
+        patch.object(evaluate_mod, "trigger", return_value=(0, "traceback")),
+        patch.object(evaluate_mod, "call_backend", return_value={"analysis": "ok"}),
+    ):
+        evaluate_mod.evaluate_case(
+            "E002",
+            "http://localhost:8000",
+            "test-key",
+            None,
+        )
+
+    assert len(captured_workdir) == 1
+    workdir = captured_workdir[0]
+    # evaluate_case 가 custom_root 를 mkdir 했는지 확인
+    assert custom_root.exists(), "evaluate_case 가 poc_cases_root mkdir 를 수행하지 않음"
+    # workdir 가 custom_root 하위인지 확인
+    assert workdir.is_relative_to(custom_root)
+
+
+def test_evaluate_case_workdir_default_is_tmp_poc_cases(tmp_path: Path) -> None:
+    """MACRO_LOGBOT_POC_CASES_ROOT 미지정 시 default 는 /tmp/poc-cases."""
+    captured_workdir: list[Path] = []
+
+    def _fake_inject(case_id: str, workdir: Path) -> dict[str, Any]:
+        captured_workdir.append(workdir)
+        return {"ground_truth": {}}
+
+    # MACRO_LOGBOT_POC_CASES_ROOT 를 env 에서 제거해 default 경로 테스트
+    env_without_override = {
+        k: v for k, v in os.environ.items() if k != "MACRO_LOGBOT_POC_CASES_ROOT"
+    }
+    with (
+        patch.dict(os.environ, env_without_override, clear=True),
+        patch.object(evaluate_mod, "inject", side_effect=_fake_inject),
+        patch.object(evaluate_mod, "trigger", return_value=(0, "traceback")),
+        patch.object(evaluate_mod, "call_backend", return_value={"analysis": "ok"}),
+    ):
+        evaluate_mod.evaluate_case(
+            "E003",
+            "http://localhost:8000",
+            "test-key",
+            None,
+        )
+
+    assert len(captured_workdir) == 1
+    workdir = captured_workdir[0]
+    # default root = /tmp/poc-cases
+    assert workdir.is_relative_to(Path("/tmp/poc-cases")), (
+        f"default workdir {workdir} 가 /tmp/poc-cases 하위가 아님"
+    )
