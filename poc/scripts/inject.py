@@ -120,12 +120,17 @@ def inject(case_id: str, workdir: Path) -> dict[str, Any]:
     case = load_case(case_id)
     workdir.mkdir(parents=True, exist_ok=True)
     shutil.copy2(SNAKE_ORIGINAL, workdir / "snake.py")
+    (workdir / "snake.py").chmod(0o644)
     diff = cast(str, case["injection_diff"])
     apply_diff(workdir, diff)
     # case meta 사본 — trigger/evaluate 가 yaml 을 다시 로드 안 해도 되게.
     case_meta_path = workdir / "case.yaml"
     with case_meta_path.open("w", encoding="utf-8") as fp:
         yaml.safe_dump(case, fp, allow_unicode=True, sort_keys=False)
+    # yaml.safe_dump 의 default mode = 0o600 (host umask 반영) — backend container 의
+    # uid (예: macrologbot uid=10001) 가 host 의 hugh (uid=1000) 가 만든 파일을 read 못함.
+    # PoC workspace 는 read-only mount + tool allowlist 로 격리되어 있으므로 0o644 안전.
+    case_meta_path.chmod(0o644)
     return case
 
 
