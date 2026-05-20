@@ -190,6 +190,12 @@ def evaluate_case(
     poc_cases_root = Path(os.environ.get("MACRO_LOGBOT_POC_CASES_ROOT", "/tmp/poc-cases"))
     poc_cases_root.mkdir(parents=True, exist_ok=True)
     workdir = Path(tempfile.mkdtemp(prefix=f"{case_id}-", dir=str(poc_cases_root)))
+    # tempfile.mkdtemp 의 default mode = 0o700 → backend container 의 uid (예: macrologbot
+    # uid=10001) 가 host 의 evaluate.py 실행 uid (예: hugh uid=1000) 가 만든 폴더를 read 못함.
+    # 본 PoC 의 workspace 는 read-only mount + tool allowlist 로 격리되어 있으므로 0o755 로
+    # other-read 를 허용해도 안전 — backend 가 직접 호출하는 read_file/grep_codebase 가 정상
+    # 동작하기 위함.
+    workdir.chmod(0o755)
     started_at = _dt.datetime.now(_dt.UTC).isoformat()
     case_meta = inject(case_id, workdir)
     exit_code, stderr_text = trigger(workdir)
