@@ -275,7 +275,7 @@ JSON schema (`case-<id>.json`):
 | file:line 추출 정확 (heuristic match) | 10 | 결정론적 스크립트 |
 | tool 사용 적절 (expected_tool_calls 일치) | 10 | 결정론적 스크립트 |
 
-#### Claude Code judge — 70점 (의미적 채점, spec §6.3)
+#### Claude Code judge — 70점 (의미적 채점, 본 §7.3 흐름)
 
 **root_cause 의미 정확성 (40점)**:
 
