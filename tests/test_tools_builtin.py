@@ -52,6 +52,47 @@ def test_grep_codebase_respects_max_results(workspace: Path) -> None:
     assert len(result["matches"]) == 5
 
 
+def test_grep_codebase_literal_special_regex_no_error(workspace: Path) -> None:
+    """LLM 이 escape 안된 regex special char 보내도 fail 안 함 (사내 평가 2026-05-21).
+
+    이전: `grep -rn --include=*.py 'def step\\(self' ...` → BRE 가 `Unmatched (` error
+    → silent 0-match → agent panic. Fix: `-F` (fixed string).
+    """
+    pkg = workspace / "pkg"
+    pkg.mkdir()
+    (pkg / "mod.py").write_text(
+        "class SnakeGame:\n"
+        "    def step(self, action):\n"
+        "        self.head.x += 1\n",
+        encoding="utf-8",
+    )
+
+    # LLM 의 실제 호출 패턴 — escape 시도한 `\(` (사내 평가 발견)
+    result = grep_codebase(r"def step\(self", path=".")
+    # 핵심 검증: error 안 남 (이전엔 `Unmatched (` error)
+    assert "error" not in result, f"unexpected error: {result.get('error')}"
+    # literal 매칭이라 `def step\(self` 가 file 의 `def step(self` 와 매칭 안 됨 — 의도된 동작
+    assert result["matches"] == []
+
+
+def test_grep_codebase_literal_paren_match(workspace: Path) -> None:
+    """LLM 이 보낸 literal `(` 도 escape 없이 매칭 — `-F` mode 의 핵심 효과."""
+    pkg = workspace / "pkg"
+    pkg.mkdir()
+    (pkg / "mod.py").write_text(
+        "def init_game(self):\n"
+        "    self.head = None\n",
+        encoding="utf-8",
+    )
+
+    result = grep_codebase("def init_game(self)", path=".")
+    assert "error" not in result, f"unexpected error: {result.get('error')}"
+    matches = result["matches"]
+    assert any(m["line"] == 1 and "init_game" in m["text"] for m in matches), (
+        f"literal `(` match should succeed, got: {matches}"
+    )
+
+
 def test_read_file_full(workspace: Path) -> None:
     p = workspace / "a.txt"
     p.write_text("hello\nworld\n", encoding="utf-8")

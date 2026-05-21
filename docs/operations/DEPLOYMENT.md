@@ -92,6 +92,11 @@ nano .env          # 아래 .env 작성 가이드 참고
 
 ### 사외 PoC vs 사내 운영 비교표
 
+### env 분류 정책 (사용자 지시 2026-05-21)
+
+- **환경별** (`.env`, git ignored): 사내·사외 에서 다른 값 — API key, endpoint, model id, LLM 호출 parameter
+- **공통** (`docker-compose.yml` default 박힘, `.env` 미설정 시 자동 적용): 본 PoC manifest 의 운영 모드 — `MACRO_LOGBOT_ENV=poc`, `MACRO_LOGBOT_POC_WORKSPACE_ALLOWED=/tmp/poc-cases`. **사내 운영 manifest 는 별도** (`docker-compose.production.yml`, follow-up task-SEC-018)
+
 | Env | 사외 default (PoC) | 사내 운영 | 용도 |
 |---|---|---|---|
 | `MACRO_LOGBOT_API_KEY` | 임의 문자열 (필수) | 동일 (SSO 통합 전 임시) | backend ↔ Open WebUI 공유 key |
@@ -108,6 +113,8 @@ nano .env          # 아래 .env 작성 가이드 참고
 | `MACRO_LOGBOT_ENV` | `poc` | `production` | 실행 환경 게이트. `poc` 시 workspace 확장 허용; 미설정·`production` 시 fail-closed |
 | `MACRO_LOGBOT_POC_WORKSPACE_ALLOWED` | `/tmp/poc-cases` | (미설정 — 사내 운영 시 제거) | `MACRO_LOGBOT_ENV=poc` 활성화 시만 유효한 workdir 루트 |
 | `MACRO_LOGBOT_MODEL_CONTEXT_LIMIT` | `16384` | 사용 모델의 실제 context window 에 맞춰 조정 | agent loop 컨텍스트 토큰 상한. 80% watermark 초과 시 오래된 메시지 pop |
+| `MACRO_LOGBOT_LLM_REASONING_EFFORT` | (미설정) | `low` / `medium` / `high` | gpt-oss / o1 류 reasoning model 의 chain-of-thought 깊이. 비-reasoning model 은 `drop_params=True` 가 자동 drop (task-AGENT-024) |
+| `MACRO_LOGBOT_LLM_TIMEOUT_SEC` | `900` (`evaluate.py --http-timeout` default) | `900` 권고 (reasoning=high 시 분 단위) | LLM 호출 timeout. `__init__` 에서 float + `> 0` fail-fast (task-AGENT-024) |
 | `GEMINI_API_KEY` | `<발급 key>` (사외 PoC 용) | (미설정 — 사내 endpoint 사용) | Gemini API key |
 | `OPENAI_API_KEY` | (사외 PoC, 사용 시) | (미설정) | OpenAI API key — `MACRO_LOGBOT_DEFAULT_MODEL=openai/gpt-4o` 등 사용 시 |
 | `ANTHROPIC_API_KEY` | (사외 PoC, 사용 시) | (미설정) | Anthropic API key — Claude 모델 사용 시 |

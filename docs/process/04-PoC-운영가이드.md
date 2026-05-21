@@ -509,7 +509,7 @@ flowchart LR
 4. **자율 해결률 ≥ 70% 달성 검증** (Stage 2 spec §10.2 운영 목표)
 5. 미달 시 → 약한 LLM 강화 사이클을 사내 LLM 대상으로 재진행
 
-### 9.1 사내 LLM endpoint 설정 (`.env.bak`)
+### 9.1 사내 LLM endpoint 설정 (`.env`)
 
 ```bash
 # 사내 LLM
@@ -544,13 +544,13 @@ docker compose logs -f backend  # healthy 확인
 
 repo 의 `poc/scripts/run-onprem-baseline.sh` (PR #54 신규, PR #57 robustness 강화):
 
-#### 9.2.1 env file (`.env.bak` 또는 `.env`)
+#### 9.2.1 env file (`.env`)
 
-스크립트가 `.env.bak` 우선 → 없으면 `.env` fallback 으로 load:
-- **사외 dev**: `.env.bak` (pytest 충돌 회피)
-- **사내 운영**: `.env` (사내 convention)
+스크립트가 `.env` 를 load — 사외/사내 동일.
 
-둘 다 없으면 fail-fast.
+**이전 `.env.bak` 정책 폐기 (2026-05-21)**: "사외 dev 의 pytest 충돌 회피" 가설은 본 PoC 의 `pyproject.toml` / `conftest.py` 에서 dotenv 자동 load 설정 0 → 가설 무근거 검증. `.env` 단일화로 사내·사외 환경 일치 + 운영자 혼란 제거.
+
+`.env` 없으면 fail-fast.
 
 #### 9.2.2 host Python 자동 검출 (PYTHON_BIN env override → `.venv` → system)
 

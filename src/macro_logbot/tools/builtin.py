@@ -237,9 +237,14 @@ def grep_codebase(
     safe = _safe_resolve(path)
     if safe is None:
         return {"error": "path outside working directory"}
+    # 사내 평가 (2026-05-21) 발견: LLM 이 보낸 pattern 의 regex special char (`(`, `)`, `\`,
+    # `[`, `*` 등) 가 escape 없이 들어오면 grep 의 BRE 가 `Unmatched (` 등으로 fail.
+    # 예: `def step\(self` → Unmatched `(`. agent 가 traceback 함수 시그니처 검색 시 panic.
+    # Fix: `-F` (fixed string) 로 literal 매칭 — escape 불필요. 본 PoC 의 case (사용자
+    # 함수/변수명 검색) 에서 regex 의도 거의 없음. literal 이 LLM 호출 안정성 ↑.
     try:
         completed = subprocess.run(
-            ["grep", "-rn", "--include=*.py", pattern, str(safe)],
+            ["grep", "-rn", "-F", "--include=*.py", pattern, str(safe)],
             capture_output=True,
             text=True,
             check=False,
