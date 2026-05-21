@@ -54,10 +54,18 @@ _LLM_SEND_SYSTEM_NAME_ENV = "MACRO_LOGBOT_LLM_SEND_SYSTEM_NAME"
 _LLM_USER_ID_ENV = "MACRO_LOGBOT_LLM_USER_ID"
 _LLM_USER_TYPE_ENV = "MACRO_LOGBOT_LLM_USER_TYPE"
 
+# task-AGENT-024: gpt-oss / o1 류 reasoning model 의 reasoning_effort + 장기 호출 timeout.
+# 사용자 요구: latency 무제한 (10분 OK) — high effort 측정 시 default timeout 부족 방지.
+# reasoning_effort 는 low/medium/high 만 허용 — LiteLLM 이 그대로 OpenAI compat 으로 forward.
+_LLM_REASONING_EFFORT_ENV = "MACRO_LOGBOT_LLM_REASONING_EFFORT"
+_LLM_TIMEOUT_SEC_ENV = "MACRO_LOGBOT_LLM_TIMEOUT_SEC"
+_REASONING_EFFORT_ALLOWED: frozenset[str] = frozenset({"low", "medium", "high"})
+
 # task-SEC-003: complete(**kwargs) 자유 패스스루 차단 → allowlist 외 ValueError.
 # OpenAI / LiteLLM 호환 generation 파라미터 + tool calling 만 허용.
 # agent loop (run_agent) 가 보내는 generation_kwargs (temperature/max_tokens 등) +
 # /v1/chat/completions raw passthrough 가 보내는 body 필드 (tools/tool_choice) 모두 포함.
+# task-AGENT-024: reasoning_effort / timeout 추가 — gpt-oss 류 reasoning model 지원.
 _ALLOWED_FORWARD_KWARGS: frozenset[str] = frozenset(
     {
         "temperature",
@@ -74,6 +82,8 @@ _ALLOWED_FORWARD_KWARGS: frozenset[str] = frozenset(
         "tools",
         "tool_choice",
         "parallel_tool_calls",
+        "reasoning_effort",
+        "timeout",
     }
 )
 
@@ -283,6 +293,34 @@ class LLMGateway:
                 "User-Type": os.environ.get(_LLM_USER_TYPE_ENV, "AD_ID"),
             }
 
+        # task-AGENT-024: reasoning_effort + timeout — env-driven default 만 보관.
+        # complete(**kwargs) 의 explicit 값이 우선 (None 일 때만 default 적용).
+        # 잘못된 값은 fail-fast — 운영자가 실수해도 silent corruption 없도록 __init__ 시점에 raise.
+        self.reasoning_effort: str | None = None
+        re_env = (os.environ.get(_LLM_REASONING_EFFORT_ENV) or "").strip().lower()
+        if re_env:
+            if re_env not in _REASONING_EFFORT_ALLOWED:
+                raise ValueError(
+                    f"invalid {_LLM_REASONING_EFFORT_ENV}={re_env!r} — "
+                    f"expected one of: {sorted(_REASONING_EFFORT_ALLOWED)}"
+                )
+            self.reasoning_effort = re_env
+
+        self.timeout: float | None = None
+        to_env = (os.environ.get(_LLM_TIMEOUT_SEC_ENV) or "").strip()
+        if to_env:
+            try:
+                to_val = float(to_env)
+            except ValueError as e:
+                raise ValueError(
+                    f"invalid {_LLM_TIMEOUT_SEC_ENV}={to_env!r} — expected float seconds"
+                ) from e
+            if to_val <= 0:
+                raise ValueError(
+                    f"invalid {_LLM_TIMEOUT_SEC_ENV}={to_env!r} — must be > 0"
+                )
+            self.timeout = to_val
+
     async def complete(
         self,
         messages: list[Message],
@@ -301,6 +339,14 @@ class LLMGateway:
             raise ValueError(
                 f"disallowed kwargs forwarded to acompletion: {sorted(bad)}"
             )
+
+        # task-AGENT-024: env-driven default 주입 — caller 명시 kwarg 가 우선.
+        # gpt-oss / o1 류 reasoning model 의 effort + 장기 호출 timeout 을
+        # agent loop 변경 없이 측정 환경에서 토글 가능하게.
+        if self.reasoning_effort is not None and "reasoning_effort" not in kwargs:
+            kwargs["reasoning_effort"] = self.reasoning_effort
+        if self.timeout is not None and "timeout" not in kwargs:
+            kwargs["timeout"] = self.timeout
 
         target_model = model or self.default_model
         # tool_calls / tool_call_id / name 등 None 이 아닌 모든 필드를 보존.
@@ -328,6 +374,13 @@ class LLMGateway:
                 "Prompt-Msg-Id": str(uuid.uuid4()),
                 "Completion-Msg-Id": str(uuid.uuid4()),
             }
+
+        # task-AGENT-024: reasoning_effort / timeout 등 model-specific param 의 안전 drop.
+        # 비-reasoning model (gemini, claude, gemma 등) 에 reasoning_effort 가 forward 되면
+        # LiteLLM 이 `openai does not support parameters: ['reasoning_effort']` UnsupportedParamsError.
+        # drop_params=True 로 LiteLLM 이 model 별 미지원 param 을 silent drop — 단일 코드베이스로
+        # 멀티 provider (reasoning + 비-reasoning) 동시 지원.
+        extra.setdefault("drop_params", True)
 
         # Layer 1: BadRequestError(tool_use_failed) 자동 retry (1회).
         # Groq 의 native tool parser 가 LLM 출력 변환 실패 시 tools 없이 재호출
@@ -391,6 +444,9 @@ class LLMGateway:
                     len(raw_msg.content),
                 )
 
+        # task-AGENT-024: gpt-oss / o1 류 reasoning model 의 reasoning (chain-of-thought).
+        # LiteLLM 이 OpenAI compat response 의 .reasoning 필드를 그대로 노출.
+        # 비-reasoning model 은 attribute 부재 → getattr default None. 빈 string 도 None 정규화.
         choices = [
             Choice(
                 index=c.index,
@@ -400,6 +456,7 @@ class LLMGateway:
                     tool_calls=_extract_tool_calls(
                         getattr(c.message, "tool_calls", None)
                     ),
+                    reasoning=getattr(c.message, "reasoning", None) or None,
                 ),
                 finish_reason=c.finish_reason,
             )

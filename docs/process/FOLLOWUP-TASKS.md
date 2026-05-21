@@ -18,6 +18,65 @@
 
 ## Pending Tasks
 
+### task-SEC-022 — reasoning chain-of-thought persistence policy (사내 운영 전 필수)
+- **출처**: PR #60 security-reviewer M1 (issuecomment-4504971949)
+- **scope**: 본 PR #60 의 `Message.reasoning` field 도입이 만든 새 info-disclosure path. `agent/core.py:339` 의 assistant_msg append → `session/store.py:95` 의 `model_dump(exclude_none=True)` 가 reasoning 본문을 SQLite messages_json 에 자동 영속화. gpt-oss/o1 류 chain-of-thought 본문에 user query 의 sensitive 내용 (사내 MACRO 에러, stack trace, 내부 변수명) paraphrase. KB archive (`_kb_auto_archive`) / 로그 노출 path 도 전수 검토. Option: `_serialize_messages` 에 `exclude={"reasoning"}` 명시 또는 `MACRO_LOGBOT_PERSIST_REASONING` env opt-in gating.
+- **suggested branch**: `feat/reasoning-persistence-policy`
+- **size estimate**: session/store.py + app.py (_kb_auto_archive) ~30 lines + tests ~60 lines
+- **priority**: **HIGH** (사내 운영 진입 = Stage B 전 필수)
+
+### task-LG-007 — gateway/onprem_compat.py 분리 (gateway 누적 해소)
+- **출처**: PR #58 architect + PR #60 architect WARN-1 (issuecomment-4504971833)
+- **scope**: `gateway/client.py` 가 PR #56 (`_extra_headers`) + PR #58 (`content=""` 보강) + PR #60 (`drop_params` + reasoning defaults) 의 catch-all (498 lines). `gateway/onprem_compat.py` 신규 — 4 helper: `build_extra_headers()`, `normalize_assistant_content()`, `inject_reasoning_defaults()`, `should_drop_params()`. `LLMGateway.complete()` 가 helper 호출 패턴으로 단순화.
+- **suggested branch**: `feat/gateway-onprem-compat-split`
+- **size estimate**: 신규 ~100 lines + client.py 축소 ~80 lines + tests ~50 lines (기존 test 회귀 0)
+- **priority**: MEDIUM
+
+### task-SEC-018 — docker-compose env default 정책 + production manifest placeholder
+- **출처**: PR #60 architect WARN-2 (issuecomment-4504971833) + security L3
+- **scope**: PR #60 의 `docker-compose.yml:48-49` 가 default `:-poc` / `:-/tmp/poc-cases` 박음 (사외 PoC 의도). 단 `tools/builtin.py:60` 의 `_get_env()` 코드 default 는 `"production"` — single source-of-truth 분리. 사내 mirror manifest fork 시 silent fail-open 위험. `docker-compose.production.yml` placeholder + 일치성 강제 + startup banner.
+- **suggested branch**: `feat/compose-env-policy-and-prod-manifest`
+- **size estimate**: docker-compose.production.yml 신규 + tools/builtin.py 검증 ~10 lines + tests/docs ~40 lines
+- **priority**: MEDIUM
+
+### task-PR60-LOW-bundle — PR #60 LOW 묶음 (lint + test 보강 + docs sanitize 잔여)
+- **출처**: PR #60 code-reviewer LOW-1/2, test-engineer CONCERN-1/2/3, architect LOW-2/3
+- **scope** (sub):
+  - lint: `client.py:380` E501 + `tests/test_gateway_*` SIM117 통일 (PR #58+#60 패턴)
+  - test: `clean_env` fixture delenv 추가 + `test_explicit_timeout_kwarg_overrides_env` + `test_llm_gateway_kwargs_allowlist_accepts_known` 확장
+  - docs: `docs/process/04 §8.4` 측정 기준 모델 명시 + `docs/design/02-설계문서.md` Groq Llama → generic + `§5.1` 의 reasoning field PoC-only 명시
+- **suggested branch**: `chore/pr60-low-bundle`
+- **size estimate**: ~80 lines
+- **priority**: LOW
+
+### task-TEST-FLAKY-001 — test_session_store.py::test_update_refreshes_updated_at flaky 수정
+- **출처**: PR #60 test-engineer INFO
+- **scope**: `_now` monkeypatch iterator 가 `store.update()` 호출 횟수 불일치 → 하드코딩 `2026-05-19` → `datetime.now(UTC)` 기반 상대 delta. main 에서도 fail — PR 무관 pre-existing.
+- **suggested branch**: `fix/session-store-time-mock-flaky`
+- **size estimate**: ~20 lines
+- **priority**: MEDIUM (CI 안정성)
+
+### task-AGENT-025 — reasoning chain KB archive 정책 (task-SEC-006 와 동시)
+- **출처**: PR #60 code-reviewer INFO-3 + security M1 일부
+- **scope**: KB archive 가 reasoning 도 저장할지 정책 결정. task-SEC-006 와 동시 진행 권고.
+- **suggested branch**: task-SEC-006 와 묶음
+- **priority**: MEDIUM (task-SEC-006 동반)
+
+### task-LG-009 — open-webui demo path timeout sync
+- **출처**: PR #60 architect LOW-1
+- **scope**: docker-compose open-webui service 에 `AIOHTTP_CLIENT_TIMEOUT=900` env forward — reasoning=high 시 demo proxy 잘림 회피. PoC 측정 path 영향 0.
+- **priority**: LOW
+
+### task-LG-FOLLOWUP-001 — reasoning_effort allowlist 정기 점검
+- **출처**: PR #60 code-reviewer MED-1
+- **scope**: OpenAI o-series / LM Studio 신규 옵션 등장 시 allowlist + test 동기.
+- **priority**: LOW (모니터링)
+
+### task-LG-REFACTOR-001 — LLMGateway env loader helper 분리
+- **출처**: PR #60 code-reviewer INFO-1
+- **scope**: `LLMGateway.__init__` ~60 lines — `_load_env_defaults() -> EnvDefaults` 분리.
+- **priority**: LOW (task-LG-007 와 함께)
+
 ### task-LG-001 — Message 모델 tool_calls round-trip 지원 (Agent Core 선결)
 - **출처**: PR #8 architect (issuecomment-4479740071) WARN
 - **scope**: `src/macro_logbot/gateway/models.py` `Message` 에 `tool_calls: list[ToolCall] | None`, `tool_call_id: str | None`, `name: str | None` 추가 + `client.py` 직렬화에서 None 제외해 LiteLLM 으로 전달. spec §5.2 AgentState.messages · §5.4 Session.messages · §7.4 AS-1 multi-turn tool calling 검증 (E000 case) 선결 요건.

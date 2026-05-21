@@ -40,9 +40,15 @@ services:
       MACRO_LOGBOT_LLM_SEND_SYSTEM_NAME: ${MACRO_LOGBOT_LLM_SEND_SYSTEM_NAME:-}
       MACRO_LOGBOT_LLM_USER_ID: ${MACRO_LOGBOT_LLM_USER_ID:-}
       MACRO_LOGBOT_LLM_USER_TYPE: ${MACRO_LOGBOT_LLM_USER_TYPE:-}
-      # PoC 측정 env (PR #43 + #44 + #45)
-      MACRO_LOGBOT_ENV: ${MACRO_LOGBOT_ENV:-production}
-      MACRO_LOGBOT_POC_WORKSPACE_ALLOWED: ${MACRO_LOGBOT_POC_WORKSPACE_ALLOWED:-}
+      # task-AGENT-024: gpt-oss / o1 류 reasoning model 의 reasoning_effort + 장기 호출 timeout.
+      # 비-reasoning model 은 미설정 OK (env 빈값 시 LLMGateway 가 None default).
+      MACRO_LOGBOT_LLM_REASONING_EFFORT: ${MACRO_LOGBOT_LLM_REASONING_EFFORT:-}
+      MACRO_LOGBOT_LLM_TIMEOUT_SEC: ${MACRO_LOGBOT_LLM_TIMEOUT_SEC:-}
+      # PoC 측정 env (PR #43 + #44 + #45) — 본 사외 manifest 는 PoC 용 (line 3 주석 참조).
+      # default 를 poc / /tmp/poc-cases 로 박음 → .env 누락 시도 사외/사내 mirror 환경 동일 동작.
+      # 사내 운영 manifest 는 별도 (production default + workspace 미설정).
+      MACRO_LOGBOT_ENV: ${MACRO_LOGBOT_ENV:-poc}
+      MACRO_LOGBOT_POC_WORKSPACE_ALLOWED: ${MACRO_LOGBOT_POC_WORKSPACE_ALLOWED:-/tmp/poc-cases}
       MACRO_LOGBOT_MODEL_CONTEXT_LIMIT: ${MACRO_LOGBOT_MODEL_CONTEXT_LIMIT:-16384}
     ports:
       - "8000:8000"

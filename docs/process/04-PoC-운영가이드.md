@@ -10,7 +10,7 @@
 | 측정 KPI | 자율 해결률 (full + partial) — Stage 2 spec §10.2 |
 | 사내 대체 | Snake 게임 = MACRO 대체, 에러 카탈로그 = 사내 검증셋 대체, 무료 LLM = 사내 LLM 대체 |
 | 사외 환경 신뢰도 | 시스템 무결성 검증의 약 80~90% (남는 변수: 사내 LLM의 reasoning 차이) |
-| **핵심 미션** | **"가장 약한 LLM(예: Groq Llama 3)에서도 정확도를 끌어올리는 시스템 엔지니어링"** — macro-logbot의 가치는 LLM이 아니라 (Tool + 프롬프트 + agent loop + retrieval)에서 나옴 |
+| **핵심 미션** | **"약한 LLM 에서도 정확도를 끌어올리는 시스템 엔지니어링"** — macro-logbot의 가치는 LLM이 아니라 (Tool + 프롬프트 + agent loop + retrieval)에서 나옴 |
 
 ## 2. 폴더 구조
 
@@ -155,7 +155,7 @@ PoC 실행 전 아래 환경 변수를 `.env` 또는 셸에 설정한다.
 |---|---|---|---|
 | `MACRO_LOGBOT_ENV` | (미설정) | PR #43 | `poc` 로 설정 시 workspace 확장 허용 게이트 활성화 — **PoC 필수** |
 | `MACRO_LOGBOT_POC_WORKSPACE_ALLOWED` | `/tmp/poc-cases` | PR #43 | `MACRO_LOGBOT_ENV=poc` 활성화 시 Tool System 이 접근 허용하는 workdir 루트 |
-| `MACRO_LOGBOT_MODEL_CONTEXT_LIMIT` | `16384` | PR #45 | agent loop 의 컨텍스트 토큰 상한. 80% watermark 초과 시 오래된 메시지 group 단위 pop. Gemma 3 12B 등 소형 모델은 `8192` 권장 |
+| `MACRO_LOGBOT_MODEL_CONTEXT_LIMIT` | `16384` | PR #45 | agent loop 의 컨텍스트 토큰 상한. 80% watermark 초과 시 오래된 메시지 group 단위 pop. 사용 모델의 실제 context window 에 맞춰 조정 |
 | `MACRO_LOGBOT_POC_CASES_ROOT` | `/tmp/poc-cases` | PR #44 | inject workdir 루트 — inject.py 가 `<case_id>-<RANDOM>/` 하위 폴더를 생성하는 기준 경로. docker-compose 에서 `:ro` mount 로 연결 |
 
 > **보안 게이트**: `MACRO_LOGBOT_ENV=poc` 없이 실행하면 production fail-closed 모드 — Tool System 이 cwd 외부 경로 접근을 거부. PoC 측정 시에만 `poc` 로 설정할 것.
@@ -204,7 +204,7 @@ python scripts/trigger.py --case E001
 python scripts/evaluate.py --models all --cases all
 
 # 특정 모델만 빠르게
-python scripts/evaluate.py --models groq/llama-3.1-70b-versatile --cases E001 E002 E003
+python scripts/evaluate.py --models openai/gpt-oss-20b --cases E001 E002 E003
 
 # Quick mode (test-engineer agent가 PR에서 호출)
 python scripts/evaluate.py --quick   # cases 3개 × default model 1개만
@@ -239,7 +239,7 @@ JSON schema (`case-<id>.json`):
 ```json
 {
   "case_id": "E001",
-  "model": "groq/llama-3.1-70b-versatile",
+  "model": "openai/gpt-oss-20b",
   "started_at": "...",
   "duration_seconds": 7.2,
   "tokens": {"input": 2100, "output": 850},
@@ -333,20 +333,20 @@ Q3. "어떻게 수정하면 좋을까? 코드 변경 예시를 보여줘."
 | Gemini Flash | 7 | 2 | 1 | 90% | 5.2s | 2,300 |
 | gpt-4o | 6 | 3 | 1 | 90% | 6.8s | 2,800 |
 | Claude Haiku | 8 | 1 | 1 | 90% | 4.9s | 2,100 |
-| Groq Llama 3 | 4 | 2 | 4 | 60% | 1.8s | 1,600 |
+| Local LLM (약한 baseline) | 4 | 2 | 4 | 60% | 1.8s | 1,600 |
 
 ## 케이스별 매트릭스
-| Case | Gemini | gpt-4o | Claude Haiku | Groq Llama |
+| Case | Gemini | gpt-4o | Claude Haiku | Local LLM |
 |---|---|---|---|---|
 | E001 | ✅ full | ✅ full | ✅ full | ⚠️ partial |
 | ... | ... | ... | ... | ... |
 
 ## 약점 분석 (categorical)
-- Groq Llama: environment(E010) 카테고리에서 약함
+- Local LLM: environment(E010) 카테고리에서 약함
 - 모든 모델: off-by-one(E003) 난해 — Tool 개선 여지
 
 ## 약한 LLM 강화 사이클 — 이번 iteration
-- 시작: Groq Llama 50%
+- 시작: Local LLM 50%
 - 변경: prompts/v3-cot.md 적용 + retrieval prefetch 도입
 - 결과: 60% (+10%p)
 - 다음 시도: ...
@@ -369,7 +369,7 @@ Q3. "어떻게 수정하면 좋을까? 코드 변경 예시를 보여줘."
    - crystallize 의 fallback log 또는 tool_calls history 검증
 4. **deterministic 검증**
    - 같은 fixture (E*.yaml) + 같은 seed (42) 에서 N>1 run 의 1-A variance 가 std > 0.3 이면 sampling stochasticity 의심
-   - LM Studio Gemma 는 `seed` parameter 무시 — 사내 LLM 측정 시 동일 환경 재현성 별도 검증
+   - LM Studio Local 모델 일부는 `seed` parameter 를 무시 — 사용 모델·환경별 결정성 별도 검증
 
 #### 7.5.1 evaluate.py fail-fast guard (자동 invariant 1)
 
@@ -477,7 +477,7 @@ flowchart LR
 
 ### 8.4 사이클 종료 조건
 
-- Groq Llama 자율 해결률 ≥ 60% 달성 시
+- 약한 baseline LLM 자율 해결률 ≥ 60% 달성 시
 - 또는 한 사이클 적용 후 Δ < 1%p (개선 없음)이 3회 연속
 
 종료 후 모든 사이클 시도·결과를 `poc/reports/cycles-summary.md`로 정리.
@@ -494,7 +494,7 @@ flowchart LR
 **기대 효과**:
 - Cumulative와 isolated의 Δ = "운영 시 자연 누적이 가져오는 효과"
 - Pre-seeded와 isolated의 Δ = "사내 운영팀이 과거 사례를 초기 KB에 등록할 가치"
-- 약한 LLM(Groq Llama)에서 Δ가 가장 큰 것이 기대 결과 — 검증되면 macro-logbot 시스템 엔지니어링 가치 명확
+- 약한 LLM 에서 Δ가 가장 큰 것이 기대 결과 — 검증되면 macro-logbot 시스템 엔지니어링 가치 명확
 
 **사이클과의 통합**:
 - 사이클 PR마다 3 모드 모두 측정 → `poc/reports/<cycle-id>/comparison.md`에 9 column 매트릭스 (3 KB mode × 3 단계: 사이클 전 / 사이클 적용 / 사이클 후)
@@ -518,6 +518,14 @@ MACRO_LOGBOT_LLM_API_KEY=<사내-api-key>
 MACRO_LOGBOT_LLM_PROVIDER=openai           # 또는 사내 provider (vLLM, TGI 등)
 MACRO_LOGBOT_DEFAULT_MODEL=<사내-model-id>   # 예: company-llm-13b
 MACRO_LOGBOT_MODEL_CONTEXT_LIMIT=<context-len>  # 사내 모델의 context window
+
+# (task-AGENT-024) gpt-oss / o1 류 reasoning model 한정 — 비-reasoning model 은 영향 0.
+# LM Studio UI 의 Low/Medium/High 슬라이더 = OpenAI compat reasoning_effort parameter.
+# 사용자 검증 (2026-05-21): gpt-oss-20b + reasoning_effort=high 응답에 reasoning 필드 분리,
+# usage.completion_tokens_details.reasoning_tokens 별도 카운트.
+# 잘못된 값은 LLMGateway.__init__ 에서 ValueError fail-fast.
+MACRO_LOGBOT_LLM_REASONING_EFFORT=high          # low / medium / high (chain-of-thought 깊이)
+MACRO_LOGBOT_LLM_TIMEOUT_SEC=900                # LLM 호출 timeout (초). high effort 시 900+ 권고
 
 # 측정 환경 (사외와 동일)
 MACRO_LOGBOT_ENV=poc

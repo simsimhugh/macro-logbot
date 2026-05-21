@@ -52,7 +52,10 @@ DEFAULT_MODEL = "gemini/gemini-2.5-flash-lite"
 # spec §7.1 의 baseline 측정은 groq/llama-3.3-70b-versatile.
 # evaluate.py 는 다양한 분석 모델 측정용 — baseline 측정 시 --model 명시 권장.
 DEFAULT_COOLDOWN_SEC = 60  # Gemini free tier 5 RPM 보호.
-DEFAULT_HTTP_TIMEOUT = 120
+# task-AGENT-024: reasoning_effort=high (gpt-oss 류) 호출은 분 단위 소요 가능 — 사용자 요구
+# "latency 아무 상관없음, 10분 걸려도 OK". 120s 기존 default 는 high 측정 시 잘림. 900s (15분)
+# 로 상향. 더 긴 호출이 필요하면 --http-timeout CLI override (line 372).
+DEFAULT_HTTP_TIMEOUT = 900
 
 # Tool-error sentinel — backend container 의 read_file/grep_codebase 가 fail 한 경우
 # analysis text 에 echo 되는 키워드. PR #51 (N=10) 의 false positive 재발 방지용

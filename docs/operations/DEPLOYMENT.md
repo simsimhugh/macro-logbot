@@ -107,7 +107,7 @@ nano .env          # 아래 .env 작성 가이드 참고
 | `MACRO_LOGBOT_DEFAULT_MODEL` | `gemini/gemini-2.5-flash-lite` | `<사내-모델-이름>` | 기본 LLM 모델 |
 | `MACRO_LOGBOT_ENV` | `poc` | `production` | 실행 환경 게이트. `poc` 시 workspace 확장 허용; 미설정·`production` 시 fail-closed |
 | `MACRO_LOGBOT_POC_WORKSPACE_ALLOWED` | `/tmp/poc-cases` | (미설정 — 사내 운영 시 제거) | `MACRO_LOGBOT_ENV=poc` 활성화 시만 유효한 workdir 루트 |
-| `MACRO_LOGBOT_MODEL_CONTEXT_LIMIT` | `16384` | `8192` (Gemma 3 12B 등 소형 모델) 또는 `16384` | agent loop 컨텍스트 토큰 상한. 80% watermark 초과 시 오래된 메시지 pop |
+| `MACRO_LOGBOT_MODEL_CONTEXT_LIMIT` | `16384` | 사용 모델의 실제 context window 에 맞춰 조정 | agent loop 컨텍스트 토큰 상한. 80% watermark 초과 시 오래된 메시지 pop |
 | `GEMINI_API_KEY` | `<발급 key>` (사외 PoC 용) | (미설정 — 사내 endpoint 사용) | Gemini API key |
 | `OPENAI_API_KEY` | (사외 PoC, 사용 시) | (미설정) | OpenAI API key — `MACRO_LOGBOT_DEFAULT_MODEL=openai/gpt-4o` 등 사용 시 |
 | `ANTHROPIC_API_KEY` | (사외 PoC, 사용 시) | (미설정) | Anthropic API key — Claude 모델 사용 시 |
