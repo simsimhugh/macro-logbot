@@ -37,6 +37,10 @@ class Message(BaseModel):
     tool_call_id: str | None = None
     # 일부 provider 가 function/tool 메시지에 함께 요구.
     name: str | None = None
+    # task-AGENT-024: gpt-oss / o1 류 reasoning model 의 chain-of-thought 분리 응답.
+    # content 와 별개 필드 — request 시에는 항상 None (model_dump(exclude_none) 로 자동 제외),
+    # response 시에만 LiteLLM 에서 capture. KB archive / observability 활용.
+    reasoning: str | None = None
 
 
 class ChatCompletionRequest(BaseModel):
