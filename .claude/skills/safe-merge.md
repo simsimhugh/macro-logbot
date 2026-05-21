@@ -1,14 +1,61 @@
 ---
 name: safe-merge
-description: PR 머지 entry — reviewer 5 + verifier APPROVE 검증 후 raw merge. raw `gh pr merge` 직접 호출 금지 (settings.deny + hook 차단). task-PROCESS-002 enforcement.
-allowed-tools: Bash, Read
+description: PR 머지 entry — `.claude/skills/safe-merge/check.sh` 로 검증 위임 (5 reviewer + verifier verdict + 재approve) + FAIL 시 N=3 재spawn cycle. raw `gh pr merge` 직접 호출 금지.
+allowed-tools: Bash, Agent
 ---
 
 # /safe-merge <PR-NUM>
 
 PR 머지 의 **유일한 entry skill**. 본 skill 외 raw `gh pr merge` / `gh api ... merge` / `git update-ref refs/heads/main` 등 모두 `.claude/settings.json` 의 `permissions.deny` + `.claude/hooks/pre-bash-gate.sh` 가 차단.
 
-## 의무 검증 sequence
+## flow (code-level enforce)
+
+### 1. check.sh 호출 (logic 위임)
+
+```bash
+.claude/skills/safe-merge/check.sh <PR-NUM>
+```
+
+본 script 가 다음 의무 검증을 code-level 강제 (본인 markdown 의지 의존 X):
+1. PR comment ≥ 5
+2. 4 reviewer (code-reviewer/architect/security-reviewer/test-engineer) latest verdict = APPROVE
+3. verifier latest verdict = PASS
+4. REQUEST CHANGES 후 fix commit 시 같은 reviewer 의 재approve
+5. PR mergeable=MERGEABLE / mergeStateStatus=CLEAN|UNSTABLE
+
+### 2. exit code 분기
+
+| exit | 의미 | 다음 step |
+|---|---|---|
+| **0** | 모든 check PASS | step 3 — raw merge |
+| **1** | reviewer 일부 verdict 누락/REJECT/REQUEST CHANGES | step 4 — 자동 재spawn cycle |
+| **2** | argument error 또는 fatal | step 5 — 사용자 manual |
+
+### 3. PASS — raw merge
+
+```bash
+SAFE_MERGE_BYPASS=1 gh pr merge <PR-NUM> --squash
+```
+
+`SAFE_MERGE_BYPASS=1` env 가 `.claude/hooks/pre-bash-gate.sh` 의 차단 우회. 본 env 는 skill 의 일부.
+
+### 4. FAIL — 자동 재spawn cycle (N=3 retry)
+
+1. check.sh stderr 의 `FAIL #N: reviewer '<name>' verdict = <V>` 메시지 분석 — 어떤 reviewer 의 verdict 누락/REJECT
+2. 그 reviewer 만 Agent tool 로 재spawn (재검증 prompt + 이전 review file 참조)
+3. 재spawn 완료 후 reviewer comment PR 게시 (bot PAT)
+4. check.sh 재호출 → step 2 분기
+5. **N=3 retry 초과** → step 5 (사용자 manual)
+
+### 5. 사용자 manual
+
+본인이 사용자에게 보고:
+```
+PR #<N> 머지 fail — <원인>.
+재spawn cycle N=3 소진. 사용자 manual 결정 필요.
+```
+
+## 옛 의무 검증 sequence (참조 — check.sh 에 통합)
 
 ### 1. 인자 확인
 

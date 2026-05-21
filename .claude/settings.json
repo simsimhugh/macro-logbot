@@ -19,6 +19,18 @@
       "Bash(git merge --ff-only origin/main*)",
       "Bash(git update-ref refs/heads/main*)",
       "Bash(git update-ref refs/heads/master*)"
+    ],
+    "ask": [
+      "Edit(.claude/settings.json)",
+      "Edit(.claude/hooks/**)",
+      "Edit(.claude/skills/**)",
+      "Edit(.githooks/**)",
+      "Edit(.github/CODEOWNERS)",
+      "Write(.claude/settings.json)",
+      "Write(.claude/hooks/**)",
+      "Write(.claude/skills/**)",
+      "Write(.githooks/**)",
+      "Write(.github/CODEOWNERS)"
     ]
   },
   "hooks": {
