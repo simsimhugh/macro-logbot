@@ -13,8 +13,8 @@ set -uo pipefail
 
 PROTECTED_BRANCHES=("main" "master")
 
-while read -r local_ref local_sha remote_ref remote_sha; do
-    # 본 hook 가 직접 ref 의 마지막 segment 확인
+while read -r _local_ref _local_sha remote_ref _remote_sha; do
+    # 본 hook 가 직접 ref 의 마지막 segment 확인 (`_` prefix = shellcheck SC2034 회피)
     branch_name="${remote_ref##*/}"
 
     for protected in "${PROTECTED_BRANCHES[@]}"; do
@@ -22,7 +22,7 @@ while read -r local_ref local_sha remote_ref remote_sha; do
             cat >&2 <<EOF
 [task-PROCESS-002] client-side git pre-push hook — $protected 직접 push 차단.
 
-local_ref:  $local_ref
+local_ref:  $_local_ref
 remote_ref: $remote_ref
 
 본 branch 는 PR 경로로만 머지. /safe-merge skill 사용.

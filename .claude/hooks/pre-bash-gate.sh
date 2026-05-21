@@ -23,26 +23,47 @@ set -uo pipefail
 # stdin JSON 읽기 (없으면 빈 string)
 input="$(cat 2>/dev/null || echo '{}')"
 
-# tool_input.command 추출 — python3 의 json 모듈 사용 (jq 사내 mirror 미존재 가정).
-command="$(printf '%s' "$input" | python3 -c '
+# tool_input.command 추출 — python3 의 json 모듈 사용. malformed JSON 시 fail-closed
+# (PR #62 code-reviewer HIGH-2: 옛 except:pass 는 silent allow → 머지/푸시 명령 우회 가능).
+parsed="$(printf '%s' "$input" | python3 -c '
 import json, sys
 try:
     d = json.load(sys.stdin)
-    print(d.get("tool_input", {}).get("command", ""))
-except Exception:
-    pass
-' 2>/dev/null)"
+    cmd = d.get("tool_input", {}).get("command", "")
+    print(cmd if isinstance(cmd, str) else "")
+except Exception as exc:
+    print(f"__JSON_PARSE_ERROR__:{exc}", file=sys.stderr)
+    sys.exit(3)
+' 2>&1)"
+parse_rc=$?
+
+if [ "$parse_rc" -ne 0 ]; then
+    cat >&2 <<EOF
+[task-PROCESS-002] hook 의 JSON parse 실패 — fail-closed (block).
+입력 (head 200ch): $(printf '%s' "$input" | head -c 200)
+parser error: $parsed
+EOF
+    exit 2
+fi
+
+command="$parsed"
 
 # command 가 없으면 통과 (다른 tool 호출, 본 hook 무관)
 [ -z "$command" ] && exit 0
 
-# 차단 pattern (BRE 의 grep -E)
+# 차단 pattern (BRE 의 grep -E).
+# PR #62 code-reviewer HIGH-1 + security MED-1: 옛 `^[[:space:]]*` anchor 는 chain
+# (`echo go && gh pr merge`, `true; gh pr merge`, `eval "gh pr merge"`, `FOO=1 gh ...`)
+# 우회 가능. `\b` (word boundary) 사용 — chain / env-prefix / command substitution 모두
+# 의 anywhere catch. `gh api` 의 path/flag 순서 무관 (test-engineer BUG-1).
+# eval 도 별 pattern 으로 catch (eval 안 raw 명령).
 BLOCK_PATTERNS=(
-    '^[[:space:]]*gh[[:space:]]+pr[[:space:]]+merge'
-    '^[[:space:]]*gh[[:space:]]+api[[:space:]].*(--method|-X)[[:space:]]+(PUT|POST)[[:space:]].*/merges?'
-    '^[[:space:]]*git[[:space:]]+push[[:space:]].*\b(main|master)\b'
-    '^[[:space:]]*git[[:space:]]+update-ref[[:space:]]+refs/heads/(main|master)'
-    '^[[:space:]]*git[[:space:]]+merge[[:space:]].*--ff-only[[:space:]]+origin/(main|master)'
+    '\bgh[[:space:]]+pr[[:space:]]+merge'
+    '\bgh[[:space:]]+api[[:space:]].*\bmerges?\b'
+    '\bgit[[:space:]]+push[[:space:]].*\b(main|master)\b'
+    '\bgit[[:space:]]+update-ref[[:space:]]+refs/heads/(main|master)'
+    '\bgit[[:space:]]+merge[[:space:]].*--ff-only[[:space:]]+origin/(main|master)'
+    '\beval[[:space:]]+.*\b(gh[[:space:]]+pr[[:space:]]+merge|git[[:space:]]+push[[:space:]].*\b(main|master)\b)'
 )
 
 # /safe-merge skill 안에서 호출되는 명령은 본 hook 의 detect 어려움 (skill context 별 표기 없음).
