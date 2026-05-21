@@ -18,7 +18,10 @@ config.internal*
 requirements.internal.txt
 
 # --- 로컬 작업 도구 산출물 (Claude Code / OMC) ---
-.claude/
+# task-PROCESS-002 (2026-05-21): .claude/ 의 worktrees + 사용자 personal override 만 ignore.
+# settings.json / hooks/ / skills/ 는 git tracked — process enforcement layer 의 형상관리.
+.claude/worktrees/
+.claude/settings.local.json
 .omc/
 
 # --- Python ---

@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+# task-PROCESS-002 (2026-05-21) — client-side git pre-push hook.
+#
+# 활성화: 1회 setup `git config core.hooksPath .githooks` (README "다른 프로젝트 적용" 참조).
+#
+# 본 hook 는 client-side 보조 (`.claude/settings.json` 의 deny + Bash hook 의 1차 차단의
+# safety net). main/master 직접 push 차단.
+#
+# stdin: ref pair (local_ref local_sha remote_ref remote_sha) per line
+# exit 0: allow, exit 1: block
+
+set -uo pipefail
+
+PROTECTED_BRANCHES=("main" "master")
+
+while read -r local_ref local_sha remote_ref remote_sha; do
+    # 본 hook 가 직접 ref 의 마지막 segment 확인
+    branch_name="${remote_ref##*/}"
+
+    for protected in "${PROTECTED_BRANCHES[@]}"; do
+        if [ "$branch_name" = "$protected" ]; then
+            cat >&2 <<EOF
+[task-PROCESS-002] client-side git pre-push hook — $protected 직접 push 차단.
+
+local_ref:  $local_ref
+remote_ref: $remote_ref
+
+본 branch 는 PR 경로로만 머지. /safe-merge skill 사용.
+
+회피 (긴급 시만): git push --no-verify (settings.deny 가 또 차단). 정책 본체:
+  docs/process/03-개발-프로세스.md §<task-PROCESS-002>
+EOF
+            exit 1
+        fi
+    done
+done
+
+exit 0
