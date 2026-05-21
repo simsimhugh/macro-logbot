@@ -2,7 +2,7 @@
 # 사내 LLM baseline 측정 (one-shot 스크립트, PR #54 + PR #57 robustness)
 #
 # 사전 조건:
-#   1. .env.bak 가 사내 LLM endpoint + key 로 설정됨 (docs/process/04-PoC-운영가이드.md §9.1)
+#   1. .env 가 사내 LLM endpoint + key 로 설정됨 (docs/process/04-PoC-운영가이드.md §9.1)
 #   2. docker compose up -d 로 backend 기동 + healthy
 #   3. /tmp/poc-cases 가 backend container 에 read-only mount 됨
 #   4. host Python 3.8+ + pyyaml 설치 (PoC 스크립트 의존성, backend 의 3.14 와 별개)
@@ -191,18 +191,22 @@ for (blob,) in conn.execute(
         else:
             ok += 1
 total_tool = ok + err
+import sys
 if total_tool > 0:
     rate = ok / total_tool * 100
     print(f'tool result: {ok}/{total_tool} = {rate:.1f}%')
-    print(f'invariant #1 (>= 80%): {\"PASS\" if rate >= 80 else \"FAIL\"}')
+    passed = rate >= 80
+    print(f'invariant #1 (>= 80%): {\"PASS\" if passed else \"FAIL\"}')
+    sys.exit(0 if passed else 1)
 else:
     print('no tool calls in session range — backend tool 호출 자체가 없음 (model tool 미지원 의심)')
     print('invariant #1: UNKNOWN')
+    sys.exit(2)
 " 2>&1
-    rc=$?
+    inv1_rc=$?
     set -e
-    if [ "$rc" -ne 0 ]; then
-        echo "WARN: docker exec invariant check failed (rc=$rc) — 측정 결과는 보존됨"
+    if [ "$inv1_rc" -gt 2 ]; then
+        echo "WARN: docker exec invariant check failed (rc=$inv1_rc) — 측정 결과는 보존됨"
     fi
 
     echo ""
@@ -262,15 +266,21 @@ except Exception:
 
     echo ""
     echo "## INVARIANT SUMMARY (사외 Claude 가 본 line 우선 확인)"
-    # 본 라인 = 측정 신뢰도 판정의 single line. 모든 invariant FAIL 0 이어야 본인이 score 신뢰.
+    # 본 라인 = 측정 신뢰도 판정의 single line. sum_fail = 측정 무효, sum_warn = 신뢰 약화.
+    # FAIL: #1 (tool success rate <80%), #3 (infra_error 존재), #4 (raw output 누락)
+    # WARN: #2 (traceback echo 의심) — 점수는 살아있지만 sample 별 검토 권고
     sum_fail=0
-    [ "$count" -gt 0 ] && sum_fail=$((sum_fail + 1))
-    [ "$actual" != "$expected" ] && sum_fail=$((sum_fail + 1))
-    [ "$echo_count" -gt 0 ] && sum_fail=$((sum_fail + 1))
-    if [ "$sum_fail" -eq 0 ]; then
+    sum_warn=0
+    [ "$inv1_rc" -eq 1 ] && sum_fail=$((sum_fail + 1))   # #1: tool success <80%
+    [ "$count" -gt 0 ] && sum_fail=$((sum_fail + 1))     # #3: infra_error 존재
+    [ "$actual" != "$expected" ] && sum_fail=$((sum_fail + 1))  # #4: raw output 누락
+    [ "$echo_count" -gt 0 ] && sum_warn=$((sum_warn + 1))  # #2: traceback echo 의심
+    if [ "$sum_fail" -eq 0 ] && [ "$sum_warn" -eq 0 ]; then
         echo "INVARIANT: ALL PASS — 측정 결과 신뢰 가능, score 진행 OK"
+    elif [ "$sum_fail" -eq 0 ]; then
+        echo "INVARIANT: $sum_warn WARN — score 진행 가능하나 sample 별 검토 권고"
     else
-        echo "INVARIANT: $sum_fail FAIL/WARN — 측정 결과 신뢰 어려움, 별 분석 필요"
+        echo "INVARIANT: $sum_fail FAIL + $sum_warn WARN — 측정 결과 신뢰 어려움, 별 분석 필수"
     fi
 } | tee "$INVARIANT_FILE"
 
