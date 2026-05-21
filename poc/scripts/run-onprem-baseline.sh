@@ -68,7 +68,7 @@ set -a; . "$ENV_FILE"; set +a
 
 # --- host Python 자동 검출 (PYTHON_BIN env override → .venv → system) ---
 if [ -n "${PYTHON_BIN:-}" ]; then
-    PYTHON="$PYTHON"
+    PYTHON="$PYTHON_BIN"
 elif [ -x "${REPO_ROOT}/.venv/bin/python3" ]; then
     PYTHON="${REPO_ROOT}/.venv/bin/python3"
 else
