@@ -110,6 +110,36 @@ assert_exit "check.sh no arg → exit 2" 2 "$actual"
 actual=$("$CHECK_SH" not-a-number >/dev/null 2>&1; echo $?)
 assert_exit "check.sh invalid arg → exit 2" 2 "$actual"
 
+# --- 8. security v3 HIGH #2: tokenize bypass case ---
+# Note: alias / shell variable expansion 의 catch 는 shell semantic 의 본질 한계 —
+# alias 는 shell session state, variable 는 runtime expansion → static analysis 불가.
+# 본 두 case 는 GitHub branch protection rule (server-side) 가 backstop.
+# 본 group 8 은 static analysis 가능한 git -c / -C 만 검증.
+echo "=== Test group 8: tokenize bypass (git -c / -C) ==="
+for cmd in \
+    'git -c foo=bar push origin main' \
+    'git -C /tmp push origin main' \
+    'git -c http.proxy=x push origin master'; do
+    safe=$(printf '%s' "$cmd" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))')
+    actual=$(printf '{"tool_input":{"command":%s}}' "$safe" | "$HOOK" >/dev/null 2>&1; echo $?)
+    assert_exit "tokenize bypass '$cmd'" 2 "$actual"
+done
+
+# --- 9. security v3 CRITICAL #1: check.sh python injection-safe ---
+echo "=== Test group 9: check.sh injection-safe (no RCE via comment body) ==="
+# 본 test 는 check.sh 의 stdin pipe parsing 검증. 옛 logic ($comments_json shell-interp) 였으면
+# triple-quote escape 로 Python source 주입 가능. 새 logic 는 json.load(sys.stdin) — data 분리.
+# check.sh 가 gh CLI 호출 — 본 test 는 syntax + argument 검증 (실측은 별 PR mock 필요).
+grep -q 'python3 - <<' "$CHECK_SH" && PASS=$((PASS + 1)) || { FAIL=$((FAIL + 1)); FAIL_CASES+=("CRITICAL #1 fix: stdin pipe heredoc 없음"); }
+grep -q 'json.load(sys.stdin)' "$CHECK_SH" && PASS=$((PASS + 1)) || { FAIL=$((FAIL + 1)); FAIL_CASES+=("CRITICAL #1 fix: json.load(sys.stdin) 없음"); }
+# 옛 vulnerable pattern 잔존 확인 — 주석 (line 시작 `#`) 제외, actual code 만
+if grep -v '^[[:space:]]*#' "$CHECK_SH" | grep -q "comments_raw = '''"; then
+    FAIL=$((FAIL + 1))
+    FAIL_CASES+=("CRITICAL #1 회귀: comments_raw shell-interp 잔존 (actual code)")
+else
+    PASS=$((PASS + 1))
+fi
+
 # --- 결과 ---
 echo ""
 echo "=== Summary ==="

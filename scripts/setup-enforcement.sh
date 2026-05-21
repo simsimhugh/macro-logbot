@@ -51,19 +51,31 @@ if ! gh api "repos/$REPO/branches/main" >/dev/null 2>&1; then
 fi
 
 # branch protection rule 설정
+# security v3 HIGH #3 fix: 옛 JSON 의 enforce_admins=false / dismiss_stale_reviews=false /
+# required_conversation_resolution=false 가 enforce 약화 → strong default.
+# 1-maintainer repo 의 admin lock-out 회피 = ALLOW_ADMIN_BYPASS=1 env override.
+ENFORCE_ADMINS=true
+DISMISS_STALE=true
+REQUIRE_CONVO_RESOLUTION=true
+
+if [ "${ALLOW_ADMIN_BYPASS:-}" = "1" ]; then
+    echo "WARN: ALLOW_ADMIN_BYPASS=1 — enforce_admins=false (1-maintainer repo lock-out 회피)" >&2
+    ENFORCE_ADMINS=false
+fi
+
 gh api "repos/$REPO/branches/main/protection" -X PUT --input - <<JSON
 {
   "required_status_checks": null,
-  "enforce_admins": false,
+  "enforce_admins": $ENFORCE_ADMINS,
   "required_pull_request_reviews": {
     "require_code_owner_reviews": true,
     "required_approving_review_count": 1,
-    "dismiss_stale_reviews": false
+    "dismiss_stale_reviews": $DISMISS_STALE
   },
   "restrictions": null,
   "allow_force_pushes": false,
   "allow_deletions": false,
-  "required_conversation_resolution": false
+  "required_conversation_resolution": $REQUIRE_CONVO_RESOLUTION
 }
 JSON
 

@@ -55,6 +55,25 @@ PR #<N> 머지 fail — <원인>.
 재spawn cycle N=3 소진. 사용자 manual 결정 필요.
 ```
 
+## 본 skill 의 본질 한계 (정직 명시 — security v3 발견)
+
+1. **markdown instruction 의 의지 의존**: 본 skill 본문은 instruction — 본인 (Claude main session) 이 step 4 재spawn cycle skip 가능. **완전한 enforcement = check.sh (code-level) + 본 markdown + 사용자 manual review backstop (3 layer)**.
+
+2. **shell semantic 의 본질 한계** (security v3 HIGH #2 — regex/tokenize 로 catch 불가):
+   - `alias g=gh; g pr merge 60` — alias 는 shell session state, static analysis 불가
+   - `GH=gh; $GH pr merge 60` — variable expansion 은 runtime, static analysis 불가
+   - 본 우회는 **GitHub branch protection rule (server-side, `enforce_admins=true`)** 가 backstop
+
+3. **`.claude/settings.local.json` override** (security v3 LOW #6): user-local override 가 `permissions.ask`/`deny` widen 가능 — `.gitignore` 의 본 file ignore 정책으로 secret 보존, 다만 정책 widen 위험 → settings.local.json 의 정책 widening 금지 (사회적 계약).
+
+## 보완 layer (defense-in-depth)
+
+| Layer | 역할 |
+|---|---|
+| Layer 1 — `.claude/` (settings + hook + skill) | client-side, 본인 명령 시점 차단 + skill entry 강제 |
+| Layer 2 — `.githooks/pre-push` | client-side, main/master push 차단 |
+| Layer 3 — GitHub branch protection rule | server-side, force-push 금지 + required PR review + `enforce_admins=true` (Layer 1 우회 시도 backstop) |
+
 ## 옛 의무 검증 sequence (참조 — check.sh 에 통합)
 
 ### 1. 인자 확인

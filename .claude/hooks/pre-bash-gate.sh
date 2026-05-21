@@ -52,11 +52,9 @@ command="$parsed"
 [ -z "$command" ] && exit 0
 
 # 차단 pattern (BRE 의 grep -E).
-# PR #62 code-reviewer HIGH-1 + security MED-1: 옛 `^[[:space:]]*` anchor 는 chain
-# (`echo go && gh pr merge`, `true; gh pr merge`, `eval "gh pr merge"`, `FOO=1 gh ...`)
-# 우회 가능. `\b` (word boundary) 사용 — chain / env-prefix / command substitution 모두
-# 의 anywhere catch. `gh api` 의 path/flag 순서 무관 (test-engineer BUG-1).
-# eval 도 별 pattern 으로 catch (eval 안 raw 명령).
+# PR #62 security v3 HIGH #2: regex-only 는 alias / variable / `git -c` 우회 가능.
+# Fix: shlex tokenize → env prefix + `git -c k=v` / `-C path` strip → canonical form 검증
+# (별 함수). 본 BLOCK_PATTERNS 은 1차 layer (정직한 명령 catch). canonical_check 가 2차 (우회 catch).
 BLOCK_PATTERNS=(
     '\bgh[[:space:]]+pr[[:space:]]+merge'
     '\bgh[[:space:]]+api[[:space:]].*\bmerges?\b'
@@ -66,6 +64,40 @@ BLOCK_PATTERNS=(
     '\beval[[:space:]]+.*\b(gh[[:space:]]+pr[[:space:]]+merge|git[[:space:]]+push[[:space:]].*\b(main|master)\b)'
 )
 
+# security v3 HIGH #2 fix: tokenize + canonical form 검증.
+# 본 function 이 BLOCK_PATTERNS 의 보조 — alias / variable expansion 도 catch.
+canonical_check() {
+    local cmd="$1"
+    # shlex tokenize + env prefix / git -c / -C 옵션 strip
+    local canonical
+    canonical="$(printf '%s' "$cmd" | python3 -c '
+import shlex, sys, re
+try:
+    toks = shlex.split(sys.stdin.read(), posix=True, comments=False)
+except Exception:
+    print("__UNPARSEABLE__")
+    sys.exit(0)
+# env prefix (FOO=bar) drop
+while toks and re.match(r"^[A-Za-z_][A-Za-z_0-9]*=", toks[0]):
+    toks.pop(0)
+# git -c key=val / -C path drop
+if toks and toks[0].endswith("git"):
+    i = 1
+    while i < len(toks) and toks[i] in ("-c", "-C"):
+        i += 2 if i + 1 < len(toks) else 1
+    toks = [toks[0]] + toks[i:]
+print(" ".join(toks[:8]))
+' 2>/dev/null)"
+    [ -z "$canonical" ] && return 0
+    case "$canonical" in
+        *"gh pr merge"*|*"/gh pr merge"*) return 1 ;;
+        *"git push"*"main"*|*"git push"*"master"*|*"git push"*"+main"*|*"git push"*"+master"*) return 1 ;;
+        *"git update-ref refs/heads/main"*|*"git update-ref refs/heads/master"*) return 1 ;;
+        *"gh api"*"/merges"*|*"gh api"*"/merge "*) return 1 ;;
+    esac
+    return 0
+}
+
 # /safe-merge skill 안에서 호출되는 명령은 본 hook 의 detect 어려움 (skill context 별 표기 없음).
 # settings.deny 가 1차 차단, 본 hook 는 2차 (deny 우회 시 catch).
 # Skill 안 logic 가 모든 검증 통과 후 실제 raw 명령 호출 — 그 시점에 본 hook 가 또 block 하면 모순.
@@ -74,6 +106,26 @@ if [ "${SAFE_MERGE_BYPASS:-}" = "1" ]; then
     exit 0
 fi
 
+# Layer 2: canonical form 검증 (tokenize 후 우회 시도 catch)
+if ! canonical_check "$command"; then
+    cat >&2 <<EOF
+[task-PROCESS-002] Bash 명령 차단 — raw 머지/푸시 시도 감지 (canonical form, security v3 HIGH #2).
+
+명령: $command
+검출: tokenize 후 canonical form 의 머지/푸시 시도 (alias / variable / git -c / 우회 형식)
+
+본 명령을 직접 사용 금지. 다음 skill 사용:
+  /safe-merge <PR-NUM>         — 머지 entry
+  /safe-push <BRANCH>           — 푸시 entry
+
+skill 안 실제 raw 명령 호출 시 SAFE_MERGE_BYPASS=1 env 명시 (skill 의 일부).
+
+정책 본체: docs/process/03-개발-프로세스.md §5.1
+EOF
+    exit 2
+fi
+
+# Layer 1: 정직한 명령 catch
 for pat in "${BLOCK_PATTERNS[@]}"; do
     if printf '%s' "$command" | grep -qE "$pat"; then
         cat >&2 <<EOF

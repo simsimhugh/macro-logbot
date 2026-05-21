@@ -62,57 +62,53 @@ for r in "${REVIEWERS[@]}"; do
 done
 
 # 각 comment 의 body 안에서 reviewer name 검출 + verdict 추출 (가장 최근 comment 우선)
-comments_json="$(gh pr view "$PR_NUM" --json comments --jq '.comments[] | {createdAt, body}' 2>/dev/null)"
+# security v3 CRITICAL #1 fix (2026-05-21): 옛 logic 의 `python3 -c "comments_raw = '''$comments_json'''"` 가
+# shell-interpolation → PR comment body 가 Python source 로 들어가 RCE. PoC `/tmp/pwn_proof_v2.txt` 실측 검증.
+# Fix: gh stdout → python3 stdin pipe + json.load(sys.stdin). Python source ≠ data 분리.
+python_check="$(gh pr view "$PR_NUM" --json comments 2>/dev/null | python3 - <<'PY'
+import json, sys
+try:
+    data = json.load(sys.stdin)
+except Exception as exc:
+    print(f"__JSON_LOAD_ERROR__:{exc}", file=sys.stderr)
+    sys.exit(3)
 
-if [ -z "$comments_json" ]; then
-    echo "FAIL #2: PR comments JSON empty" >&2
-    exit 1
-fi
+verdicts = {"code-reviewer": None, "architect": None, "security-reviewer": None, "test-engineer": None, "verifier": None}
+verdict_dates = {k: "" for k in verdicts}
 
-# python3 로 parse (jq 안 의존)
-python_check="$(python3 -c "
-import json, sys, re
-comments_raw = '''$comments_json'''
-# python3 의 json.loads 가 multi-object stream 못 받아 — 한 줄씩 parse
-import re as _re
-verdicts = {'code-reviewer': None, 'architect': None, 'security-reviewer': None, 'test-engineer': None, 'verifier': None}
-verdict_dates = {k: '' for k in verdicts}
-
-# 각 comment object 추출 (line 별)
-for line in comments_raw.strip().split('}'):
-    line = line.strip()
-    if not line:
-        continue
-    if not line.endswith('}'):
-        line = line + '}'
-    try:
-        obj = json.loads(line)
-    except Exception:
-        continue
-    body = obj.get('body', '')
-    created = obj.get('createdAt', '')
-    body_head = body[:500].lower()
-
-    # reviewer 검출 (body 안 'code-reviewer' / 'architect' / 등)
+for obj in data.get("comments", []):
+    body = obj.get("body", "") or ""
+    created = obj.get("createdAt", "") or ""
+    # code-reviewer v3 NEW-HIGH-2 fix: 한 comment 가 5 reviewer slot 에 cross-talk 방지.
+    # 본 comment 의 first heading (line 1-3 의 h1/h2/h3) 만 reviewer name 검출 — body 본문의
+    # 다른 reviewer reference (e.g. "see code-reviewer above") 는 무시.
+    head_3lines = "\n".join(body.split("\n")[:3]).lower()
+    matched_r = None
     for r in verdicts:
-        if r.lower() in body_head:
-            # verdict 추출 — APPROVE / PASS / REQUEST CHANGES / BLOCK
-            v = None
-            for pat in ['REQUEST CHANGES', 'BLOCK', 'APPROVE with follow-up', 'APPROVE with concerns', 'APPROVE', 'HEALTHY', 'PASS']:
-                if pat in body[:1000]:
-                    v = pat
-                    break
-            if v and (verdict_dates[r] == '' or created > verdict_dates[r]):
-                verdicts[r] = v
-                verdict_dates[r] = created
+        if r in head_3lines:
+            matched_r = r
+            break  # 첫 매칭만 (한 comment 의 single owner)
+    if matched_r is None:
+        continue
+    # verdict 추출 — body 의 첫 1000 chars 안
+    for pat in ["REQUEST CHANGES", "BLOCK", "APPROVE with follow-up", "APPROVE with concerns", "APPROVE", "HEALTHY", "PASS"]:
+        if pat in body[:1000]:
+            if verdict_dates[matched_r] == "" or created > verdict_dates[matched_r]:
+                verdicts[matched_r] = pat
+                verdict_dates[matched_r] = created
+            break
 
-# 결과 출력 — '<reviewer>:<verdict>:<date>' 형식
 for r, v in verdicts.items():
-    print(f'{r}:{v or \"MISSING\"}:{verdict_dates[r]}')
-")"
+    print(f"{r}:{v or 'MISSING'}:{verdict_dates[r]}")
+PY
+)"
 parse_rc=$?
 if [ "$parse_rc" -ne 0 ]; then
     echo "FAIL #2: comment parse error (python rc=$parse_rc)" >&2
+    exit 1
+fi
+if [ -z "$python_check" ]; then
+    echo "FAIL #2: PR comments JSON empty 또는 fetch 실패" >&2
     exit 1
 fi
 
