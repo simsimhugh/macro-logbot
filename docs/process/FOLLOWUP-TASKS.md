@@ -77,6 +77,13 @@
 - **scope**: `LLMGateway.__init__` ~60 lines — `_load_env_defaults() -> EnvDefaults` 분리.
 - **priority**: LOW (task-LG-007 와 함께)
 
+### task-RELIABILITY-001 — 측정 비결정론 (temperature=0 / seed=42 우회) 원인 조사
+- **출처**: 사용자 사내 평가 (2026-05-21) 발견 — temperature=0 + seed=42 fixed 인데 N1/N2/N3 간 같은 case 점수 변동 (예: E004 = 1.0 → 0.0 → 1.0). 사내 LLM (또는 LM Studio gpt-oss) 의 sampling 비결정성 추정.
+- **scope**: (a) 사외 LM Studio gpt-oss-20b 에 temperature=0 / seed=42 의 실제 효과 측정 (deterministic vs non-deterministic 검증). (b) 사내 LLM 의 sampling spec 확인 (사용자 사내 IT 문의). (c) 비결정성 인정 시 N≥3 baseline 의 median 채택 정책 명문화 (`docs/process/04-PoC-운영가이드.md §7.5` 의 invariant #5 추가).
+- **suggested branch**: `feat/measurement-determinism-investigation`
+- **size estimate**: 측정 N≥3 + docs + (가능 시) `evaluate.py` 의 `--analysis-runs N` 대응 추가 ~80 lines
+- **priority**: MEDIUM (점수 천장 분석의 정확성)
+
 ### task-LG-001 — Message 모델 tool_calls round-trip 지원 (Agent Core 선결)
 - **출처**: PR #8 architect (issuecomment-4479740071) WARN
 - **scope**: `src/macro_logbot/gateway/models.py` `Message` 에 `tool_calls: list[ToolCall] | None`, `tool_call_id: str | None`, `name: str | None` 추가 + `client.py` 직렬화에서 None 제외해 LiteLLM 으로 전달. spec §5.2 AgentState.messages · §5.4 Session.messages · §7.4 AS-1 multi-turn tool calling 검증 (E000 case) 선결 요건.

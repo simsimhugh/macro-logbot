@@ -2,7 +2,7 @@
 # 사내 LLM baseline 측정 (one-shot 스크립트, PR #54 + PR #57 robustness)
 #
 # 사전 조건:
-#   1. .env.bak 가 사내 LLM endpoint + key 로 설정됨 (docs/process/04-PoC-운영가이드.md §9.1)
+#   1. .env 가 사내 LLM endpoint + key 로 설정됨 (docs/process/04-PoC-운영가이드.md §9.1)
 #   2. docker compose up -d 로 backend 기동 + healthy
 #   3. /tmp/poc-cases 가 backend container 에 read-only mount 됨
 #   4. host Python 3.8+ + pyyaml 설치 (PoC 스크립트 의존성, backend 의 3.14 와 별개)
@@ -54,13 +54,13 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 cd "$REPO_ROOT"
 
-# --- env load (.env.bak 우선, 없으면 .env — 사외 dev vs 사내 운영 양쪽 호환) ---
-if [ -f .env.bak ]; then
-    ENV_FILE=.env.bak
-elif [ -f .env ]; then
+# --- env load (.env 단일화 — 사외/사내 동일) ---
+# 이전: .env.bak 우선 → .env fallback (사외 dev 의 pytest 충돌 회피 가설 — 본 PoC 의
+# pyproject.toml/conftest 에서 dotenv 자동 load 안 함 → 본 가설은 무근거. .env 단일화.
+if [ -f .env ]; then
     ENV_FILE=.env
 else
-    echo "ERROR: neither .env.bak nor .env found in $REPO_ROOT" >&2
+    echo "ERROR: .env not found in $REPO_ROOT" >&2
     echo "       사내 LLM endpoint 설정 — docs/process/04-PoC-운영가이드.md §9.1" >&2
     exit 1
 fi
@@ -68,7 +68,7 @@ set -a; . "$ENV_FILE"; set +a
 
 # --- host Python 자동 검출 (PYTHON_BIN env override → .venv → system) ---
 if [ -n "${PYTHON_BIN:-}" ]; then
-    PYTHON="$PYTHON"
+    PYTHON="$PYTHON_BIN"
 elif [ -x "${REPO_ROOT}/.venv/bin/python3" ]; then
     PYTHON="${REPO_ROOT}/.venv/bin/python3"
 else
@@ -91,11 +91,29 @@ if ! curl -sf --max-time 5 http://localhost:8000/health > /dev/null; then
     exit 1
 fi
 
+# --- docker 명령 자동 검출 (사내 사용자 docker group 미가입 시 sudo 필요) ---
+# 사용자 사내 평가 (2026-05-21) 발견: docker compose 가 sudo 없이 권한 오류 → 본 스크립트
+# 의 BACKEND_CONTAINER 가 빈 string → invariant check 의 docker exec "" 실패.
+# Fix: DOCKER_CMD env 명시 override > docker (group 가입) > sudo -n docker (passwordless) 순.
+if [ -n "${DOCKER_CMD:-}" ]; then
+    :  # explicit override (e.g. DOCKER_CMD="sudo docker" 또는 DOCKER_CMD="podman")
+elif docker info >/dev/null 2>&1; then
+    DOCKER_CMD="docker"
+elif sudo -n docker info >/dev/null 2>&1; then
+    DOCKER_CMD="sudo docker"
+else
+    echo "ERROR: docker not accessible — tried 'docker' (group) + 'sudo -n docker' (passwordless)" >&2
+    echo "       해결책: (1) 사용자를 docker group 에 추가 또는 (2) sudo passwordless 설정" >&2
+    echo "       또는 DOCKER_CMD=\"sudo docker\" ./poc/scripts/run-onprem-baseline.sh" >&2
+    exit 1
+fi
+echo "Docker command:    $DOCKER_CMD"
+
 # --- backend container 자동 검출 ---
 if [ -n "${MACRO_LOGBOT_BACKEND_CONTAINER:-}" ]; then
     BACKEND_CONTAINER="$MACRO_LOGBOT_BACKEND_CONTAINER"
 else
-    BACKEND_CONTAINER="$(docker compose ps -q macro-logbot-backend 2>/dev/null | xargs -r docker inspect --format '{{.Name}}' 2>/dev/null | sed 's|^/||' | head -1)"
+    BACKEND_CONTAINER="$($DOCKER_CMD compose ps -q macro-logbot-backend 2>/dev/null | xargs -r $DOCKER_CMD inspect --format '{{.Name}}' 2>/dev/null | sed 's|^/||' | head -1)"
     BACKEND_CONTAINER="${BACKEND_CONTAINER:-macro-logbot-backend}"
 fi
 
@@ -146,7 +164,7 @@ INVARIANT_FILE="$ROOT/invariant-check.txt"
     echo "## #1 Tool result success rate (session 범위: started_at 이후만)"
     # docker exec 실패해도 측정 결과 abort 안 하도록 set +e 격리
     set +e
-    docker exec "$BACKEND_CONTAINER" python3 -c "
+    $DOCKER_CMD exec "$BACKEND_CONTAINER" python3 -c "
 import sqlite3, json
 conn = sqlite3.connect('/app/.macro-logbot-sessions.db')
 started_at = '$STARTED_AT'
@@ -173,30 +191,97 @@ for (blob,) in conn.execute(
         else:
             ok += 1
 total_tool = ok + err
+import sys
 if total_tool > 0:
     rate = ok / total_tool * 100
     print(f'tool result: {ok}/{total_tool} = {rate:.1f}%')
-    print(f'invariant #1 (>= 80%): {\"PASS\" if rate >= 80 else \"FAIL\"}')
+    passed = rate >= 80
+    print(f'invariant #1 (>= 80%): {\"PASS\" if passed else \"FAIL\"}')
+    sys.exit(0 if passed else 1)
 else:
     print('no tool calls in session range — backend tool 호출 자체가 없음 (model tool 미지원 의심)')
     print('invariant #1: UNKNOWN')
+    sys.exit(2)
 " 2>&1
-    rc=$?
+    inv1_rc=$?
     set -e
-    if [ "$rc" -ne 0 ]; then
-        echo "WARN: docker exec invariant check failed (rc=$rc) — 측정 결과는 보존됨"
+    if [ "$inv1_rc" -gt 2 ]; then
+        echo "WARN: docker exec invariant check failed (rc=$inv1_rc) — 측정 결과는 보존됨"
     fi
 
     echo ""
-    echo "## infra_error flag case (PR #53 fail-fast guard)"
+    echo "## #2 traceback echo 구별 (§7.5.2 — file/line match 가 통과해도 tool 호출 0 인 case)"
+    # session 별 messages 검사: tool_calls 가 0 또는 모두 error 인데 score_1a.file_match 또는
+    # .line_match 가 True 인 case = traceback echo (LLM 이 stack 의 path/line 그대로 인용 + 진짜 code read 안 함).
+    set +e
+    echo_count=0
+    for f in "$ROOT"/reports/N*/*/E*.json; do
+        [ -f "$f" ] || continue
+        # score_1a.file_match || line_match 통과 case 만 검사
+        passed=$(python3 -c "
+import json, sys
+try:
+    d = json.load(open('$f'))
+    s = d.get('score_1a') or {}
+    print('1' if (s.get('file_match') or s.get('line_match')) else '0')
+except Exception:
+    print('0')
+" 2>/dev/null)
+        [ "$passed" = "1" ] || continue
+        # tool call success 여부 — score JSON 의 backend_response.analysis 가 tool_calls 의 result 까지
+        # 포함하지 않으므로 session DB 접근 필요. 본 chunk 는 host file 만 보고 heuristic: analysis
+        # 본문에 'matches' 또는 'content' 같은 tool result fingerprint 가 없으면 의심.
+        no_tool_fp=$(python3 -c "
+import json
+try:
+    d = json.load(open('$f'))
+    br = d.get('backend_response') or {}
+    txt = br.get('analysis','')
+    has_fp = any(k in txt for k in ['matches','snake.py:', 'read_file'])
+    print('1' if not has_fp else '0')
+except Exception:
+    print('0')
+" 2>/dev/null)
+        if [ "$no_tool_fp" = "1" ]; then
+            echo_count=$((echo_count + 1))
+            echo "  suspect traceback echo: $f"
+        fi
+    done
+    set -e
+    echo "suspect traceback echo cases: $echo_count"
+    echo "invariant #2 (suspect == 0): $([ "$echo_count" -eq 0 ] && echo PASS || echo WARN)"
+
+    echo ""
+    echo "## #3 infra_error flag case (PR #53 fail-fast guard)"
     count=$(grep -l '"infra_error"' "$ROOT"/reports/N*/*/E*.json 2>/dev/null | wc -l)
     expected=$((N * 10))
     echo "case with infra_error flag: $count / $expected"
+    echo "invariant #3 (infra_error == 0): $([ "$count" -eq 0 ] && echo PASS || echo FAIL)"
 
     echo ""
-    echo "## §7.6.1 raw output 확인"
+    echo "## #4 raw output 완전성 (§7.6.1)"
     actual=$(find "$ROOT/reports" -name 'E*.json' | wc -l)
     echo "raw JSON: $actual / $expected 파일"
+    echo "invariant #4 (actual == expected): $([ "$actual" = "$expected" ] && echo PASS || echo FAIL)"
+
+    echo ""
+    echo "## INVARIANT SUMMARY (사외 Claude 가 본 line 우선 확인)"
+    # 본 라인 = 측정 신뢰도 판정의 single line. sum_fail = 측정 무효, sum_warn = 신뢰 약화.
+    # FAIL: #1 (tool success rate <80%), #3 (infra_error 존재), #4 (raw output 누락)
+    # WARN: #2 (traceback echo 의심) — 점수는 살아있지만 sample 별 검토 권고
+    sum_fail=0
+    sum_warn=0
+    [ "$inv1_rc" -eq 1 ] && sum_fail=$((sum_fail + 1))   # #1: tool success <80%
+    [ "$count" -gt 0 ] && sum_fail=$((sum_fail + 1))     # #3: infra_error 존재
+    [ "$actual" != "$expected" ] && sum_fail=$((sum_fail + 1))  # #4: raw output 누락
+    [ "$echo_count" -gt 0 ] && sum_warn=$((sum_warn + 1))  # #2: traceback echo 의심
+    if [ "$sum_fail" -eq 0 ] && [ "$sum_warn" -eq 0 ]; then
+        echo "INVARIANT: ALL PASS — 측정 결과 신뢰 가능, score 진행 OK"
+    elif [ "$sum_fail" -eq 0 ]; then
+        echo "INVARIANT: $sum_warn WARN — score 진행 가능하나 sample 별 검토 권고"
+    else
+        echo "INVARIANT: $sum_fail FAIL + $sum_warn WARN — 측정 결과 신뢰 어려움, 별 분석 필수"
+    fi
 } | tee "$INVARIANT_FILE"
 
 echo ""
