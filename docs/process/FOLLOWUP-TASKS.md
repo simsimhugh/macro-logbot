@@ -20,11 +20,12 @@
 
 ### task-AI-DLC-REVIEW-001 — reviewer 의 PR comment / approve 의 template + script + lock-down
 - **출처**: 사용자 명시 (PR 1 cycle, 2026-05-22) — agent 의 review 의 자율 형식 + bot PAT 직접 사용 의 한계 발견 (verdict misjudge 의 sample, e.g. opt e5f5cc6 cycle 의 MED #1 finding + APPROVE 모순).
-- **scope (4 step)**:
+- **scope (5 step)**:
   1. **template** — `.claude/skills/post-review/template.md`. 짧고 요약, 사용자 가독성 우선. 마지막 commit hash 포함. severity callout + finding list + verdict.
   2. **script** — `.claude/skills/post-review/post.sh`. 인자: `<role> <PR-NUM> <verdict> <findings-json>`. 각 finding 의 severity (CRITICAL/HIGH/MED/WARN/LOW/INFO/PASS) 명시. **모두 PASS (또는 LOW/INFO) 만 APPROVE**, 1+ WARN/MED/HIGH/CRITICAL 시 자동 REQUEST CHANGES (사용자 명시).
-  3. **agent prompt 갱신** — 4 reviewer agent prompt 의 출력 의무 = "post.sh 호출 만". raw `gh pr comment` / `gh pr review` 직접 호출 금지.
-  4. **lock-down** — `.claude/settings.json` deny + `.claude/hooks/pre-bash-gate.sh` 의 추가 logic: raw `gh pr comment` / `gh pr review` / bot PAT source 차단. `POST_REVIEW_BYPASS=1` env 만 우회 (post.sh 의 일부).
+  3. **identity verify** — post.sh 의 entry 의무 의 step: `actual=$(GH_TOKEN=... gh api /user --jq '.login')` + `expected=$(grep ... GH_USER)` 일치 check. mismatch 시 exit 2. (PR #64 architect agent 1차 spawn 의 token confusion bug — code-reviewer-bot 명의로 architect body 게시, dismiss 됐음 — 의 직접 catch.)
+  4. **agent prompt 갱신** — 4 reviewer agent prompt 의 출력 의무 = "post.sh 호출 만". raw `gh pr comment` / `gh pr review` 직접 호출 금지.
+  5. **lock-down** — `.claude/settings.json` deny + `.claude/hooks/pre-bash-gate.sh` 의 추가 logic: raw `gh pr comment` / `gh pr review` / bot PAT source 차단. `POST_REVIEW_BYPASS=1` env 만 우회 (post.sh 의 일부).
 - **suggested branch**: `feat/ai-dlc-review-template-lock`
 - **size estimate**: ~300 lines (template + script + agent prompt + settings + hook)
 - **priority**: HIGH — PR 2 (Mergify) 시작 전 처리 의무.
