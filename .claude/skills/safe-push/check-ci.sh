@@ -46,18 +46,20 @@ while true; do
         exit 2
     fi
 
-    # statusCheckRollup fetch — gh stdout → python stdin pipe (RCE 회피, PR #62 v3 HIGH #1 pattern).
+    # statusCheckRollup fetch
     rollup_json="$(gh pr view "$PR_NUM" --json statusCheckRollup 2>/dev/null)"
     if [ -z "$rollup_json" ]; then
         echo "FAIL: gh pr view 실패 (PR #${PR_NUM} 존재 확인 필요)" >&2
         exit 1
     fi
 
-    # state 분석 — python 으로 정직 처리.
-    analysis="$(printf '%s' "$rollup_json" | python3 - <<'PY'
-import json, sys
+    # state 분석 — python heredoc + JSON 의 stdin pipe 충돌 회피 (PR #62 의 v3 CRITICAL #1
+    # 패턴: heredoc 이 python stdin 점유, pipe stdout 은 lost → json.load(sys.stdin) 가
+    # python script source 자체 parse 시도 → fail). env var 으로 JSON pass.
+    analysis="$(ROLLUP_JSON="$rollup_json" python3 <<'PY'
+import json, os, sys
 try:
-    data = json.load(sys.stdin)
+    data = json.loads(os.environ["ROLLUP_JSON"])
 except Exception as exc:
     print(f"PARSE_ERROR:{exc}")
     sys.exit(3)
