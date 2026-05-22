@@ -1,0 +1,72 @@
+name: deps
+
+# task-AI-DLC-001 — dependency CVE scan server-side (memory §1, 옵션).
+# Dependabot Alerts 가 GitHub native 로 commit 시점에 alert 게시 → 본 workflow 는
+# PR 시점에 inline check. pip-audit + osv-scanner 보완 layer.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  schedule:
+    # 매주 수요일 03:00 UTC.
+    - cron: "0 3 * * 3"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deps-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  pip-audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Install pip-audit + project deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install pip-audit
+          # project deps 의 actual installed version scan — pyproject 의 spec 만 vs 실제 휠.
+          pip install -e ".[dev]"
+
+      - name: pip-audit
+        # 본 PR 은 baseline — fail threshold 는 HIGH+CRITICAL CVE 만.
+        # pip-audit 자체는 severity filter 없음 → JSON 출력 후 jq 로 filter.
+        run: |
+          pip-audit --format=json --output=pip-audit.json --strict || true
+          python -c "
+          import json, sys
+          data = json.load(open('pip-audit.json'))
+          high = []
+          for dep in data.get('dependencies', []):
+              for vuln in dep.get('vulns', []):
+                  # PyPI advisory severity = aliases / fix_versions 만. CVE severity 별
+                  # 정보는 GHSA 의 GraphQL 필요 → 본 PR 은 vuln 존재 만 fail (보수).
+                  high.append({'pkg': dep['name'], 'id': vuln['id']})
+          if high:
+              print('vulnerabilities found:')
+              for h in high:
+                  print(f'  - {h[\"pkg\"]}: {h[\"id\"]}')
+              sys.exit(1)
+          print('no vulnerabilities')
+          "
+
+      - name: Upload pip-audit json
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pip-audit-json
+          path: pip-audit.json
+          if-no-files-found: ignore
+          retention-days: 30

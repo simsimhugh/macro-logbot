@@ -1,0 +1,74 @@
+# task-AI-DLC-001 — Dependabot Version Updates config (memory §1).
+#
+# Dependabot 의 세 기능 중 본 file = "Version Updates" (정기 routine dependency bump PR).
+# 나머지 두 기능 (Alerts / Security Updates) 은 Settings UI toggle — config file 없음.
+#
+# 모든 update 는 PR 로 생성 → 본 AI DLC 의 4 reviewer cycle 자동 진입 → Mergify auto-merge.
+
+version: 2
+
+updates:
+  # ──────────────────────────────────────────────────────────────
+  # Python pip ecosystem — pyproject.toml + transitive
+  # ──────────────────────────────────────────────────────────────
+  - package-ecosystem: pip
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "03:00"
+      timezone: "Asia/Seoul"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "python"
+    commit-message:
+      prefix: "chore(deps)"
+      include: "scope"
+    groups:
+      # minor + patch 묶음 PR — review 부담 ↓. major 는 별 PR (breaking change 검토).
+      python-minor-patch:
+        update-types:
+          - minor
+          - patch
+
+  # ──────────────────────────────────────────────────────────────
+  # GitHub Actions ecosystem — .github/workflows/*.yml 의 actions/* 갱신
+  # ──────────────────────────────────────────────────────────────
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "03:30"
+      timezone: "Asia/Seoul"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "github-actions"
+    commit-message:
+      prefix: "chore(ci)"
+      include: "scope"
+    groups:
+      actions-minor-patch:
+        update-types:
+          - minor
+          - patch
+
+  # ──────────────────────────────────────────────────────────────
+  # Docker ecosystem — Dockerfile 의 base image
+  # ──────────────────────────────────────────────────────────────
+  - package-ecosystem: docker
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "04:00"
+      timezone: "Asia/Seoul"
+    open-pull-requests-limit: 3
+    labels:
+      - "dependencies"
+      - "docker"
+    commit-message:
+      prefix: "chore(docker)"
+      include: "scope"
