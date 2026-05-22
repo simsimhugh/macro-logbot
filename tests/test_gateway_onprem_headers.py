@@ -2,8 +2,7 @@
 
 from __future__ import annotations
 
-import os
-from unittest.mock import AsyncMock, patch
+from unittest.mock import patch
 
 import pytest
 
@@ -90,6 +89,7 @@ async def test_complete_injects_extra_headers_with_fresh_msg_ids(
         raise RuntimeError("stop — kwargs captured")
 
     from macro_logbot.gateway.models import Message
+
     with patch("macro_logbot.gateway.client.litellm.acompletion", side_effect=fake_ac):
         with pytest.raises(RuntimeError):
             await gw.complete([Message(role="user", content="hi")], model="m")
@@ -107,6 +107,7 @@ async def test_complete_injects_extra_headers_with_fresh_msg_ids(
     assert h1["Completion-Msg-Id"] != h2["Completion-Msg-Id"]
     # UUID 형식 (8-4-4-4-12)
     import re
+
     uuid_re = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
     assert uuid_re.match(h1["Prompt-Msg-Id"])
     assert uuid_re.match(h1["Completion-Msg-Id"])
@@ -123,6 +124,7 @@ async def test_complete_no_extra_headers_when_ticket_not_set(clean_env: None) ->
         raise RuntimeError("stop — kwargs captured")
 
     from macro_logbot.gateway.models import Message
+
     with patch("macro_logbot.gateway.client.litellm.acompletion", side_effect=fake_ac):
         with pytest.raises(RuntimeError):
             await gw.complete([Message(role="user", content="hi")], model="m")

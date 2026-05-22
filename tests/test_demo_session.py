@@ -66,10 +66,12 @@ def test_main_first_turn_returns_session_id_then_loop_uses_it() -> None:
     call_args: list[dict[str, Any]] = []
 
     def fake_post(api_url, api_key, log_text, model, session_id, timeout):
-        call_args.append({
-            "log_text": log_text,
-            "session_id": session_id,
-        })
+        call_args.append(
+            {
+                "log_text": log_text,
+                "session_id": session_id,
+            }
+        )
         return first if len(call_args) == 1 else second
 
     # input() 한 번 응답 후 빈 입력으로 종료.

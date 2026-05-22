@@ -29,6 +29,7 @@ from macro_logbot.gateway import (
 # helpers
 # ---------------------------------------------------------------------------
 
+
 def _resp(content: str) -> ChatCompletionResponse:
     return ChatCompletionResponse(
         id="chatcmpl-test",
@@ -95,6 +96,7 @@ _VALID_JSON_NULL_LOCATION = """{
 # unit: _parse_structured_json
 # ---------------------------------------------------------------------------
 
+
 def test_parse_structured_json_valid() -> None:
     result = _parse_structured_json(_VALID_JSON)
     assert result is not None
@@ -115,18 +117,19 @@ def test_parse_structured_json_invalid_returns_none() -> None:
 
 
 def test_parse_structured_json_list_returns_none() -> None:
-    assert _parse_structured_json('[1, 2, 3]') is None
+    assert _parse_structured_json("[1, 2, 3]") is None
 
 
 # ---------------------------------------------------------------------------
 # unit: _location_from_traceback
 # ---------------------------------------------------------------------------
 
+
 def test_location_from_traceback_extracts_last_frame() -> None:
     stderr = (
-        'Traceback (most recent call last):\n'
+        "Traceback (most recent call last):\n"
         '  File "/app/macro_logbot/intake/parser.py", line 10, in parse_macro_log\n'
-        '    record = _parse(text)\n'
+        "    record = _parse(text)\n"
         '  File "/app/macro_logbot/agent/core.py", line 55, in _inner\n'
         '    raise ValueError("boom")\n'
     )
@@ -154,6 +157,7 @@ def test_location_from_traceback_single_frame() -> None:
 # ---------------------------------------------------------------------------
 # _crystallize_report_node: structured JSON LLM 답 → Report
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_crystallize_structured_json_answer() -> None:
@@ -184,7 +188,7 @@ async def test_crystallize_null_location_uses_traceback_fallback() -> None:
     """LLM 이 location=null 반환 → user message traceback 에서 fallback 추출."""
     gw = _mock_gateway([_resp(_VALID_JSON_NULL_LOCATION)])
     stderr = (
-        'Traceback (most recent call last):\n'
+        "Traceback (most recent call last):\n"
         '  File "/app/macro_logbot/intake/parser.py", line 99, in load\n'
         '    raise IOError("missing config")\n'
     )
@@ -207,10 +211,12 @@ async def test_crystallize_null_location_uses_traceback_fallback() -> None:
 @pytest.mark.asyncio
 async def test_crystallize_schema_violation_retries_once_then_succeeds() -> None:
     """첫 번째 응답이 schema 미준수(plain text) → 재시도 1회 후 valid JSON 으로 성공."""
-    gw = _mock_gateway([
-        _resp("죄송합니다, 분석 결과를 정리하겠습니다."),  # schema 미준수
-        _resp(_VALID_JSON),  # retry 성공
-    ])
+    gw = _mock_gateway(
+        [
+            _resp("죄송합니다, 분석 결과를 정리하겠습니다."),  # schema 미준수
+            _resp(_VALID_JSON),  # retry 성공
+        ]
+    )
     state = _base_state(
         [
             Message(role="user", content="ERROR: boom"),
@@ -248,10 +254,12 @@ async def test_crystallize_no_traceback_location_remains_none() -> None:
 @pytest.mark.asyncio
 async def test_crystallize_both_attempts_fail_mvp_fallback() -> None:
     """2회 모두 schema 미준수 → MVP fallback (root_cause = last assistant content)."""
-    gw = _mock_gateway([
-        _resp("plain text 1"),
-        _resp("plain text 2"),
-    ])
+    gw = _mock_gateway(
+        [
+            _resp("plain text 1"),
+            _resp("plain text 2"),
+        ]
+    )
     last_content = "LLM 최종 분석 내용"
     state = _base_state(
         [

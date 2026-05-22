@@ -48,9 +48,7 @@ def test_execute_tool_unknown() -> None:
     assert "unknown tool" in result["error"]
 
 
-def test_execute_tool_invalid_args(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_execute_tool_invalid_args(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.chdir(tmp_path)
     # read_file 은 path 가 필수 — 미제공 시 TypeError → "invalid arguments".
     result = execute_tool("read_file", {})

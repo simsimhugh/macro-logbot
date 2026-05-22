@@ -58,7 +58,5 @@ def test_list_models_requires_auth_when_key_set(auth_client: TestClient) -> None
 
 def test_list_models_accepts_bearer_auth(auth_client: TestClient) -> None:
     """올바른 Bearer key 로 호출 → 200."""
-    response = auth_client.get(
-        "/v1/models", headers={"Authorization": "Bearer secret-key"}
-    )
+    response = auth_client.get("/v1/models", headers={"Authorization": "Bearer secret-key"})
     assert response.status_code == 200

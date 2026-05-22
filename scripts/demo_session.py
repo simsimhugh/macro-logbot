@@ -149,7 +149,7 @@ def main(argv: list[str] | None = None) -> int:
     while True:
         try:
             user_input = input("\nYou> ").strip()
-        except (EOFError, KeyboardInterrupt):
+        except EOFError, KeyboardInterrupt:
             print("\n[종료]", file=sys.stderr)
             return 0
         if not user_input:

@@ -61,9 +61,7 @@ def test_grep_codebase_literal_special_regex_no_error(workspace: Path) -> None:
     pkg = workspace / "pkg"
     pkg.mkdir()
     (pkg / "mod.py").write_text(
-        "class SnakeGame:\n"
-        "    def step(self, action):\n"
-        "        self.head.x += 1\n",
+        "class SnakeGame:\n    def step(self, action):\n        self.head.x += 1\n",
         encoding="utf-8",
     )
 
@@ -80,8 +78,7 @@ def test_grep_codebase_literal_paren_match(workspace: Path) -> None:
     pkg = workspace / "pkg"
     pkg.mkdir()
     (pkg / "mod.py").write_text(
-        "def init_game(self):\n"
-        "    self.head = None\n",
+        "def init_game(self):\n    self.head = None\n",
         encoding="utf-8",
     )
 
@@ -246,26 +243,20 @@ def _init_git_repo(path: Path) -> None:
         "GIT_COMMITTER_NAME": "test",
         "GIT_COMMITTER_EMAIL": "test@example.com",
     }
-    subprocess.run(
-        ["git", "init", "-q", "-b", "main"], cwd=path, check=True, env=env
-    )
+    subprocess.run(["git", "init", "-q", "-b", "main"], cwd=path, check=True, env=env)
     subprocess.run(
         ["git", "config", "user.email", "test@example.com"],
         cwd=path,
         check=True,
     )
-    subprocess.run(
-        ["git", "config", "user.name", "test"], cwd=path, check=True
-    )
+    subprocess.run(["git", "config", "user.name", "test"], cwd=path, check=True)
 
 
 def test_git_log_returns_commits(workspace: Path) -> None:
     _init_git_repo(workspace)
     (workspace / "a.txt").write_text("hello\n", encoding="utf-8")
     subprocess.run(["git", "add", "a.txt"], cwd=workspace, check=True)
-    subprocess.run(
-        ["git", "commit", "-q", "-m", "first commit"], cwd=workspace, check=True
-    )
+    subprocess.run(["git", "commit", "-q", "-m", "first commit"], cwd=workspace, check=True)
     (workspace / "b.txt").write_text("world\n", encoding="utf-8")
     subprocess.run(["git", "add", "b.txt"], cwd=workspace, check=True)
     subprocess.run(
@@ -288,14 +279,10 @@ def test_git_log_path_filter(workspace: Path) -> None:
     _init_git_repo(workspace)
     (workspace / "a.txt").write_text("a\n", encoding="utf-8")
     subprocess.run(["git", "add", "a.txt"], cwd=workspace, check=True)
-    subprocess.run(
-        ["git", "commit", "-q", "-m", "touch a"], cwd=workspace, check=True
-    )
+    subprocess.run(["git", "commit", "-q", "-m", "touch a"], cwd=workspace, check=True)
     (workspace / "b.txt").write_text("b\n", encoding="utf-8")
     subprocess.run(["git", "add", "b.txt"], cwd=workspace, check=True)
-    subprocess.run(
-        ["git", "commit", "-q", "-m", "touch b"], cwd=workspace, check=True
-    )
+    subprocess.run(["git", "commit", "-q", "-m", "touch b"], cwd=workspace, check=True)
     result = git_log(path="a.txt")
     messages = [c["message"] for c in result["commits"]]
     assert "touch a" in messages
@@ -348,9 +335,7 @@ def test_retrieve_similar_cases_missing_signature(workspace: Path) -> None:
     assert "error_signature" in result["error"]
 
 
-def test_retrieve_similar_cases_kb_lookup(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_retrieve_similar_cases_kb_lookup(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """KB SQLiteKBStore fixture — add 후 retrieve_similar_cases 로 케이스 반환 검증."""
     import macro_logbot.tools.builtin as builtin_mod
 

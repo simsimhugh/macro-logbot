@@ -16,8 +16,14 @@ CATALOG_DIR = REPO_ROOT / "poc" / "error_catalog"
 REQUIRED_GROUND_TRUTH_FIELDS = {"root_cause", "location", "fix_hint", "expected_tool_calls"}
 REQUIRED_LOCATION_FIELDS = {"file", "function", "line"}
 REQUIRED_TOP_FIELDS = {
-    "id", "title", "category", "target_file", "target_function",
-    "injection_diff", "trigger", "ground_truth",
+    "id",
+    "title",
+    "category",
+    "target_file",
+    "target_function",
+    "injection_diff",
+    "trigger",
+    "ground_truth",
 }
 
 

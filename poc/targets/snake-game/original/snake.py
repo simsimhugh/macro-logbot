@@ -102,10 +102,7 @@ class SnakeGame:
         if self.head.y < 0 or self.head.y >= GRID_HEIGHT:
             return True
         # body 충돌.
-        for seg in self.body:
-            if seg.x == self.head.x and seg.y == self.head.y:
-                return True
-        return False
+        return any(seg.x == self.head.x and seg.y == self.head.y for seg in self.body)
 
     def detect_food(self) -> None:
         """head 가 food 위치에 도달하면 score++ 와 body 1 칸 확장."""

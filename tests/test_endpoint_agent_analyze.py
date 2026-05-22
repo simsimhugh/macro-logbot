@@ -664,7 +664,9 @@ def test_agent_analyze_temperature_seed_forwarded_to_run_agent(
     )
     captured_kwargs: dict[str, object] = {}
 
-    async def _mock_run_agent(messages: object, gateway: object, **kwargs: object) -> AgentRunResult:
+    async def _mock_run_agent(
+        messages: object, gateway: object, **kwargs: object
+    ) -> AgentRunResult:
         captured_kwargs.update(kwargs)
         return fake
 
@@ -691,7 +693,9 @@ def test_agent_analyze_temperature_seed_omitted_when_not_provided(
     )
     captured_kwargs: dict[str, object] = {}
 
-    async def _mock_run_agent(messages: object, gateway: object, **kwargs: object) -> AgentRunResult:
+    async def _mock_run_agent(
+        messages: object, gateway: object, **kwargs: object
+    ) -> AgentRunResult:
         captured_kwargs.update(kwargs)
         return fake
 

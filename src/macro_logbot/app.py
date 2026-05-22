@@ -6,7 +6,7 @@ Spec reference: docs/design/02-설계문서.md (v1.1) §5.1 External Interfaces
 import logging
 import os
 import threading
-from typing import Literal
+from typing import Any, Literal
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, FastAPI, Response
@@ -157,9 +157,7 @@ async def chat_completions(
     # body 자체는 mutate 하지 않고 다운스트림 logging/audit 의도 보존을 위해
     # local var 만 사용 (CR LOW finding 반영).
     if body.stream:
-        logger.warning(
-            "stream=True downgraded to non-stream (SSE not implemented — task-LG-003)"
-        )
+        logger.warning("stream=True downgraded to non-stream (SSE not implemented — task-LG-003)")
 
     # raw passthrough: 호출자가 tools 를 직접 명시했거나 agent=false 인 경우.
     if body.tools is not None or not agent:
@@ -182,9 +180,7 @@ async def chat_completions(
         exclude_none=True,
         exclude={"messages", "model", "stream", "tools"},
     )
-    result = await run_agent(
-        body.messages, gateway, model=body.model, **agent_kwargs
-    )
+    result = await run_agent(body.messages, gateway, model=body.model, **agent_kwargs)
     _set_fallback_headers(response, result.response)
     return result.response
 
@@ -240,14 +236,14 @@ _ANALYZE_SYSTEM_PROMPT = (
     "### root_cause\n"
     "- traceback 의 error class 를 명시하세요 (e.g., AttributeError, IndexError).\n"
     "- **코드 read 후 직접 확인한 사실** 만 root_cause 로 작성하세요. "
-    "추측 (예: \"X 가 None 일 수도 있다\") 은 금지입니다.\n"
-    "- 분석 불가 시 \"Unknown: <사유>\" 로 명시 (hallucinate 금지).\n"
-    "- 형식: \"<error class>: <원인 변수/함수/조건>\". 한 문장.\n\n"
+    '추측 (예: "X 가 None 일 수도 있다") 은 금지입니다.\n'
+    '- 분석 불가 시 "Unknown: <사유>" 로 명시 (hallucinate 금지).\n'
+    '- 형식: "<error class>: <원인 변수/함수/조건>". 한 문장.\n\n'
     "### fix_hint\n"
     "- **반드시 구체적 코드 변경** 형식으로 작성하세요:\n"
-    "  - \"X 라인의 `A` 를 `B` 로 변경\" 또는\n"
-    "  - \"X 라인 다음에 `<code>` 추가\"\n"
-    "- \"확인\", \"검토\", \"guard 추가\" 같은 모호 표현은 금지입니다.\n"
+    '  - "X 라인의 `A` 를 `B` 로 변경" 또는\n'
+    '  - "X 라인 다음에 `<code>` 추가"\n'
+    '- "확인", "검토", "guard 추가" 같은 모호 표현은 금지입니다.\n'
     "- 정확한 line 번호 또는 함수명을 명시하세요.\n\n"
     "## 입력 노이즈 처리 (root_cause 와 무관)\n"
     "stderr 본문에 다음 noise 패턴이 있으면 무시하세요. "
@@ -259,7 +255,7 @@ _ANALYZE_SYSTEM_PROMPT = (
     "- DeprecationWarning / FutureWarning — Python 노이즈\n"
     "- urllib3 InsecureRequestWarning — 분석 무관\n\n"
     "이 noise 는 분석하지 마세요. "
-    "traceback 의 user code frame (마지막 `File \"...snake.py\"...`) 만 분석 대상입니다."
+    'traceback 의 user code frame (마지막 `File "...snake.py"...`) 만 분석 대상입니다.'
 )
 
 
@@ -317,13 +313,18 @@ async def agent_analyze(
     # 사용한 max_iters 가 어긋날 수 있는 위험 제거).
     max_iters = MAX_ITERS_DEFAULT
     # temperature/seed 는 None 이면 forward 제외 (LiteLLM 기본값 유지).
-    _gen_kwargs: dict[str, object] = {}
+    # run_agent 의 **generation_kwargs: object 와 mypy strict 호환 — Any 로 narrow.
+    _gen_kwargs: dict[str, Any] = {}
     if body.temperature is not None:
         _gen_kwargs["temperature"] = body.temperature
     if body.seed is not None:
         _gen_kwargs["seed"] = body.seed
     result = await run_agent(
-        messages, gateway, max_iters=max_iters, model=body.model, session_id=session.id,
+        messages,
+        gateway,
+        max_iters=max_iters,
+        model=body.model,
+        session_id=session.id,
         **_gen_kwargs,
     )
 
@@ -339,8 +340,7 @@ async def agent_analyze(
     # final answer 도달 여부 — 마지막 assistant message 가 tool_calls 없으면 정상 종료.
     # max_iters 도달 시 마지막 assistant 가 여전히 tool_calls 만 있을 수 있음.
     last_assistant_has_tool_calls = bool(
-        result.response.choices
-        and result.response.choices[0].message.tool_calls
+        result.response.choices and result.response.choices[0].message.tool_calls
     )
     terminated_reason: Literal["final", "max_iters"] = (
         "max_iters"

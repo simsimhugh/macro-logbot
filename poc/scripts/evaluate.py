@@ -224,7 +224,9 @@ def evaluate_case(
             "trigger_exit_code": exit_code,
             "trigger_stderr": stderr_text,
         }
-    backend_response = call_backend(api_url, api_key, stderr_text, model, timeout, session_id=session_id)
+    backend_response = call_backend(
+        api_url, api_key, stderr_text, model, timeout, session_id=session_id
+    )
     analysis_text = ""
     if "analysis" in backend_response:
         analysis_text = str(backend_response.get("analysis") or "")
@@ -333,8 +335,7 @@ def write_comparison(date_dir: Path, results: list[dict[str, Any]]) -> Path:
             lines.append(f"| {cid} | {s1a} | {s1b} | {s2a} | {s2b} | {total} |")
         else:
             lines.append(
-                f"| {cid} | {s['file_match']} | {s['line_match']}"
-                f" | {s['keyword_hits']} | {s1a} |"
+                f"| {cid} | {s['file_match']} | {s['line_match']} | {s['keyword_hits']} | {s1a} |"
             )
     lines.append("")
     if not has_judge:
@@ -444,9 +445,7 @@ def main(argv: list[str] | None = None) -> int:
             )
             return 2
 
-    date_dir = (
-        Path(args.reports_dir) / _dt.datetime.now(_dt.UTC).strftime("%Y-%m-%d")
-    )
+    date_dir = Path(args.reports_dir) / _dt.datetime.now(_dt.UTC).strftime("%Y-%m-%d")
     model = args.model or DEFAULT_MODEL
     results: list[dict[str, Any]] = []
     continued_session_id: str | None = None

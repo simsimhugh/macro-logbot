@@ -189,9 +189,7 @@ def test_chat_completions_agent_loop_uses_run_agent(
         iterations=1,
         messages=[],
     )
-    with patch(
-        "macro_logbot.app.run_agent", new=AsyncMock(return_value=fake_result)
-    ) as mock_run:
+    with patch("macro_logbot.app.run_agent", new=AsyncMock(return_value=fake_result)) as mock_run:
         response = client_with_mock_gateway.post(
             "/v1/chat/completions",
             json={
