@@ -36,9 +36,18 @@ main/master 아닌 branch 의 push 는 raw `git push` 사용 가능 (settings.de
 git push -u origin <BRANCH>
 ```
 
-### 4. push 후 자동 review trigger
+### 4. push 후 — CI all-green 까지 wait
 
-push 성공 시 본 skill 가 reviewer agent spawn (Agent tool):
+사용자 정책 (2026-05-22) — reviewer cycle 시작 = GitHub Actions 의 CI workflow 모두 pass 후. CI fail 시 본인 fix → 재 push → CI re-run → all-green 후 reviewer spawn.
+
+```bash
+# CI status poll (loop until all conclusion=success). 본 logic 의 code-level
+# enforce 는 .claude/skills/safe-push/check-ci.sh (task-AI-DLC-001-y, PR 2).
+gh pr checks <PR-NUM>
+# 모든 check conclusion=success 까지 wait. fail 1+ 시 본인 fix.
+```
+
+### 5. CI all-green 후 — 4 reviewer parallel spawn
 
 ```
 4 reviewer parallel spawn:
@@ -48,11 +57,22 @@ push 성공 시 본 skill 가 reviewer agent spawn (Agent tool):
 - oh-my-claudecode:test-engineer
 ```
 
-각 reviewer 의 prompt template = `.claude/skills/safe-push-review-template.md` (별 file 또는 본 skill 의 inline). 대상 commit = `@{u}..HEAD` 의 range.
+각 reviewer 의 prompt template = inline (본 skill 안) 또는 별 file (`.claude/skills/safe-push-review-template.md` — follow-up). 대상 commit = `@{u}..HEAD` 의 range.
 
-### 5. reviewer 완료 후
+reviewer 의 출력 = PR comment + APPROVE review (각 bot PAT).
 
-4 reviewer 의 보고서 (`/tmp/pr<PR-NUM>-<reviewer>.md`) 작성 → PR comment 게시 (bot PAT) → verifier spawn → verifier PASS 시 머지 진행 (`/safe-merge <PR-NUM>`).
+### 6. reviewer 완료 후 — Mergify 가 자동 머지 (PR 2 후)
+
+memory `project_ai-dlc-design` §3 결정 (2026-05-21):
+- **verifier agent 제거** — Mergify rule + GitHub branch protection 가 server-side 의무.
+- **safe-merge skill deprecated** — Mergify 가 자동 squash merge takeover.
+
+PR 2 (Mergify rule 활성) 후:
+- 4 reviewer APPROVE + CI all-green 만족 시 Mergify 가 자동 squash merge.
+- 본인 (Claude main session) 가 머지 trigger 안 함.
+
+PR 2 전 (현재 시점):
+- 본인 + 사용자 admin bypass (사용자 web UI 머지). raw `gh pr merge` = client-side hook + server-side branch protection 으로 차단.
 
 ## reviewer prompt format (강제)
 
