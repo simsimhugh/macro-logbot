@@ -29,6 +29,24 @@
 - **size estimate**: ~300 lines (template + script + agent prompt + settings + hook)
 - **priority**: HIGH — PR 2 (Mergify) 시작 전 처리 의무.
 
+### task-DOCS-COMMENT-NOT-POC-001 — test.yml 의 `-m "not poc"` comment phrasing 명확화
+- **출처**: 사용자 명시 (PR 1 cycle, 2026-05-22) — 옛 phrasing 의 의미 가 misleading (PoC test 를 다루는 line 인지 실행 안 함 의 line 인지).
+- **scope**: `.github/workflows/test.yml` 의 pytest step comment 정정. 권고 form:
+  ```
+  # `-m "not poc"` = poc marker **없는** test 만 실행 (PoC test 는 실행 안 함).
+  # PoC infra (Docker + LLM endpoint + catalog yaml) 가 CI runner 에 부재 라 deselect.
+  ```
+- **priority**: LOW (functional 영향 없음, docs)
+
+### task-POC-006 — PoC test 의 function-level marker + infra-free 분리
+- **출처**: PR #64 의 test-engineer LOW #3 (옛 e5f5cc6 cycle), 사용자 결정 (2026-05-22)
+- **scope**: 현재 file-level `pytestmark = pytest.mark.poc` 로 모든 PoC test 일괄 deselect → infra-free test (mock + pure logic) 도 같이. CI coverage 누락.
+  - **strategy A**: function-level marker — infra-free test 는 marker 안 붙임, infra-dep 만 `@pytest.mark.poc`
+  - **strategy B**: file 분리 — `test_evaluate_unit.py` (infra-free) vs `test_poc_evaluate_measurement.py` (infra-dep)
+- **목적**: catalog drift catch (task-POC-005) 와 mock + pure-logic test 의 CI 자동 검증 회복
+- **명시 skip**: mock LLM container + backend container 의 end-to-end integration test = 오버엔지니어링 (project 의 actual quality 측정 의 scope 와 mismatch, maintenance cost ↑). CI 는 unit test 만 + local + manual = PoC measurement.
+- **priority**: MEDIUM (CI coverage 회복 의 가치)
+
 ### task-TEST-ENFORCE-GATE-001 — test_enforce_gate.sh hang 정정
 - **출처**: PR 1 cycle (b73a624 후 cleanup), 2026-05-22 — test 가 timeout 30s 안 complete. cleanup 후 hang 또는 옛부터 있던 issue 의 확인 필요.
 - **scope**: test_enforce_gate.sh 의 group 1-6 의 hook 호출 의 stdin 처리 verify (hook 의 `cat 2>/dev/null` 의 EOF wait 가 hang 가능성).
