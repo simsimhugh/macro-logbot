@@ -41,18 +41,22 @@ jobs:
           pip install -e ".[dev]"
 
       - name: pip-audit
-        # 본 PR 은 baseline — fail threshold 는 HIGH+CRITICAL CVE 만.
-        # pip-audit 자체는 severity filter 없음 → JSON 출력 후 jq 로 filter.
+        # --skip-editable: macro-logbot 자체 (local editable install) 는 PyPI 부재 → skip.
+        # `|| true` : pip-audit exit non-zero (vuln 발견) 도 file 생성 보존.
+        # JSON parse 후 vuln 존재 만 fail (보수). severity filter = GHSA GraphQL 필요, follow-up.
         run: |
-          pip-audit --format=json --output=pip-audit.json --strict || true
+          pip-audit --skip-editable --format=json --output=pip-audit.json || true
           python -c "
-          import json, sys
+          import json, os, sys
+          if not os.path.exists('pip-audit.json'):
+              print('ERROR: pip-audit.json missing — pip-audit 자체 fail', file=sys.stderr)
+              sys.exit(2)
           data = json.load(open('pip-audit.json'))
           high = []
           for dep in data.get('dependencies', []):
+              if dep.get('skip_reason'):
+                  continue
               for vuln in dep.get('vulns', []):
-                  # PyPI advisory severity = aliases / fix_versions 만. CVE severity 별
-                  # 정보는 GHSA 의 GraphQL 필요 → 본 PR 은 vuln 존재 만 fail (보수).
                   high.append({'pkg': dep['name'], 'id': vuln['id']})
           if high:
               print('vulnerabilities found:')

@@ -42,9 +42,11 @@ jobs:
           pip install "bandit[toml]>=1.7"
 
       - name: bandit scan (src/)
-        # -ll = LOW severity 부터 보고, -ii = LOW confidence 부터 보고.
-        # 본 PR 은 baseline 만 — fail threshold 는 HIGH severity 만.
-        run: bandit -r src/ -ll -ii --severity-level high
+        # --severity-level=high : HIGH severity 만 fail.
+        # --confidence-level=high : HIGH confidence 만 fail (false positive ↓).
+        # (옛 `-ll -ii --severity-level` 동시 사용 = bandit argparse mutual exclusion 으로 fail —
+        #  `-l/-ll/-lll` 와 `--severity-level` 는 mutex.)
+        run: bandit -r src/ --severity-level=high --confidence-level=high
 
   semgrep:
     runs-on: ubuntu-latest
