@@ -15,12 +15,11 @@ dependencies = [
     "pydantic>=2.7",
     # Python 3.14 호환 한계로 1.83.7 이 가용 최신 (1.83.8+ 는 Requires-Python <3.14).
     # 1.83.7 은 malware (1.82.9 fix), OIDC bypass (1.83.0), proxy SQLi/MCP RCE (1.83.7) 모두 패치됨.
-    # guardrails sandbox escape (1.83.10 fix) 는 본 PoC 가 guardrails 미사용이라 무영향.
-    # LiteLLM 3.14 지원 복구 시 1.83.10+ 으로 상향 — FOLLOWUP task-SEC-001.
+    # 본 PR 시점 fix 불가 vuln (deps.yml 의 IGNORE_VULNS 명시):
+    #   CVE-2026-40217 (litellm 1.83.10 fix) — 1.83.10+ Python 3.14 미지원.
+    #   CVE-2026-28684 (python-dotenv 1.2.2 fix) — litellm 1.83.7 transitive 가 1.2 미만 요구.
+    # 둘 다 LiteLLM 3.14 지원 복구 후 동시 fix → FOLLOWUP task-SEC-001 / task-SEC-005.
     "litellm>=1.83.7,<2.0",
-    # python-dotenv 는 litellm 의 transitive — 직접 pin 시 litellm 1.83.7 과 dependency
-    # resolution 충돌 (litellm 이 더 좁은 범위 요구). CVE-2026-28684 (1.2.2 fix) 대응은
-    # FOLLOWUP task-SEC-005 (litellm pin 상향과 함께 진행).
     # LangGraph — Agent Core state graph (spec §5.2 / task-MVP-001). 1.2.0 시점
     # cp314 휠 가용 확인됨. py.typed 패키지라 mypy strict clean.
     "langgraph>=0.3",

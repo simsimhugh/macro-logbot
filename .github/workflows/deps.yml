@@ -43,27 +43,50 @@ jobs:
       - name: pip-audit
         # --skip-editable: macro-logbot 자체 (local editable install) 는 PyPI 부재 → skip.
         # `|| true` : pip-audit exit non-zero (vuln 발견) 도 file 생성 보존.
-        # JSON parse 후 vuln 존재 만 fail (보수). severity filter = GHSA GraphQL 필요, follow-up.
+        # IGNORE_VULNS: 본 PR 시점 fix 불가 vuln 명시 + FOLLOWUP task 명시.
         run: |
           pip-audit --skip-editable --format=json --output=pip-audit.json || true
           python -c "
           import json, os, sys
+
+          # 본 PR 시점 fix 불가 vuln allowlist — 명시 의무 (정직 표시).
+          # 두 vuln 모두 LiteLLM 3.14 지원 복구 후 동시 fix 가능 (litellm pin 상향).
+          IGNORE_VULNS = {
+              # CVE-2026-40217 (litellm 1.83.10 fix) — 1.83.10+ Python 3.14 미지원
+              # (Requires-Python <3.14). FOLLOWUP task-SEC-001.
+              'CVE-2026-40217',
+              # CVE-2026-28684 (python-dotenv 1.2.2 fix) — litellm 1.83.7 의 transitive
+              # constraint 가 python-dotenv <1.2 요구 → 직접 pin 시 ResolutionImpossible.
+              # FOLLOWUP task-SEC-005 (litellm pin 상향 과 함께 진행).
+              'CVE-2026-28684',
+          }
+
           if not os.path.exists('pip-audit.json'):
               print('ERROR: pip-audit.json missing — pip-audit 자체 fail', file=sys.stderr)
               sys.exit(2)
           data = json.load(open('pip-audit.json'))
           high = []
+          ignored = []
           for dep in data.get('dependencies', []):
               if dep.get('skip_reason'):
                   continue
               for vuln in dep.get('vulns', []):
-                  high.append({'pkg': dep['name'], 'id': vuln['id']})
+                  vid = vuln['id']
+                  aliases = set(vuln.get('aliases', []) or [])
+                  if vid in IGNORE_VULNS or aliases & IGNORE_VULNS:
+                      ignored.append({'pkg': dep['name'], 'id': vid})
+                      continue
+                  high.append({'pkg': dep['name'], 'id': vid})
+          if ignored:
+              print('ignored vulnerabilities (FOLLOWUP):')
+              for h in ignored:
+                  print(f'  - {h[\"pkg\"]}: {h[\"id\"]}')
           if high:
-              print('vulnerabilities found:')
+              print('NEW vulnerabilities found:')
               for h in high:
                   print(f'  - {h[\"pkg\"]}: {h[\"id\"]}')
               sys.exit(1)
-          print('no vulnerabilities')
+          print('no new vulnerabilities')
           "
 
       - name: Upload pip-audit json

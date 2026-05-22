@@ -36,16 +36,18 @@ main/master 아닌 branch 의 push 는 raw `git push` 사용 가능 (settings.de
 git push -u origin <BRANCH>
 ```
 
-### 4. push 후 — CI all-green 까지 wait
+### 4. push 후 — CI all-green 까지 wait (code-level enforce)
 
 사용자 정책 (2026-05-22) — reviewer cycle 시작 = GitHub Actions 의 CI workflow 모두 pass 후. CI fail 시 본인 fix → 재 push → CI re-run → all-green 후 reviewer spawn.
 
 ```bash
-# CI status poll (loop until all conclusion=success). 본 logic 의 code-level
-# enforce 는 .claude/skills/safe-push/check-ci.sh (task-AI-DLC-001-y, PR 2).
-gh pr checks <PR-NUM>
-# 모든 check conclusion=success 까지 wait. fail 1+ 시 본인 fix.
+.claude/skills/safe-push/check-ci.sh <PR-NUM>
 ```
+
+본 script 가 logic 강제:
+- exit 0 — all CI conclusion=success → step 5 (reviewer spawn) 진행
+- exit 1 — 1+ check fail → 본인 fix + 재 push + step 4 로 복귀 cycle
+- exit 2 — timeout (default 30분) 또는 argument error
 
 ### 5. CI all-green 후 — 4 reviewer parallel spawn
 
