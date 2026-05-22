@@ -18,6 +18,20 @@
 
 ## Pending Tasks
 
+### task-DOCS-URL-001 — repo URL reference 갱신 (organization 전환 후)
+- **출처**: PR 1-pre (task-AI-DLC-000) organization 전환 (2026-05-22 simsimhugh → simsim-lab)
+- **scope**: docs / README / CONTRIBUTING 의 `simsimhugh/macro-logbot` reference 를 `simsim-lab/macro-logbot` 으로 갱신. GitHub redirect 동작 OK 라 functional 영향 없으나 정확성 ↑.
+- **영향 file** (greppable):
+  - `README.md`
+  - `CONTRIBUTING.md`
+  - `docs/process/03-개발-프로세스.md`
+  - `docs/process/04-PoC-운영가이드.md`
+  - `docs/operations/DEPLOYMENT.md`
+  - `docs/design/02-설계문서.md`
+- **suggested branch**: `docs/repo-url-org-transition`
+- **size estimate**: ~10~20 lines (각 file 1~3 reference)
+- **priority**: LOW (functional 영향 없음, 시간 시 정정)
+
 ### task-POC-005 — error_catalog drift 정정 (test_poc_inject + test_poc_trigger fail)
 - **출처**: PR 1-pre (task-AI-DLC-000) baseline 점검 — main HEAD `a41ba9b` 에서 `test_poc_inject::test_all_catalog_cases_apply_cleanly` + `test_poc_trigger::test_all_injected_cases_raise` runtime fail.
 - **scope**: `poc/error_catalog/*.yaml` 의 diff 와 `poc/targets/snake-game/original/snake.py` 의 line 정합 점검. snake.py 변경 (line shift) 후 catalog 의 unified diff context 가 stale 가능. catalog drift 정정 또는 catalog 의 line-anchored → context-anchored 변경.
