@@ -18,6 +18,30 @@
 
 ## Pending Tasks
 
+### task-PR62-FOLLOWUP-bundle — PR #62 v3 reviewer follow-up 묶음
+- **출처**: PR #62 v3 (4 reviewer + verifier — 2026-05-21)
+- **scope (sub)**:
+  - **architect WARN-1**: branch name false positive (e.g. `feature/main-feature` 의 `main` 단어 매칭) — regex 정밀화
+  - **test-eng NEW-BUG-1**: `gh api repos/.../merges` GET 요청 false positive (HTTP method 검사 추가)
+  - **test-eng NEW-BUG-2**: `git push origin main-backup` 류 branch 명 false positive
+  - **security MED #5**: check.sh 의 `mergeable=UNKNOWN` fail-open → retry-with-backoff
+  - **security LOW #6**: `.claude/settings.local.json` override path 의 deny rule 보강 (`sed -i .claude/*`, `tee .claude/*` 등)
+  - **security LOW #7**: setup-enforcement.sh 의 `chmod || true` — 정직 per-file 검증
+  - **security LOW #8**: check.sh 의 reviewer name positional ambiguity — author.login filter 추가
+  - **code-reviewer NEW-MED-1**: stale APPROVE timestamp — fix commit 후 reviewer 재approve 없는 경우 detection
+  - **code-reviewer NEW-MED-2**: setup-enforcement.sh 의 admin pre-flight check
+  - **FN-4**: `.claude/settings.json` 의 `_policy_ref §<TBD>` 미수정 — `§5.1` 로 교체
+- **suggested branch**: `chore/pr62-followup-bundle`
+- **size estimate**: ~200 lines
+- **priority**: MEDIUM (운영 마찰 + 보안 강화)
+
+### task-DOCS-PROCESS-03-REWRITE — docs/process/03 전면 재작성 (enforcement 중심)
+- **출처**: PR #62 사용자 결정 (2026-05-21) — 옛 §4/§5 의 manual sequence 가 §5.1 enforcement 와 mixed, single source-of-truth 정합 ↑
+- **scope**: docs/process/03 의 §3 agent 정의 + §4 sequence + §5 자동 머지 + §5.1 enforcement + §6/§7/§8/§9/§10 전면 재구성 — enforcement 중심 + 옛 outdated cleanup
+- **suggested branch**: `docs/process-03-rewrite`
+- **size estimate**: ~250 lines (516 → 새 ~250)
+- **priority**: MEDIUM
+
 ### task-SEC-022 — reasoning chain-of-thought persistence policy (사내 운영 전 필수)
 - **출처**: PR #60 security-reviewer M1 (issuecomment-4504971949)
 - **scope**: 본 PR #60 의 `Message.reasoning` field 도입이 만든 새 info-disclosure path. `agent/core.py:339` 의 assistant_msg append → `session/store.py:95` 의 `model_dump(exclude_none=True)` 가 reasoning 본문을 SQLite messages_json 에 자동 영속화. gpt-oss/o1 류 chain-of-thought 본문에 user query 의 sensitive 내용 (사내 MACRO 에러, stack trace, 내부 변수명) paraphrase. KB archive (`_kb_auto_archive`) / 로그 노출 path 도 전수 검토. Option: `_serialize_messages` 에 `exclude={"reasoning"}` 명시 또는 `MACRO_LOGBOT_PERSIST_REASONING` env opt-in gating.

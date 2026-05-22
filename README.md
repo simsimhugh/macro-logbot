@@ -52,6 +52,33 @@
 - Source: https://github.com/simsimhugh/macro-logbot
 - License: TBD (Stage 2에서 결정)
 
+## Process enforcement layer (다른 프로젝트 적용)
+
+본 repo 의 `.claude/` + `.githooks/` + `.github/` 의 enforcement file 을 다른 프로젝트에 copy 하면 동일 review/merge 강제 적용 (`docs/process/03-개발-프로세스.md §5.1`).
+
+```bash
+# 다른 프로젝트 root 에서
+cp -r /path/to/macro-logbot/.claude/{settings.json,hooks,skills} ./.claude/
+cp -r /path/to/macro-logbot/.githooks ./.githooks/
+cp -r /path/to/macro-logbot/.github/{CODEOWNERS,pull_request_template.md} ./.github/
+
+git config core.hooksPath .githooks   # client-side hook 활성
+
+# .gitignore 의 .claude/ 정책 변경 필요:
+#   기존: .claude/                    (전체 ignore)
+#   변경: .claude/worktrees/          (worktree 만 ignore)
+#         .claude/settings.local.json (user-local override 만)
+```
+
+**GitHub side 1회 setup** (manual UI 또는 Probot Settings app):
+
+- branch protection rule on `main`:
+  - Required PR review (1+, CODEOWNERS 추천)
+  - Force-push 금지
+  - Status check (있으면) required
+
+**Maintainer 변경**: `.github/CODEOWNERS` 의 `@simsimhugh` 부분을 그 프로젝트 maintainer 의 GitHub username 으로 교체.
+
 ## Stage 3 진입
 
 골격(skeleton) PR 머지 완료 — FastAPI app, 빈 패키지 구조, 기본 테스트 준비됨.

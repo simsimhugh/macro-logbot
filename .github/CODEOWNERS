@@ -1,0 +1,24 @@
+# task-PROCESS-002 (2026-05-21) — review 의무자 지정.
+#
+# 본 file 의 path pattern 에 매칭되는 PR 은 자동 review request.
+# GitHub branch protection rule 의 "Require review from Code Owners" 설정 시 enforce.
+#
+# 다른 프로젝트 적용 시 본 file 의 user 부분을 그 프로젝트의 maintainer 로 변경.
+
+# Default — repo 전체
+* @simsimhugh
+
+# 정책 본체 — process docs 변경 시 추가 검토
+docs/process/        @simsimhugh
+docs/design/         @simsimhugh
+
+# enforcement layer 자체 — 본 layer 의 self-modify 변경 추적
+.claude/settings.json    @simsimhugh
+.claude/hooks/           @simsimhugh
+.claude/skills/          @simsimhugh
+.githooks/               @simsimhugh
+.github/CODEOWNERS       @simsimhugh
+
+# Security-related
+src/macro_logbot/gateway/    @simsimhugh
+src/macro_logbot/tools/      @simsimhugh
