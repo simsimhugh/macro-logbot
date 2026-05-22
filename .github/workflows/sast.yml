@@ -1,0 +1,86 @@
+name: sast
+
+# task-AI-DLC-001 — SAST (Static Application Security Testing) server-side (memory §1).
+# bandit + semgrep + CodeQL. public repo → CodeQL 무료.
+# AI reviewer (security-reviewer) 가 알려진 CVE pattern / SAST 영역 검토 금지 (memory §3) —
+# 본 영역 mechanical, reviewer 는 business-logic flaw / novel pattern 만.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  schedule:
+    # 매주 월요일 03:00 UTC — 새 CVE rule 적용 catch.
+    - cron: "0 3 * * 1"
+
+permissions:
+  contents: read
+  security-events: write
+  actions: read
+
+concurrency:
+  group: sast-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  bandit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Install bandit
+        run: |
+          python -m pip install --upgrade pip
+          pip install "bandit[toml]>=1.7"
+
+      - name: bandit scan (src/)
+        # --severity-level=high : HIGH severity 만 fail.
+        # --confidence-level=high : HIGH confidence 만 fail (false positive ↓).
+        # (옛 `-ll -ii --severity-level` 동시 사용 = bandit argparse mutual exclusion 으로 fail —
+        #  `-l/-ll/-lll` 와 `--severity-level` 는 mutex.)
+        run: bandit -r src/ --severity-level=high --confidence-level=high
+
+  semgrep:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    container:
+      image: semgrep/semgrep:latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: semgrep ci
+        # `p/python` + `p/security-audit` + `p/owasp-top-ten` ruleset.
+        # `semgrep ci` 는 PR 일 때 diff-aware (변경 file 만 scan).
+        run: semgrep ci --config=p/python --config=p/security-audit --config=p/owasp-top-ten
+        env:
+          # SEMGREP_APP_TOKEN 미설정 OK — local rule + public ruleset 만 사용.
+          SEMGREP_RULES: "p/python p/security-audit p/owasp-top-ten"
+
+  codeql:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: python
+          # default queries + security-extended.
+          queries: security-extended,security-and-quality
+
+      - name: Autobuild
+        uses: github/codeql-action/autobuild@v3
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: "/language:python"

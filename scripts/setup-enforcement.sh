@@ -87,9 +87,8 @@ echo "--- 3. .claude/ enforcement file 검증 ---"
 required_files=(
     ".claude/settings.json"
     ".claude/hooks/pre-bash-gate.sh"
-    ".claude/skills/safe-merge.md"
-    ".claude/skills/safe-merge/check.sh"
     ".claude/skills/safe-push.md"
+    ".claude/skills/safe-push/check-ci.sh"
     ".githooks/pre-push"
     ".github/CODEOWNERS"
     ".github/pull_request_template.md"
@@ -108,12 +107,12 @@ if [ "$missing" -gt 0 ]; then
     echo "ERROR: $missing enforcement file 누락. 다른 프로젝트 copy 절차 재확인" >&2
     exit 1
 fi
-echo "    all 8 enforcement files: OK"
+echo "    all 7 enforcement files: OK"
 echo ""
 
 # --- 4. hook script 의 execute permission ---
 echo "--- 4. hook script execute permission ---"
-chmod 755 .claude/hooks/pre-bash-gate.sh .claude/skills/safe-merge/check.sh .githooks/pre-push 2>/dev/null || true
+chmod 755 .claude/hooks/pre-bash-gate.sh .claude/skills/safe-push/check-ci.sh .githooks/pre-push 2>/dev/null || true
 echo "    chmod 755: OK"
 echo ""
 

@@ -26,7 +26,7 @@
 - [ ] verifier PR comment 게시 (PASS)
 - [ ] REQUEST CHANGES 후 fix 시 같은 reviewer 의 재approve
 
-머지는 `/safe-merge <PR-NUM>` skill 으로만 (raw `gh pr merge` 차단).
+머지 = Mergify auto-merge (PR 2 후, conditions 만족 시) 또는 사용자 admin bypass (PR 2 전). raw `gh pr merge` 는 차단.
 
 ## Follow-up (별 PR)
 

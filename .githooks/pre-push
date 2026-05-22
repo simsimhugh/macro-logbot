@@ -25,7 +25,7 @@ while read -r _local_ref _local_sha remote_ref _remote_sha; do
 local_ref:  $_local_ref
 remote_ref: $remote_ref
 
-본 branch 는 PR 경로로만 머지. /safe-merge skill 사용.
+본 branch 는 PR 경로로만 머지. Mergify auto-merge (PR 2 후, conditions 만족 시) 또는 사용자 admin bypass.
 
 회피 (긴급 시만): git push --no-verify (settings.deny 가 또 차단). 정책 본체:
   docs/process/03-개발-프로세스.md §<task-PROCESS-002>

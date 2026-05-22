@@ -1,0 +1,39 @@
+name: types
+
+# task-AI-DLC-001 — mechanical type check server-side (memory §1).
+# pyproject.toml [tool.mypy] strict, files=src/, exclude tests/+poc/.
+# AI reviewer 가 본 영역 검토 금지 (memory §3).
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: types-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  types:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Install package + dev deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: mypy strict (src/)
+        run: mypy

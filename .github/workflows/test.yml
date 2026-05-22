@@ -1,0 +1,66 @@
+name: test
+
+# task-AI-DLC-001 — mechanical test 실행 server-side (memory §1).
+# pytest + coverage. AI reviewer (test-engineer) 가 test 실행 / coverage % 검토
+# 금지 (memory §3) — 본 영역 mechanical, reviewer 는 strategy / edge case 만.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: test-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Install package + dev deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: pytest + coverage
+        # `-m "not poc"` — PoC infra (Docker + /tmp/poc-cases + catalog yaml) 의존 test
+        # CI runner 에서 reproduce 불가 → deselect. local + manual measurement 만 실행.
+        # PoC marker = pyproject.toml [tool.pytest.ini_options].markers + test_poc_*.py
+        # 의 pytestmark = pytest.mark.poc (PR 1-pre / task-AI-DLC-000 에서 도입).
+        run: |
+          pytest -m "not poc" \
+            --cov=src/macro_logbot \
+            --cov-report=term-missing \
+            --cov-report=xml \
+            --junitxml=pytest-junit.xml
+
+      - name: Upload coverage artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-xml
+          path: coverage.xml
+          if-no-files-found: ignore
+          retention-days: 14
+
+      - name: Upload junit artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pytest-junit
+          path: pytest-junit.xml
+          if-no-files-found: ignore
+          retention-days: 14
