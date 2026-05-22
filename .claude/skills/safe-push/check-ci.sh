@@ -5,8 +5,8 @@
 # 모두 pass 후. CI fail 시 reviewer cycle 진행 금지 — 본인 fix + 재 push + 재 wait.
 #
 # 본 script 가 safe-push skill 의 markdown 의 의지 layer 를 code-level 강제.
-# (.claude/skills/safe-merge/check.sh 의 deprecated 패턴과 동일 form — single
-# logic file 이 markdown spec 강제. 본 case 에서는 reviewer spawn timing 강제.)
+# (단일 logic file 이 markdown spec 의 의무 의 code-level enforce — 본 case
+# 에서는 CI all-green wait + reviewer spawn timing 강제.)
 #
 # Usage:
 #   check-ci.sh <PR-NUM> [TIMEOUT_SEC]

@@ -14,7 +14,7 @@ branch push 의 entry skill. **main/master 직접 push 는 차단** (`.claude/se
 
 현재 branch 또는 명시 BRANCH 의 이름이 `main` / `master` 이면:
 ```
-ERROR: main/master 직접 push 금지. PR 경로 사용 — gh pr create + /safe-merge.
+ERROR: main/master 직접 push 금지. PR 경로 사용 — gh pr create + Mergify auto-merge (PR 2 후) 또는 사용자 admin bypass (PR 2 전).
 ```
 
 ### 2. local commit 검증
