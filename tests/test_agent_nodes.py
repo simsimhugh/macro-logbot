@@ -33,6 +33,7 @@ from macro_logbot.gateway import (  # noqa: E402
 # helpers
 # ---------------------------------------------------------------------------
 
+
 def _resp(
     content: str | None = None,
     tool_calls: list[ToolCall] | None = None,
@@ -46,9 +47,7 @@ def _resp(
         choices=[
             Choice(
                 index=0,
-                message=Message(
-                    role="assistant", content=content, tool_calls=tool_calls
-                ),
+                message=Message(role="assistant", content=content, tool_calls=tool_calls),
                 finish_reason=finish_reason,
             )
         ],
@@ -82,6 +81,7 @@ def _base_state(messages: list[Message]) -> AgentState:
 # ---------------------------------------------------------------------------
 # intake_node
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_intake_node_adds_system_context() -> None:
@@ -169,7 +169,8 @@ async def test_intake_node_guard_works_when_intake_not_first() -> None:
     result = await _intake_node(state)
 
     intake_msgs = [
-        m for m in result["messages"]
+        m
+        for m in result["messages"]
         if m.role == "system" and m.content and m.content.startswith("[INTAKE]")
     ]
     assert len(intake_msgs) == 1
@@ -179,14 +180,17 @@ async def test_intake_node_guard_works_when_intake_not_first() -> None:
 # crystallize_report_node
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_crystallize_report_extracts_location_from_text() -> None:
     """*.py:N 패턴이 있으면 Location 으로 추출된다."""
     content = "원인: src/macro_logbot/agent/core.py:42 에서 NPE 발생"
-    state = _base_state([
-        Message(role="user", content="log"),
-        Message(role="assistant", content=content),
-    ])
+    state = _base_state(
+        [
+            Message(role="user", content="log"),
+            Message(role="assistant", content=content),
+        ]
+    )
     result = await _crystallize_report_node(state)
     report = result["report"]
     assert isinstance(report, Report)
@@ -200,10 +204,12 @@ async def test_crystallize_report_extracts_location_from_text() -> None:
 async def test_crystallize_report_no_location_when_no_py_path() -> None:
     """파일 경로가 없으면 location=None."""
     content = "원인: 단순 로직 오류"
-    state = _base_state([
-        Message(role="user", content="log"),
-        Message(role="assistant", content=content),
-    ])
+    state = _base_state(
+        [
+            Message(role="user", content="log"),
+            Message(role="assistant", content=content),
+        ]
+    )
     result = await _crystallize_report_node(state)
     report = result["report"]
     assert isinstance(report, Report)
@@ -217,10 +223,12 @@ async def test_crystallize_report_line_zero_returns_none() -> None:
     이전엔 graph 가 ValidationError 로 crash 했음 (PR #23 code-r WARN-1 fix).
     """
     content = "에러 위치 foo.py:0 — 0번 줄 표기 (line 1-indexed 위반)"
-    state = _base_state([
-        Message(role="user", content="log"),
-        Message(role="assistant", content=content),
-    ])
+    state = _base_state(
+        [
+            Message(role="user", content="log"),
+            Message(role="assistant", content=content),
+        ]
+    )
     result = await _crystallize_report_node(state)
     report = result["report"]
     assert isinstance(report, Report)
@@ -231,9 +239,11 @@ async def test_crystallize_report_line_zero_returns_none() -> None:
 @pytest.mark.asyncio
 async def test_crystallize_report_returns_default_confidence() -> None:
     """confidence 는 항상 0.5 (placeholder)."""
-    state = _base_state([
-        Message(role="assistant", content="some analysis"),
-    ])
+    state = _base_state(
+        [
+            Message(role="assistant", content="some analysis"),
+        ]
+    )
     result = await _crystallize_report_node(state)
     assert result["report"] is not None
     assert result["report"].confidence == 0.5
@@ -242,12 +252,14 @@ async def test_crystallize_report_returns_default_confidence() -> None:
 @pytest.mark.asyncio
 async def test_crystallize_report_uses_last_assistant_message() -> None:
     """여러 assistant 메시지 중 마지막 것이 사용된다."""
-    state = _base_state([
-        Message(role="user", content="log"),
-        Message(role="assistant", content="first answer"),
-        Message(role="user", content="follow-up"),
-        Message(role="assistant", content="final answer here"),
-    ])
+    state = _base_state(
+        [
+            Message(role="user", content="log"),
+            Message(role="assistant", content="first answer"),
+            Message(role="user", content="follow-up"),
+            Message(role="assistant", content="final answer here"),
+        ]
+    )
     result = await _crystallize_report_node(state)
     assert result["report"] is not None
     assert result["report"].root_cause == "final answer here"
@@ -266,6 +278,7 @@ async def test_crystallize_report_empty_messages_uses_empty_string() -> None:
 # finalize_node
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_finalize_node_passthrough() -> None:
     """finalize_node 는 state 를 그대로 반환한다 (no-op)."""
@@ -280,6 +293,7 @@ async def test_finalize_node_passthrough() -> None:
 # ---------------------------------------------------------------------------
 # full graph integration
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_full_graph_runs_all_6_nodes(

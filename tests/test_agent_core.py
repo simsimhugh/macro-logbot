@@ -32,9 +32,7 @@ def _resp(
         choices=[
             Choice(
                 index=0,
-                message=Message(
-                    role="assistant", content=content, tool_calls=tool_calls
-                ),
+                message=Message(role="assistant", content=content, tool_calls=tool_calls),
                 finish_reason=finish_reason,
             )
         ],
@@ -173,11 +171,11 @@ async def test_run_agent_max_iters_termination() -> None:
         ],
         finish_reason="tool_calls",
     )
-    crystallize_resp = _resp(content='{"root_cause":"loop","location":null,"fix_hint":"stop","confidence":0.5,"reasoning_summary":"loop"}')
-    gw = _mock_gateway([forever] * 3 + [crystallize_resp])
-    result = await run_agent(
-        [Message(role="user", content="loop")], gw, max_iters=3
+    crystallize_resp = _resp(
+        content='{"root_cause":"loop","location":null,"fix_hint":"stop","confidence":0.5,"reasoning_summary":"loop"}'
     )
+    gw = _mock_gateway([forever] * 3 + [crystallize_resp])
+    result = await run_agent([Message(role="user", content="loop")], gw, max_iters=3)
     assert result.iterations == 3
     assert gw.complete.call_count == 4  # 3 agent LLM + 1 crystallize  # type: ignore[attr-defined]
 
@@ -195,7 +193,9 @@ async def test_run_agent_forwards_generation_kwargs() -> None:
     crystallize_report 노드가 추가 LLM 호출을 하므로 총 2회 호출됨.
     첫 번째 호출(agent LLM) 에서 generation_kwargs 가 전달되는지 확인.
     """
-    crystallize_resp = _resp(content='{"root_cause":"done","location":null,"fix_hint":"ok","confidence":0.9,"reasoning_summary":"ok"}')
+    crystallize_resp = _resp(
+        content='{"root_cause":"done","location":null,"fix_hint":"ok","confidence":0.9,"reasoning_summary":"ok"}'
+    )
     gw = _mock_gateway([_resp(content="done"), crystallize_resp])
     await run_agent(
         [Message(role="user", content="hi")],

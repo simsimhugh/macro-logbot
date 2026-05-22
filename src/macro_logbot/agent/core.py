@@ -49,7 +49,7 @@ MAX_ITERS_DEFAULT = 20  # spec §5.2 default
 _CONTEXT_LIMIT_ENV = "MACRO_LOGBOT_MODEL_CONTEXT_LIMIT"
 _CONTEXT_LIMIT_DEFAULT = 16384
 _CONTEXT_HIGH_WATERMARK = 0.80  # 80% 초과 시 truncate 시작
-_CONTEXT_TARGET = 0.70          # truncate 후 목표 — limit 의 70% 이하
+_CONTEXT_TARGET = 0.70  # truncate 후 목표 — limit 의 70% 이하
 
 
 def _get_context_limit() -> int:
@@ -86,9 +86,7 @@ def _build_tool_call_groups(messages: list[Message]) -> list[list[int]]:
         m = messages[i]
         if m.role == "assistant" and m.tool_calls:
             # 이 assistant message 의 모든 tool_call_id 수집.
-            expected_ids: set[str] = {
-                tc.id for tc in m.tool_calls if tc.id is not None
-            }
+            expected_ids: set[str] = {tc.id for tc in m.tool_calls if tc.id is not None}
             group: list[int] = [i]
             j = i + 1
             # 바로 뒤에 오는 tool 메시지들 중 matching ID 를 group 에 추가.
@@ -136,7 +134,7 @@ def _truncate_messages(
     # WARN-2: 초기 token count 1회 계산.
     try:
         token_count_fn = litellm.token_counter
-        before = token_count_fn(model=_model, messages=messages)  # type: ignore[arg-type]
+        before = token_count_fn(model=_model, messages=messages)
     except Exception:
         return messages
 
@@ -169,19 +167,20 @@ def _truncate_messages(
                 total_removed += 1
         # WARN-2: group 제거 후 token 재계산 (per-message 아닌 per-group).
         try:
-            current_tokens = token_count_fn(model=_model, messages=working)  # type: ignore[arg-type]
+            current_tokens = token_count_fn(model=_model, messages=working)
         except Exception:
             break
         if current_tokens <= target:
             break
 
     try:
-        after_final = token_count_fn(model=_model, messages=working)  # type: ignore[arg-type]
+        after_final = token_count_fn(model=_model, messages=working)
     except Exception:
         after_final = -1
 
     logger.info(
-        "context truncate: removed %d messages (%d groups), before=%d tokens, after=%d tokens, limit=%d",
+        "context truncate: removed %d messages (%d groups), "
+        "before=%d tokens, after=%d tokens, limit=%d",
         total_removed,
         len(removable_groups),
         before,
@@ -189,6 +188,7 @@ def _truncate_messages(
         limit,
     )
     return working
+
 
 # spec §5.5 Location — KB store 정의 (file/function/line) 재사용 (architect WARN-1 충돌 회피).
 _LOCATION_RE = re.compile(r"([\w./-]+\.py):(\d+)")
@@ -296,8 +296,7 @@ async def _intake_node(state: AgentState) -> AgentState:
     # (app.py 가 ANALYZE_SYSTEM_PROMPT 를 0번째에 두면 startswith 가 False 가 되어
     # 가드 우회되던 버그 fix — PR #23 code-r WARN-2).
     already_has_intake = any(
-        m.role == "system" and m.content and m.content.startswith("[INTAKE]")
-        for m in msgs
+        m.role == "system" and m.content and m.content.startswith("[INTAKE]") for m in msgs
     )
     if already_has_intake:
         return state
@@ -353,13 +352,9 @@ async def _execute_tools_node(state: AgentState) -> AgentState:
         try:
             args = json.loads(tool_call.function.arguments or "{}")
         except json.JSONDecodeError as exc:
-            result: dict[str, object] = {
-                "error": f"invalid JSON arguments: {exc}"
-            }
+            result: dict[str, object] = {"error": f"invalid JSON arguments: {exc}"}
         else:
-            result = await asyncio.to_thread(
-                execute_tool, tool_call.function.name, args
-            )
+            result = await asyncio.to_thread(execute_tool, tool_call.function.name, args)
         tool_messages.append(
             Message(
                 role="tool",
@@ -490,6 +485,7 @@ async def _crystallize_report_node(state: AgentState) -> AgentState:
 
     # parsed 결과에서 필드 추출, 실패 시 MVP fallback.
     if parsed is not None:
+
         def _extract_str(val: object) -> str:
             """None 또는 공백 전용이면 last_assistant_content 로 fallback."""
             s = str(val) if val is not None else ""
@@ -502,7 +498,7 @@ async def _crystallize_report_node(state: AgentState) -> AgentState:
         try:
             confidence = float(raw_confidence) if raw_confidence is not None else 0.5  # type: ignore[arg-type]
             confidence = max(0.0, min(1.0, confidence))
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             confidence = 0.5
 
         # location 추출.
@@ -517,7 +513,7 @@ async def _crystallize_report_node(state: AgentState) -> AgentState:
                         function=str(loc_data.get("function") or ""),
                         line=int(raw_line),
                     )
-            except (ValidationError, TypeError, ValueError):
+            except ValidationError, TypeError, ValueError:
                 location = None
     else:
         # LLM 호출/파싱 완전 실패 → MVP fallback.
@@ -530,9 +526,7 @@ async def _crystallize_report_node(state: AgentState) -> AgentState:
         loc_match = _LOCATION_RE.search(last_assistant_content)
         if loc_match:
             try:
-                location = Location(
-                    file=loc_match.group(1), line=int(loc_match.group(2))
-                )
+                location = Location(file=loc_match.group(1), line=int(loc_match.group(2)))
             except ValidationError:
                 location = None
 

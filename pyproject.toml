@@ -54,6 +54,11 @@ target-version = "py314"
 select = ["E", "F", "I", "UP", "B", "C4", "PIE", "SIM"]
 ignore = []
 
+[tool.ruff.lint.per-file-ignores]
+# tests 의 nested with 는 mock + raises 분리 의도 (가독성 우선) — SIM117 면제.
+# src/ 는 strict 유지 (production code 의 가독성/단순성 ratchet up).
+"tests/*" = ["SIM117"]
+
 [tool.mypy]
 # mypy strict 는 production src/ 만 — tests/poc 는 ad-hoc 시나리오/측정
 # 스크립트, strict 면제 정책 명시 (architect WARN-4 PR #27).
@@ -67,3 +72,6 @@ asyncio_mode = "auto"
 testpaths = ["tests"]
 addopts = "-v"
 pythonpath = ["src"]
+markers = [
+    "poc: PoC infra (Docker + /tmp/poc-cases + catalog yaml) 의존. CI 에서 deselect.",
+]

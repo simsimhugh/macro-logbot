@@ -10,6 +10,12 @@ from pathlib import Path
 from typing import Any
 from unittest.mock import patch
 
+import pytest
+
+# PoC infra (Docker + /tmp/poc-cases) 의존 — CI runner 에서 reproduce 불가.
+# `pytest -m "not poc"` 로 CI 에서 deselect (test.yml 의 일부, PR 1).
+pytestmark = pytest.mark.poc
+
 REPO_ROOT = Path(__file__).resolve().parent.parent
 EVALUATE_PATH = REPO_ROOT / "poc" / "scripts" / "evaluate.py"
 
@@ -124,10 +130,14 @@ def test_main_groq_judge_env_auto_detect(tmp_path: Path) -> None:
     ):
         rc = evaluate_mod.main(
             [
-                "--cases", "E001",
-                "--judge", "groq/llama-3.3-70b-versatile",
-                "--api-key", "test-key",
-                "--reports-dir", str(tmp_path),
+                "--cases",
+                "E001",
+                "--judge",
+                "groq/llama-3.3-70b-versatile",
+                "--api-key",
+                "test-key",
+                "--reports-dir",
+                str(tmp_path),
             ]
         )
     assert rc == 0
@@ -159,11 +169,16 @@ def test_main_judge_api_key_flag_takes_precedence(tmp_path: Path) -> None:
     ):
         rc = evaluate_mod.main(
             [
-                "--cases", "E001",
-                "--judge", "groq/llama-3.3-70b-versatile",
-                "--judge-api-key", "gsk_explicit",
-                "--api-key", "test-key",
-                "--reports-dir", str(tmp_path),
+                "--cases",
+                "E001",
+                "--judge",
+                "groq/llama-3.3-70b-versatile",
+                "--judge-api-key",
+                "gsk_explicit",
+                "--api-key",
+                "test-key",
+                "--reports-dir",
+                str(tmp_path),
             ]
         )
     assert rc == 0
@@ -184,10 +199,14 @@ def test_main_judge_missing_api_key_returns_2(tmp_path: Path) -> None:
         with patch("sys.stderr", buf):
             rc = evaluate_mod.main(
                 [
-                    "--cases", "E001",
-                    "--judge", "groq/llama-3.3-70b-versatile",
-                    "--api-key", "test-key",
-                    "--reports-dir", str(tmp_path),
+                    "--cases",
+                    "E001",
+                    "--judge",
+                    "groq/llama-3.3-70b-versatile",
+                    "--api-key",
+                    "test-key",
+                    "--reports-dir",
+                    str(tmp_path),
                 ]
             )
     assert rc == 2
@@ -202,7 +221,6 @@ def test_main_judge_missing_api_key_returns_2(tmp_path: Path) -> None:
 def test_call_backend_payload_includes_temperature_and_seed(tmp_path: Path) -> None:
     """call_backend POST payload 에 temperature=0, seed=42 포함 검증."""
     import urllib.request
-    from unittest.mock import MagicMock
 
     captured: dict[str, Any] = {}
 
@@ -210,7 +228,7 @@ def test_call_backend_payload_includes_temperature_and_seed(tmp_path: Path) -> N
         def read(self) -> bytes:
             return b'{"analysis": "ok"}'
 
-        def __enter__(self) -> "_FakeResp":
+        def __enter__(self) -> _FakeResp:
             return self
 
         def __exit__(self, *_: object) -> None:
@@ -218,6 +236,7 @@ def test_call_backend_payload_includes_temperature_and_seed(tmp_path: Path) -> N
 
     def _fake_urlopen(req: Any, timeout: int = 0) -> _FakeResp:
         import json
+
         captured["payload"] = json.loads(req.data.decode("utf-8"))
         return _FakeResp()
 
@@ -240,7 +259,7 @@ def test_call_backend_session_id_included_when_provided(tmp_path: Path) -> None:
         def read(self) -> bytes:
             return b'{"analysis": "ok"}'
 
-        def __enter__(self) -> "_FakeResp":
+        def __enter__(self) -> _FakeResp:
             return self
 
         def __exit__(self, *_: object) -> None:
@@ -248,6 +267,7 @@ def test_call_backend_session_id_included_when_provided(tmp_path: Path) -> None:
 
     def _fake_urlopen(req: Any, timeout: int = 0) -> _FakeResp:
         import json
+
         captured["payload"] = json.loads(req.data.decode("utf-8"))
         return _FakeResp()
 
@@ -269,7 +289,7 @@ def test_call_backend_no_session_id_when_none() -> None:
         def read(self) -> bytes:
             return b'{"analysis": "ok"}'
 
-        def __enter__(self) -> "_FakeResp":
+        def __enter__(self) -> _FakeResp:
             return self
 
         def __exit__(self, *_: object) -> None:
@@ -277,13 +297,12 @@ def test_call_backend_no_session_id_when_none() -> None:
 
     def _fake_urlopen(req: Any, timeout: int = 0) -> _FakeResp:
         import json
+
         captured["payload"] = json.loads(req.data.decode("utf-8"))
         return _FakeResp()
 
     with patch.object(urllib.request, "urlopen", side_effect=_fake_urlopen):
-        evaluate_mod.call_backend(
-            "http://localhost:8000", "test-key", "traceback", None
-        )
+        evaluate_mod.call_backend("http://localhost:8000", "test-key", "traceback", None)
 
     assert "session_id" not in captured["payload"]
 
@@ -295,7 +314,6 @@ def test_call_backend_no_session_id_when_none() -> None:
 
 def test_evaluate_case_total_scoring_25pct_each(tmp_path: Path) -> None:
     """judge 모드 시 total = 0.25·1A + 0.25·1B + 0.25·2A + 0.25·2B."""
-    from unittest.mock import MagicMock
 
     fake_backend: dict[str, Any] = {"analysis": "snake.py line 90 AttributeError"}
     fake_judge: dict[str, Any] = {
@@ -305,12 +323,16 @@ def test_evaluate_case_total_scoring_25pct_each(tmp_path: Path) -> None:
     }
 
     with (
-        patch.object(evaluate_mod, "inject", return_value={
-            "ground_truth": {
-                "location": {"file": "snake.py", "line": 90},
-                "root_cause_keywords": ["AttributeError"],
-            }
-        }),
+        patch.object(
+            evaluate_mod,
+            "inject",
+            return_value={
+                "ground_truth": {
+                    "location": {"file": "snake.py", "line": 90},
+                    "root_cause_keywords": ["AttributeError"],
+                }
+            },
+        ),
         patch.object(evaluate_mod, "trigger", return_value=(0, "traceback text")),
         patch.object(evaluate_mod, "call_backend", return_value=fake_backend),
         patch.object(evaluate_mod, "run_judge", return_value=fake_judge),
@@ -357,7 +379,9 @@ def test_evaluate_case_total_scoring_partial_judge_failure(tmp_path: Path) -> No
     # scored_axes = 3 (2A 실패)
     assert result["scored_axes"] == 3
     # total = 0.25*0 + 0.25*0.5 + 0.25*0 + 0.25*0.4 = 0.225
-    assert result["naive_score_total"] == round(0.25 * 0.0 + 0.25 * 0.5 + 0.25 * 0.0 + 0.25 * 0.4, 3)
+    assert result["naive_score_total"] == round(
+        0.25 * 0.0 + 0.25 * 0.5 + 0.25 * 0.0 + 0.25 * 0.4, 3
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -405,10 +429,14 @@ def test_main_continue_session_threads_session_id(tmp_path: Path) -> None:
     ):
         rc = evaluate_mod.main(
             [
-                "--cases", "E001,E002",
-                "--api-key", "test-key",
-                "--rate-limit-cooldown", "0",
-                "--reports-dir", str(tmp_path),
+                "--cases",
+                "E001,E002",
+                "--api-key",
+                "test-key",
+                "--rate-limit-cooldown",
+                "0",
+                "--reports-dir",
+                str(tmp_path),
                 "--continue-session",
             ]
         )
@@ -458,10 +486,14 @@ def test_main_no_continue_session_default(tmp_path: Path) -> None:
     ):
         rc = evaluate_mod.main(
             [
-                "--cases", "E001,E002",
-                "--api-key", "test-key",
-                "--rate-limit-cooldown", "0",
-                "--reports-dir", str(tmp_path),
+                "--cases",
+                "E001,E002",
+                "--api-key",
+                "test-key",
+                "--rate-limit-cooldown",
+                "0",
+                "--reports-dir",
+                str(tmp_path),
             ]
         )
 
@@ -501,9 +533,7 @@ def test_evaluate_case_workdir_inside_poc_cases_root(tmp_path: Path) -> None:
     assert len(captured_workdir) == 1
     workdir = captured_workdir[0]
     # workdir 가 poc_root 하위인지 확인
-    assert workdir.is_relative_to(poc_root), (
-        f"workdir {workdir} 가 poc_root {poc_root} 하위가 아님"
-    )
+    assert workdir.is_relative_to(poc_root), f"workdir {workdir} 가 poc_root {poc_root} 하위가 아님"
     # prefix 가 case_id 로 시작하는지 확인
     assert workdir.name.startswith("E001-"), (
         f"workdir 이름 {workdir.name!r} 이 'E001-' 로 시작하지 않음"

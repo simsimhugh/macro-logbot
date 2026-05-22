@@ -70,9 +70,7 @@ def _redact_error_detail(raw_msg: str) -> str:
     return _SECRET_PAT.sub("[REDACTED]", raw_msg)[:200]
 
 
-def _call_judge(
-    system: str, user: str, model: str, api_key: str | None = None
-) -> dict[str, Any]:
+def _call_judge(system: str, user: str, model: str, api_key: str | None = None) -> dict[str, Any]:
     """LiteLLM 으로 judge 호출. 측정 실패 시 score=None + error 필드 반환.
 
     api_key 명시 시 `litellm.completion(api_key=...)` 으로 직접 전달 — process env 미수정

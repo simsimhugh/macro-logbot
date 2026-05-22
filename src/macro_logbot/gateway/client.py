@@ -179,9 +179,7 @@ def _parse_fallback_tool_calls(
                     obj = json.loads(d["json"])
                     name = obj.get("name") or (obj.get("function") or {}).get("name")
                     args = (
-                        obj.get("arguments")
-                        or (obj.get("function") or {}).get("arguments")
-                        or {}
+                        obj.get("arguments") or (obj.get("function") or {}).get("arguments") or {}
                     )
                     if not name:
                         continue
@@ -195,7 +193,7 @@ def _parse_fallback_tool_calls(
                             "function": {"name": name, "arguments": args_str},
                         }
                     )
-                except (json.JSONDecodeError, AttributeError):
+                except json.JSONDecodeError, AttributeError:
                     continue
     if calls and matched_pattern_name is not None:
         return calls, matched_pattern_name
@@ -270,9 +268,7 @@ class LLMGateway:
         # 사내 LLM endpoint (spec §7.3 · task-LG-002) — base_url/api_key/provider
         # 는 미설정 시 None (LiteLLM 이 provider prefix 와 표준 env 키로 fallback).
         self.default_model: str = (
-            default_model
-            or os.environ.get(_DEFAULT_MODEL_ENV)
-            or _FALLBACK_MODEL
+            default_model or os.environ.get(_DEFAULT_MODEL_ENV) or _FALLBACK_MODEL
         )
         self.base_url: str | None = base_url or os.environ.get(_LLM_BASE_URL_ENV)
         self.api_key: str | None = api_key or os.environ.get(_LLM_API_KEY_ENV)
@@ -316,9 +312,7 @@ class LLMGateway:
                     f"invalid {_LLM_TIMEOUT_SEC_ENV}={to_env!r} — expected float seconds"
                 ) from e
             if to_val <= 0:
-                raise ValueError(
-                    f"invalid {_LLM_TIMEOUT_SEC_ENV}={to_env!r} — must be > 0"
-                )
+                raise ValueError(f"invalid {_LLM_TIMEOUT_SEC_ENV}={to_env!r} — must be > 0")
             self.timeout = to_val
 
     async def complete(
@@ -336,9 +330,7 @@ class LLMGateway:
         # task-SEC-003: allowlist 검증 — 자유 패스스루 차단.
         bad = set(kwargs) - _ALLOWED_FORWARD_KWARGS
         if bad:
-            raise ValueError(
-                f"disallowed kwargs forwarded to acompletion: {sorted(bad)}"
-            )
+            raise ValueError(f"disallowed kwargs forwarded to acompletion: {sorted(bad)}")
 
         # task-AGENT-024: env-driven default 주입 — caller 명시 kwarg 가 우선.
         # gpt-oss / o1 류 reasoning model 의 effort + 장기 호출 timeout 을
@@ -377,8 +369,9 @@ class LLMGateway:
 
         # task-AGENT-024: reasoning_effort / timeout 등 model-specific param 의 안전 drop.
         # 비-reasoning model (gemini, claude, gemma 등) 에 reasoning_effort 가 forward 되면
-        # LiteLLM 이 `openai does not support parameters: ['reasoning_effort']` UnsupportedParamsError.
-        # drop_params=True 로 LiteLLM 이 model 별 미지원 param 을 silent drop — 단일 코드베이스로
+        # LiteLLM 이 `openai does not support parameters: ['reasoning_effort']`
+        # UnsupportedParamsError. drop_params=True 로 LiteLLM 이 model 별 미지원 param 을
+        # silent drop — 단일 코드베이스로
         # 멀티 provider (reasoning + 비-reasoning) 동시 지원.
         extra.setdefault("drop_params", True)
 
@@ -397,9 +390,7 @@ class LLMGateway:
         except litellm.exceptions.BadRequestError as exc:
             if "tool_use_failed" in str(exc) and "tools" in kwargs:
                 retry_kwargs = {
-                    k: v
-                    for k, v in kwargs.items()
-                    if k != "tools" and k != "tool_choice"
+                    k: v for k, v in kwargs.items() if k != "tools" and k != "tool_choice"
                 }
                 logger.warning(
                     "tool_use_failed for %s — retrying without tools (fallback parser)",
@@ -426,8 +417,7 @@ class LLMGateway:
                 fallback_calls, layer2_pattern_name = fallback_result
                 layer2_inject_used = True
                 logger.info(
-                    "fallback parser extracted %d tool_calls from content "
-                    "pattern=%s model=%s",
+                    "fallback parser extracted %d tool_calls from content pattern=%s model=%s",
                     len(fallback_calls),
                     layer2_pattern_name,
                     target_model,
@@ -438,8 +428,8 @@ class LLMGateway:
                 # tool 호출 의도가 있었으나 fallback parser 가 패턴 인식 못함 → agent loop 가
                 # tool 없이 final answer 박제. 운영자 진단 위해 warning 명시.
                 logger.warning(
-                    "fallback parser 0-match after tool_use_failed retry (model=%s, content_len=%d) — "
-                    "agent may terminate without tool call",
+                    "fallback parser 0-match after tool_use_failed retry "
+                    "(model=%s, content_len=%d) — agent may terminate without tool call",
                     target_model,
                     len(raw_msg.content),
                 )
@@ -453,9 +443,7 @@ class LLMGateway:
                 message=Message(
                     role=c.message.role,
                     content=c.message.content or None,
-                    tool_calls=_extract_tool_calls(
-                        getattr(c.message, "tool_calls", None)
-                    ),
+                    tool_calls=_extract_tool_calls(getattr(c.message, "tool_calls", None)),
                     reasoning=getattr(c.message, "reasoning", None) or None,
                 ),
                 finish_reason=c.finish_reason,

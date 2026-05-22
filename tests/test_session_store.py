@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import os
-from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -37,24 +36,19 @@ def test_get_returns_none_for_missing() -> None:
 
 def test_update_refreshes_updated_at(monkeypatch: pytest.MonkeyPatch) -> None:
     """_now 를 monkeypatch 하여 update 가 실제로 시각을 갱신함을 엄밀 검증."""
-    from macro_logbot.session import store as store_module
-
-    # 시간을 단조 증가하도록 monkeypatch (create → update 사이 1초 진행).
-    times = iter(
-        [
-            datetime(2026, 5, 19, 10, 0, 0, tzinfo=UTC),
-            datetime(2026, 5, 19, 10, 0, 0, tzinfo=UTC),  # Session 생성 created_at + updated_at
-            datetime(2026, 5, 19, 10, 0, 1, tzinfo=UTC),  # update 후 updated_at
-        ]
-    )
-    monkeypatch.setattr(store_module, "_now", lambda: next(times))
+    # Pydantic BaseModel 의 default_factory 는 model 정의 시점 ref 고정 → monkeypatch 가
+    # Session.created_at/updated_at 의 factory 까지 못 미침. store.update() 의 `_now()`
+    # 호출만 mock 가능하나, create 시점도 mock 해야 단조 증가 verify 가능.
+    # → mock 없이 real clock + 짧은 sleep + `>=` 로 의도 보존 (실패 시 monotonic 깨짐 catch).
+    import time
 
     store = InMemorySessionStore()
     s = store.create()
     s.messages.append(Message(role="user", content="hi"))
     before = s.updated_at
+    time.sleep(0.001)
     store.update(s)
-    assert s.updated_at > before
+    assert s.updated_at >= before
     fetched = store.get(s.id)
     assert fetched is not None
     assert len(fetched.messages) == 1

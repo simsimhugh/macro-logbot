@@ -57,17 +57,13 @@ def test_smoke_chat_completion_with_auth_and_agent_loop(
         iterations=2,
         messages=[],
     )
-    with patch(
-        "macro_logbot.app.run_agent", new=AsyncMock(return_value=fake)
-    ) as mock_run:
+    with patch("macro_logbot.app.run_agent", new=AsyncMock(return_value=fake)) as mock_run:
         response = smoke_client.post(
             "/v1/chat/completions",
             headers={"Authorization": "Bearer smoke-test-key"},
             json={
                 "model": "openai/gpt-4o-mini",
-                "messages": [
-                    {"role": "user", "content": "MACRO 에러 분석해줘"}
-                ],
+                "messages": [{"role": "user", "content": "MACRO 에러 분석해줘"}],
             },
         )
     assert response.status_code == 200

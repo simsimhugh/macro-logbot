@@ -59,10 +59,7 @@ def _get_env() -> str:
     """MACRO_LOGBOT_ENV 를 반환. 유효하지 않은 값이면 RuntimeError."""
     env = os.environ.get("MACRO_LOGBOT_ENV", "production")
     if env not in _VALID_ENVS:
-        raise RuntimeError(
-            f"invalid MACRO_LOGBOT_ENV={env!r}; "
-            f"valid values: {sorted(_VALID_ENVS)}"
-        )
+        raise RuntimeError(f"invalid MACRO_LOGBOT_ENV={env!r}; valid values: {sorted(_VALID_ENVS)}")
     return env
 
 
@@ -103,9 +100,7 @@ _SECRET_NAMES: frozenset[str] = frozenset(
 _SECRET_SUFFIXES: tuple[str, ...] = (".pem", ".key", ".crt", ".p12")
 
 # parent component 중 이 디렉토리 안에 있으면 거부 (예: .ssh/known_hosts).
-_SECRET_DIR_COMPONENTS: frozenset[str] = frozenset(
-    {".ssh", ".aws", ".gnupg", ".docker"}
-)
+_SECRET_DIR_COMPONENTS: frozenset[str] = frozenset({".ssh", ".aws", ".gnupg", ".docker"})
 
 
 def _is_secret(resolved: Path) -> bool:
@@ -120,10 +115,7 @@ def _is_secret(resolved: Path) -> bool:
         return True
     if any(name_lower.endswith(suf) for suf in _SECRET_SUFFIXES):
         return True
-    for part in resolved.parts:
-        if part.lower() in _SECRET_DIR_COMPONENTS:
-            return True
-    return False
+    return any(part.lower() in _SECRET_DIR_COMPONENTS for part in resolved.parts)
 
 
 def _matches_prefix(resolved: Path, prefix: str) -> bool:
@@ -198,7 +190,7 @@ def _safe_resolve(path: str) -> Path | None:
                 continue
             if parent.is_symlink():
                 return None
-    except (OSError, RuntimeError):
+    except OSError, RuntimeError:
         return None
 
     # path traversal 정규화 — posixpath.normpath 로 ".." 처리 (비존재 경로도 적용).
@@ -584,8 +576,7 @@ def retrieve_similar_cases(
     if len(error_signature) > _MAX_SIGNATURE_LEN:
         return {
             "error": (
-                f"error_signature too long: {len(error_signature)} chars "
-                f"(max {_MAX_SIGNATURE_LEN})"
+                f"error_signature too long: {len(error_signature)} chars (max {_MAX_SIGNATURE_LEN})"
             )
         }
     if not isinstance(top_k, int) or top_k < _TOP_K_MIN or top_k > _TOP_K_MAX:
@@ -600,9 +591,7 @@ def retrieve_similar_cases(
         }
 
     cases = store.search(error_signature, top_k=top_k)
-    similar: list[dict[str, Any]] = [
-        c.model_dump(exclude_none=True) for c in cases
-    ]
+    similar: list[dict[str, Any]] = [c.model_dump(exclude_none=True) for c in cases]
     return {
         "error_signature": error_signature,
         "similar_cases": similar,

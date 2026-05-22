@@ -18,6 +18,33 @@
 
 ## Pending Tasks
 
+### task-DOCS-URL-001 — repo URL reference 갱신 (organization 전환 후)
+- **출처**: PR 1-pre (task-AI-DLC-000) organization 전환 (2026-05-22 simsimhugh → simsim-lab)
+- **scope**: docs / README / CONTRIBUTING 의 `simsimhugh/macro-logbot` reference 를 `simsim-lab/macro-logbot` 으로 갱신. GitHub redirect 동작 OK 라 functional 영향 없으나 정확성 ↑.
+- **영향 file** (greppable):
+  - `README.md`
+  - `CONTRIBUTING.md`
+  - `docs/process/03-개발-프로세스.md`
+  - `docs/process/04-PoC-운영가이드.md`
+  - `docs/operations/DEPLOYMENT.md`
+  - `docs/design/02-설계문서.md`
+- **suggested branch**: `docs/repo-url-org-transition`
+- **size estimate**: ~10~20 lines (각 file 1~3 reference)
+- **priority**: LOW (functional 영향 없음, 시간 시 정정)
+
+### task-POC-005 — error_catalog drift 정정 (test_poc_inject + test_poc_trigger fail)
+- **출처**: PR 1-pre (task-AI-DLC-000) baseline 점검 — main HEAD `a41ba9b` 에서 `test_poc_inject::test_all_catalog_cases_apply_cleanly` + `test_poc_trigger::test_all_injected_cases_raise` runtime fail.
+- **scope**: `poc/error_catalog/*.yaml` 의 diff 와 `poc/targets/snake-game/original/snake.py` 의 line 정합 점검. snake.py 변경 (line shift) 후 catalog 의 unified diff context 가 stale 가능. catalog drift 정정 또는 catalog 의 line-anchored → context-anchored 변경.
+- **임시 회피**: PR 1-pre 에서 `pytestmark = pytest.mark.poc` 부착 → CI 의 `pytest -m "not poc"` 로 deselect. local + manual measurement (sudo docker compose + LM Studio) 에서만 실행.
+- **suggested branch**: `fix/poc-catalog-drift`
+- **size estimate**: catalog yaml 의 diff context line 갱신 ~50 lines (혹은 catalog 자체 재생성)
+- **priority**: MEDIUM (PoC 측정 신뢰성 직접 영향)
+
+### task-AI-DLC-000 — main baseline clean (PR 1 prerequisite)
+- **출처**: PR 1-pre — server-side mechanical (Actions) 미적용 상태에서 누적된 ruff (36 errors) / mypy (4 errors) / pytest (6 fail) 정리.
+- **처리 PR**: PR 1-pre (chore/main-baseline-clean) — 본 commit 이 task 자체.
+- **변경**: ruff fix + format + per-file-ignores (tests/* SIM117), mypy unused type:ignore 3 + arg-type 1 (app.py `_gen_kwargs: dict[str, Any]`), test_session_store mock 제거 (task-TEST-FLAKY-001), poc test pytestmark (task-POC-005 임시 회피).
+
 ### task-PR62-FOLLOWUP-bundle — PR #62 v3 reviewer follow-up 묶음
 - **출처**: PR #62 v3 (4 reviewer + verifier — 2026-05-21)
 - **scope (sub)**:
@@ -73,12 +100,10 @@
 - **size estimate**: ~80 lines
 - **priority**: LOW
 
-### task-TEST-FLAKY-001 — test_session_store.py::test_update_refreshes_updated_at flaky 수정
+### ~~task-TEST-FLAKY-001~~ — test_session_store.py::test_update_refreshes_updated_at flaky 수정 ✅ **PR 1-pre 머지 (chore/main-baseline-clean)**
 - **출처**: PR #60 test-engineer INFO
-- **scope**: `_now` monkeypatch iterator 가 `store.update()` 호출 횟수 불일치 → 하드코딩 `2026-05-19` → `datetime.now(UTC)` 기반 상대 delta. main 에서도 fail — PR 무관 pre-existing.
-- **suggested branch**: `fix/session-store-time-mock-flaky`
-- **size estimate**: ~20 lines
-- **priority**: MEDIUM (CI 안정성)
+- **처리**: PR 1-pre (task-AI-DLC-000) 에서 root cause 정정 — Pydantic BaseModel 의 default_factory 가 monkeypatch 못 받음 (model 정의 시점 ref 고정). mock 제거 + real clock + `time.sleep(0.001)` + `>= before` 로 의도 보존 (monotonic 깨짐만 catch).
+- **변경**: tests/test_session_store.py:37-54
 
 ### task-AGENT-025 — reasoning chain KB archive 정책 (task-SEC-006 와 동시)
 - **출처**: PR #60 code-reviewer INFO-3 + security M1 일부

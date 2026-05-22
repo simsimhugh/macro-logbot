@@ -9,14 +9,11 @@
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
 
 import pytest
 
-import macro_logbot.tools.builtin as builtin_mod
 from macro_logbot.tools.builtin import _safe_resolve
-
 
 # ---------------------------------------------------------------------------
 # helpers
@@ -52,9 +49,7 @@ class TestProductionFailClosed:
         result = _safe_resolve("/tmp/poc-test/.env")
         assert result is None
 
-    def test_poc_env_only_no_allowlist_denied(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_poc_env_only_no_allowlist_denied(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """MACRO_LOGBOT_ENV=poc 이지만 ALLOWED 미설정 → cwd-only fallback."""
         monkeypatch.setenv("MACRO_LOGBOT_ENV", "poc")
         result = _safe_resolve("/tmp/poc-E001-xxx/snake.py")
@@ -80,9 +75,7 @@ class TestLiteralPrefixMatch:
     partial-name prefix (e.g. /tmp/poc-) 는 sibling-dir escape 가능하므로 사용하지 않는다.
     """
 
-    def test_matching_prefix_allowed(
-        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-    ) -> None:
+    def test_matching_prefix_allowed(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
         monkeypatch.setenv("MACRO_LOGBOT_ENV", "poc")
         monkeypatch.setenv("MACRO_LOGBOT_POC_WORKSPACE_ALLOWED", "/tmp/poc-cases")
         # 실제 파일 필요 없음 — resolve 결과만 검증.
@@ -98,20 +91,14 @@ class TestLiteralPrefixMatch:
         result = _safe_resolve("/tmp/other-dir/file.py")
         assert result is None
 
-    def test_csv_multiple_prefixes(
-        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-    ) -> None:
+    def test_csv_multiple_prefixes(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
         monkeypatch.setenv("MACRO_LOGBOT_ENV", "poc")
-        monkeypatch.setenv(
-            "MACRO_LOGBOT_POC_WORKSPACE_ALLOWED", "/tmp/poc-cases, /tmp/bench-run"
-        )
+        monkeypatch.setenv("MACRO_LOGBOT_POC_WORKSPACE_ALLOWED", "/tmp/poc-cases, /tmp/bench-run")
         assert _safe_resolve("/tmp/poc-cases/E001/snake.py") is not None
         assert _safe_resolve("/tmp/bench-run/data.py") is not None
         assert _safe_resolve("/tmp/other/file.py") is None
 
-    def test_path_traversal_rejected(
-        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-    ) -> None:
+    def test_path_traversal_rejected(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
         """/tmp/poc-cases/../../etc/passwd — normpath 후 /etc/passwd — prefix 미일치 → 거부."""
         monkeypatch.setenv("MACRO_LOGBOT_ENV", "poc")
         monkeypatch.setenv("MACRO_LOGBOT_POC_WORKSPACE_ALLOWED", "/tmp/poc-cases")
@@ -158,9 +145,7 @@ class TestSecretBlocklist:
 class TestSymlinkRejection:
     """symlink 는 PoC 모드에서도 거부 (O_NOFOLLOW 동등)."""
 
-    def test_symlink_file_denied(
-        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-    ) -> None:
+    def test_symlink_file_denied(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
         monkeypatch.setenv("MACRO_LOGBOT_ENV", "poc")
         # /tmp/poc-test-<random> 디렉토리 생성 후 symlink 생성.
         poc_dir = tmp_path / "poc-symlink-test"
@@ -170,15 +155,11 @@ class TestSymlinkRejection:
         link = poc_dir / "link_to_real.py"
         link.symlink_to(target)
 
-        monkeypatch.setenv(
-            "MACRO_LOGBOT_POC_WORKSPACE_ALLOWED", str(poc_dir)
-        )
+        monkeypatch.setenv("MACRO_LOGBOT_POC_WORKSPACE_ALLOWED", str(poc_dir))
         result = _safe_resolve(str(link))
         assert result is None
 
-    def test_symlink_dir_denied(
-        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-    ) -> None:
+    def test_symlink_dir_denied(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
         monkeypatch.setenv("MACRO_LOGBOT_ENV", "poc")
         real_dir = tmp_path / "real_dir"
         real_dir.mkdir()
@@ -186,9 +167,7 @@ class TestSymlinkRejection:
         link_dir = tmp_path / "poc-link-dir"
         link_dir.symlink_to(real_dir)
 
-        monkeypatch.setenv(
-            "MACRO_LOGBOT_POC_WORKSPACE_ALLOWED", str(tmp_path)
-        )
+        monkeypatch.setenv("MACRO_LOGBOT_POC_WORKSPACE_ALLOWED", str(tmp_path))
         result = _safe_resolve(str(link_dir / "file.py"))
         assert result is None
 
@@ -261,18 +240,14 @@ class TestSiblingDirEscape:
 class TestBlocklistPathComponent:
     """_is_secret: path component 단위 매칭 + case-insensitive."""
 
-    def test_etc_passwd_denied(
-        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-    ) -> None:
+    def test_etc_passwd_denied(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
         """/tmp/poc-cases/etc/passwd — passwd 는 SECRET_NAMES 에 포함."""
         monkeypatch.setenv("MACRO_LOGBOT_ENV", "poc")
         monkeypatch.setenv("MACRO_LOGBOT_POC_WORKSPACE_ALLOWED", "/tmp/poc-cases")
         result = _safe_resolve("/tmp/poc-cases/etc/passwd")
         assert result is None, "/tmp/poc-cases/etc/passwd must be denied"
 
-    def test_dotenv_uppercase_denied(
-        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-    ) -> None:
+    def test_dotenv_uppercase_denied(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
         """/tmp/poc-cases/.ENV — case-insensitive blocklist 적용."""
         monkeypatch.setenv("MACRO_LOGBOT_ENV", "poc")
         monkeypatch.setenv("MACRO_LOGBOT_POC_WORKSPACE_ALLOWED", "/tmp/poc-cases")
@@ -301,18 +276,14 @@ class TestBlocklistPathComponent:
         result = _safe_resolve("/tmp/poc-cases/credentialsmgr/app.py")
         assert result is not None, "credentialsmgr should not be blocked (no false positive)"
 
-    def test_shadow_file_denied(
-        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-    ) -> None:
+    def test_shadow_file_denied(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
         """/tmp/poc-cases/etc/shadow — shadow 는 SECRET_NAMES 에 포함."""
         monkeypatch.setenv("MACRO_LOGBOT_ENV", "poc")
         monkeypatch.setenv("MACRO_LOGBOT_POC_WORKSPACE_ALLOWED", "/tmp/poc-cases")
         result = _safe_resolve("/tmp/poc-cases/etc/shadow")
         assert result is None, "shadow must be denied"
 
-    def test_key_suffix_denied(
-        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-    ) -> None:
+    def test_key_suffix_denied(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
         """/tmp/poc-cases/server.key — .key suffix 거부."""
         monkeypatch.setenv("MACRO_LOGBOT_ENV", "poc")
         monkeypatch.setenv("MACRO_LOGBOT_POC_WORKSPACE_ALLOWED", "/tmp/poc-cases")
@@ -328,16 +299,12 @@ class TestBlocklistPathComponent:
 class TestEnvEnum:
     """MACRO_LOGBOT_ENV 유효값 외 입력 시 RuntimeError."""
 
-    def test_invalid_env_raises(
-        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-    ) -> None:
+    def test_invalid_env_raises(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
         monkeypatch.setenv("MACRO_LOGBOT_ENV", "INVALID_VALUE")
         with pytest.raises(RuntimeError, match="invalid MACRO_LOGBOT_ENV"):
             _safe_resolve("/tmp/poc-test/file.py")
 
-    def test_valid_envs_do_not_raise(
-        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-    ) -> None:
+    def test_valid_envs_do_not_raise(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
         for valid_env in ("production", "staging", "poc", "dev"):
             monkeypatch.setenv("MACRO_LOGBOT_ENV", valid_env)
             # RuntimeError 가 발생하지 않으면 됨 (결과값은 무관).

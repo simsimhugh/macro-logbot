@@ -194,7 +194,10 @@ async def test_response_no_reasoning_for_non_reasoning_model(clean_env: None) ->
     mock_message = SimpleNamespace(role="assistant", content="hi", tool_calls=None)
     # 의도적으로 reasoning attr 없음 — getattr(default=None) 경로 검증
     mock_response = SimpleNamespace(
-        id="x", object="chat.completion", created=0, model="gemma-3-12b",
+        id="x",
+        object="chat.completion",
+        created=0,
+        model="gemma-3-12b",
         choices=[SimpleNamespace(index=0, message=mock_message, finish_reason="stop")],
         usage=SimpleNamespace(prompt_tokens=1, completion_tokens=1, total_tokens=2),
     )
@@ -233,11 +236,12 @@ async def test_drop_params_true_forwarded_to_litellm(clean_env: None) -> None:
 async def test_response_empty_string_reasoning_normalized_to_none(clean_env: None) -> None:
     """reasoning = '' (빈 string) 도 None 으로 정규화 — JSON 직렬화 시 noise 제거."""
     gw = LLMGateway()
-    mock_message = SimpleNamespace(
-        role="assistant", content="hi", tool_calls=None, reasoning=""
-    )
+    mock_message = SimpleNamespace(role="assistant", content="hi", tool_calls=None, reasoning="")
     mock_response = SimpleNamespace(
-        id="x", object="chat.completion", created=0, model="m",
+        id="x",
+        object="chat.completion",
+        created=0,
+        model="m",
         choices=[SimpleNamespace(index=0, message=mock_message, finish_reason="stop")],
         usage=SimpleNamespace(prompt_tokens=1, completion_tokens=1, total_tokens=2),
     )

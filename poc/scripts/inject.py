@@ -101,9 +101,7 @@ def apply_diff(workdir: Path, diff_text: str) -> None:
             continue
         count = text.count(before)
         if count == 0:
-            raise RuntimeError(
-                f"hunk context not found in {target}:\n---\n{before}\n---"
-            )
+            raise RuntimeError(f"hunk context not found in {target}:\n---\n{before}\n---")
         if count > 1:
             raise RuntimeError(
                 f"hunk context matches multiple times ({count}) — diff too ambiguous"

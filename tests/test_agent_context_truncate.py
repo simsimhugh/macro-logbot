@@ -53,6 +53,7 @@ def _assistant_final(content: str = "final answer") -> Message:
 # 테스트용 token_counter 패치 — 메시지 수 × 100 tokens 로 단순 계산.
 # ---------------------------------------------------------------------------
 
+
 def _fake_token_counter(model: str, messages: list) -> int:  # noqa: ARG001
     return len(messages) * 100
 
@@ -66,6 +67,7 @@ def _patch_token_counter():
 # ---------------------------------------------------------------------------
 # 테스트 1: limit=1000, 메시지 12개(1200 tokens) → truncate 실행.
 # ---------------------------------------------------------------------------
+
 
 def test_truncate_fires_when_over_high_watermark() -> None:
     """1200 tokens > 1000 × 80% = 800 → truncate 가 실행된다."""
@@ -91,6 +93,7 @@ def test_truncate_fires_when_over_high_watermark() -> None:
 # 테스트 2: truncate 후 token count ≤ limit × 0.80.
 # ---------------------------------------------------------------------------
 
+
 def test_truncate_result_within_high_watermark() -> None:
     """truncate 후 남은 메시지 token count ≤ limit × 0.80."""
     limit = 1000
@@ -108,6 +111,7 @@ def test_truncate_result_within_high_watermark() -> None:
 # ---------------------------------------------------------------------------
 # 테스트 3: system prompt + 최신 user message 항상 보존.
 # ---------------------------------------------------------------------------
+
 
 def test_system_and_latest_user_always_preserved() -> None:
     """truncate 후에도 system / user 메시지는 반드시 남아있어야 한다."""
@@ -133,6 +137,7 @@ def test_system_and_latest_user_always_preserved() -> None:
 # 테스트 4: context limit 미달 시 truncate 안 함.
 # ---------------------------------------------------------------------------
 
+
 def test_no_truncate_when_under_limit() -> None:
     """token count < limit × 80% 이면 원본 리스트를 그대로 반환한다."""
     msgs = [_sys(), _user(), _assistant_final()]  # 3 * 100 = 300 tokens
@@ -145,6 +150,7 @@ def test_no_truncate_when_under_limit() -> None:
 # ---------------------------------------------------------------------------
 # 테스트 5: tool_call_id pair-atomicity — assistant(tool_calls) + tool 묶음 단위 제거.
 # ---------------------------------------------------------------------------
+
 
 def _assistant_tool_with_id(call_id: str) -> Message:
     """지정된 call_id 를 가진 assistant(tool_calls) 메시지."""
@@ -181,23 +187,20 @@ def test_truncate_preserves_tool_call_pair_atomicity() -> None:
         _sys(),
         _user(),
         _assistant_tool_with_id("call-a"),  # group-A start
-        _tool_with_id("call-a", "res-a"),   # group-A end
+        _tool_with_id("call-a", "res-a"),  # group-A end
         _assistant_tool_with_id("call-b"),  # group-B start
-        _tool_with_id("call-b", "res-b"),   # group-B end
+        _tool_with_id("call-b", "res-b"),  # group-B end
         _assistant_tool_with_id("call-c"),  # group-C start (보존)
-        _tool_with_id("call-c", "res-c"),   # group-C end  (보존)
+        _tool_with_id("call-c", "res-c"),  # group-C end  (보존)
         _assistant_tool_with_id("call-d"),  # group-D start (보존)
-        _tool_with_id("call-d", "res-d"),   # group-D end  (보존)
+        _tool_with_id("call-d", "res-d"),  # group-D end  (보존)
     ]  # 10 * 100 = 1000 tokens > 1000 * 80% = 800 → truncate 실행
 
     result = _truncate_messages(msgs, model=None, limit=1000)
 
     result_ids = {m.tool_call_id for m in result if m.role == "tool"}
     result_call_ids = {
-        tc.id
-        for m in result
-        if m.role == "assistant" and m.tool_calls
-        for tc in m.tool_calls
+        tc.id for m in result if m.role == "assistant" and m.tool_calls for tc in m.tool_calls
     }
 
     # group-C, group-D 는 보존되어야 한다.

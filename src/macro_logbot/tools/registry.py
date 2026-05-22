@@ -152,9 +152,7 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
     ),
     "git_log": ToolSpec(
         name="git_log",
-        description=(
-            "git 커밋 히스토리 — 파일 또는 전체. 최근 N건 oneline 형식."
-        ),
+        description=("git 커밋 히스토리 — 파일 또는 전체. 최근 N건 oneline 형식."),
         parameters_schema={
             "type": "object",
             "properties": {
@@ -198,8 +196,7 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
     "get_environment_info": ToolSpec(
         name="get_environment_info",
         description=(
-            "현재 실행 환경 정보 — OS / Python / 핵심 패키지 버전. "
-            "시크릿·env vars 는 노출 X."
+            "현재 실행 환경 정보 — OS / Python / 핵심 패키지 버전. 시크릿·env vars 는 노출 X."
         ),
         parameters_schema={
             "type": "object",
@@ -216,8 +213,7 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
     "retrieve_similar_cases": ToolSpec(
         name="retrieve_similar_cases",
         description=(
-            "과거 유사 에러 분석 사례 (KB §5.5). "
-            "미구현 placeholder — 후속 PR (task-MVP-003-x)."
+            "과거 유사 에러 분석 사례 (KB §5.5). 미구현 placeholder — 후속 PR (task-MVP-003-x)."
         ),
         parameters_schema={
             "type": "object",
