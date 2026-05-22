@@ -18,6 +18,22 @@
 
 ## Pending Tasks
 
+### task-AI-DLC-REVIEW-001 — reviewer 의 PR comment / approve 의 template + script + lock-down
+- **출처**: 사용자 명시 (PR 1 cycle, 2026-05-22) — agent 의 review 의 자율 형식 + bot PAT 직접 사용 의 한계 발견 (verdict misjudge 의 sample, e.g. opt e5f5cc6 cycle 의 MED #1 finding + APPROVE 모순).
+- **scope (4 step)**:
+  1. **template** — `.claude/skills/post-review/template.md`. 짧고 요약, 사용자 가독성 우선. 마지막 commit hash 포함. severity callout + finding list + verdict.
+  2. **script** — `.claude/skills/post-review/post.sh`. 인자: `<role> <PR-NUM> <verdict> <findings-json>`. 각 finding 의 severity (CRITICAL/HIGH/MED/WARN/LOW/INFO/PASS) 명시. **모두 PASS (또는 LOW/INFO) 만 APPROVE**, 1+ WARN/MED/HIGH/CRITICAL 시 자동 REQUEST CHANGES (사용자 명시).
+  3. **agent prompt 갱신** — 4 reviewer agent prompt 의 출력 의무 = "post.sh 호출 만". raw `gh pr comment` / `gh pr review` 직접 호출 금지.
+  4. **lock-down** — `.claude/settings.json` deny + `.claude/hooks/pre-bash-gate.sh` 의 추가 logic: raw `gh pr comment` / `gh pr review` / bot PAT source 차단. `POST_REVIEW_BYPASS=1` env 만 우회 (post.sh 의 일부).
+- **suggested branch**: `feat/ai-dlc-review-template-lock`
+- **size estimate**: ~300 lines (template + script + agent prompt + settings + hook)
+- **priority**: HIGH — PR 2 (Mergify) 시작 전 처리 의무.
+
+### task-TEST-ENFORCE-GATE-001 — test_enforce_gate.sh hang 정정
+- **출처**: PR 1 cycle (b73a624 후 cleanup), 2026-05-22 — test 가 timeout 30s 안 complete. cleanup 후 hang 또는 옛부터 있던 issue 의 확인 필요.
+- **scope**: test_enforce_gate.sh 의 group 1-6 의 hook 호출 의 stdin 처리 verify (hook 의 `cat 2>/dev/null` 의 EOF wait 가 hang 가능성).
+- **priority**: MEDIUM (CI 의 본 test 없음, local 만)
+
 ### task-DOCS-URL-001 — repo URL reference 갱신 (organization 전환 후)
 - **출처**: PR 1-pre (task-AI-DLC-000) organization 전환 (2026-05-22 simsimhugh → simsim-lab)
 - **scope**: docs / README / CONTRIBUTING 의 `simsimhugh/macro-logbot` reference 를 `simsim-lab/macro-logbot` 으로 갱신. GitHub redirect 동작 OK 라 functional 영향 없으나 정확성 ↑.
