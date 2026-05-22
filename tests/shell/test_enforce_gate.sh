@@ -18,7 +18,6 @@ cd "$REPO_ROOT"
 
 HOOK="$REPO_ROOT/.claude/hooks/pre-bash-gate.sh"
 PRE_PUSH="$REPO_ROOT/.githooks/pre-push"
-CHECK_SH="$REPO_ROOT/.claude/skills/safe-merge/check.sh"
 
 PASS=0
 FAIL=0
@@ -102,13 +101,9 @@ assert_exit "pre-push master block" 1 "$actual"
 actual=$(printf '%s\n' "refs/heads/feature/x abc refs/heads/feature/x def" | "$PRE_PUSH" >/dev/null 2>&1; echo $?)
 assert_exit "pre-push feature/x pass" 0 "$actual"
 
-# --- 7. check.sh argument validation ---
-echo "=== Test group 7: check.sh argument validation ==="
-actual=$("$CHECK_SH" >/dev/null 2>&1; echo $?)
-assert_exit "check.sh no arg → exit 2" 2 "$actual"
-
-actual=$("$CHECK_SH" not-a-number >/dev/null 2>&1; echo $?)
-assert_exit "check.sh invalid arg → exit 2" 2 "$actual"
+# --- 7. (deprecated) safe-merge/check.sh argument validation ---
+# safe-merge skill 제거 (PR 1, 2026-05-22) — Mergify rule 가 server-side takeover.
+# 옛 group 7 (check.sh argument validation) 제거.
 
 # --- 8. security v3 HIGH #2: tokenize bypass case ---
 # Note: alias / shell variable expansion 의 catch 는 shell semantic 의 본질 한계 —
@@ -125,20 +120,9 @@ for cmd in \
     assert_exit "tokenize bypass '$cmd'" 2 "$actual"
 done
 
-# --- 9. security v3 CRITICAL #1: check.sh python injection-safe ---
-echo "=== Test group 9: check.sh injection-safe (no RCE via comment body) ==="
-# 본 test 는 check.sh 의 stdin pipe parsing 검증. 옛 logic ($comments_json shell-interp) 였으면
-# triple-quote escape 로 Python source 주입 가능. 새 logic 는 json.load(sys.stdin) — data 분리.
-# check.sh 가 gh CLI 호출 — 본 test 는 syntax + argument 검증 (실측은 별 PR mock 필요).
-grep -q 'python3 - <<' "$CHECK_SH" && PASS=$((PASS + 1)) || { FAIL=$((FAIL + 1)); FAIL_CASES+=("CRITICAL #1 fix: stdin pipe heredoc 없음"); }
-grep -q 'json.load(sys.stdin)' "$CHECK_SH" && PASS=$((PASS + 1)) || { FAIL=$((FAIL + 1)); FAIL_CASES+=("CRITICAL #1 fix: json.load(sys.stdin) 없음"); }
-# 옛 vulnerable pattern 잔존 확인 — 주석 (line 시작 `#`) 제외, actual code 만
-if grep -v '^[[:space:]]*#' "$CHECK_SH" | grep -q "comments_raw = '''"; then
-    FAIL=$((FAIL + 1))
-    FAIL_CASES+=("CRITICAL #1 회귀: comments_raw shell-interp 잔존 (actual code)")
-else
-    PASS=$((PASS + 1))
-fi
+# --- 9. (deprecated) safe-merge/check.sh injection-safe ---
+# safe-merge skill 제거. CRITICAL #1 fix verification 의 의미 사라짐.
+# 본 verify 는 safe-push/check-ci.sh (heredoc env var pattern) 의 일부로 별 test (FOLLOWUP).
 
 # --- 결과 ---
 echo ""

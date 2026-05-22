@@ -10,8 +10,8 @@
 #   - exit 2: block — Claude main session 에 stderr 출력 (system reminder)
 #
 # 본 hook 가 차단하는 명령:
-#   - gh pr merge ...           → /safe-merge skill 사용
-#   - gh api .../merges ...     → /safe-merge skill 사용
+#   - gh pr merge ...           → Mergify auto-merge (PR 2 후) 또는 사용자 admin bypass (PR 2 전) 사용
+#   - gh api .../merges ...     → Mergify auto-merge (PR 2 후) 또는 사용자 admin bypass (PR 2 전) 사용
 #   - git push * main ...       → /safe-push skill 사용 (push 대상 = main branch)
 #   - git update-ref refs/heads/main → 직접 ref 조작 우회
 #   - git merge --ff-only origin/main → local fast-forward 우회
@@ -98,7 +98,7 @@ print(" ".join(toks[:8]))
     return 0
 }
 
-# /safe-merge skill 안에서 호출되는 명령은 본 hook 의 detect 어려움 (skill context 별 표기 없음).
+# Mergify auto-merge (PR 2 후) 또는 사용자 admin bypass (PR 2 전) 안에서 호출되는 명령은 본 hook 의 detect 어려움 (skill context 별 표기 없음).
 # settings.deny 가 1차 차단, 본 hook 는 2차 (deny 우회 시 catch).
 # Skill 안 logic 가 모든 검증 통과 후 실제 raw 명령 호출 — 그 시점에 본 hook 가 또 block 하면 모순.
 # 회피: skill 가 raw 명령 호출 시 env var (SAFE_MERGE_BYPASS=1) 명시. hook 가 본 env 확인.
@@ -115,7 +115,7 @@ if ! canonical_check "$command"; then
 검출: tokenize 후 canonical form 의 머지/푸시 시도 (alias / variable / git -c / 우회 형식)
 
 본 명령을 직접 사용 금지. 다음 skill 사용:
-  /safe-merge <PR-NUM>         — 머지 entry
+  (Mergify auto-merge — PR 2 후 server-side / 사용자 admin bypass — PR 2 전)
   /safe-push <BRANCH>           — 푸시 entry
 
 skill 안 실제 raw 명령 호출 시 SAFE_MERGE_BYPASS=1 env 명시 (skill 의 일부).
@@ -135,7 +135,7 @@ for pat in "${BLOCK_PATTERNS[@]}"; do
 매칭 pattern: $pat
 
 본 명령을 직접 사용 금지. 다음 skill 사용:
-  /safe-merge <PR-NUM>         — 머지 entry (reviewer 5 + verifier APPROVE 검증 → raw merge)
+  (Mergify auto-merge — PR 2 후 server-side / 사용자 admin bypass — PR 2 전) (reviewer 5 + verifier APPROVE 검증 → raw merge)
   /safe-push <BRANCH>           — 푸시 entry (commit 검증 + 자동 review trigger)
 
 skill 안 실제 raw 명령 호출 시 SAFE_MERGE_BYPASS=1 env 명시 (skill 의 일부, 본인 manual 호출 금지).
