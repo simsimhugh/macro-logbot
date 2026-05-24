@@ -31,7 +31,7 @@ cat "$EVIDENCE_FILE" 2>/dev/null || echo "no evidence file (cycle 1)"
 ```
 
 - evidence 파일이 있으면 → 파일 내용을 보존 대상으로 사용. 역추론 불필요.
-- evidence 파일이 없으면 → cycle 1 (첫 fix). 보존 대상 없음 — 신규 fix 만 수행.
+- evidence 파일이 없으면 → cycle 1 (첫 fix). 보존 대상 없음 — 신규 fix 만 수행. 단, 의무 항목 8 에서 fix 완료 후 evidence 파일 생성 의무 — verifier 호출 시점에는 evidence 파일이 존재해야 함.
 - 각 cycle entry 의 `fix_lines[].code` 를 `grep` 으로 현재 파일에서 위치 확인 (라인 drift 대응)
 - 보존 의무: evidence 에 기록된 모든 fix 는 새 commit 에 그대로 있어야 함
 
@@ -40,8 +40,9 @@ evidence 파일 스키마:
 ```json
 {
   "pr": 71,
-  "cycles": {
-    "cycle_1": {
+  "cycles": [
+    {
+      "cycle": 1,
       "findings": [
         {
           "reviewer": "security-reviewer",
@@ -55,7 +56,7 @@ evidence 파일 스키마:
         {"file": "post_helper.py", "line": 60, "code": "sanitize(input)"}
       ]
     }
-  }
+  ]
 }
 ```
 
@@ -106,7 +107,8 @@ fix 후 반드시 변경 라인이 finding location 과 일치하는지 self-ver
 
 ```bash
 # finding 의 location: "post_helper.py:60" → 해당 줄이 실제 fix 됐는지 diff 확인
-git diff <옛-SHA>..HEAD -- <fix-file>
+# 여기서 SHA 는 현재 cycle 의 fix commit 직전 SHA (역추론 아님 — 자기 작업 범위)
+git diff HEAD~1..HEAD -- <fix-file>
 ```
 
 - `git diff` 의 `+` 라인이 finding 의 location:line 영역에 있는지 확인해라
@@ -118,14 +120,22 @@ git diff <옛-SHA>..HEAD -- <fix-file>
 evidence 파일의 모든 cycle 의 block 사유 fix 가 현재 코드에 그대로 있는지 확인해야 함.
 
 ```bash
-# evidence 파일에서 각 cycle 의 blocking finding + fix code 추출 후 grep
+# evidence 파일에서 각 cycle 의 blocking finding + fix code + file 추출 후 해당 파일에서 grep
 # (evidence 파일이 없으면 cycle 1 — 이 항목 skip)
 cat ".omc/state/fix-evidence/pr-<PR-NUM>.json" | \
-  python3 -c "import json,sys; d=json.load(sys.stdin); [print(fl['code']) for c in d.get('cycles',{}).values() for fl in c.get('fix_lines',[])]" | \
-  while read -r code; do grep -qF "$code" <fix-file> || echo "MISSING: $code"; done
+  python3 -c "
+import json, sys
+d = json.load(sys.stdin)
+for c in d.get('cycles', []):
+    for fl in c.get('fix_lines', []):
+        print(fl['file'] + '\t' + fl['code'])
+" | while IFS=$'\t' read -r file code; do
+    grep -qF "$code" "$file" || echo "MISSING in $file: $code"
+done
 ```
 
-- evidence 에 기록된 fix code 가 현재 파일에 없으면 regression → 즉시 재 fix
+- fix_lines[].file 별로 iterate 하므로 multi-file fix 에서도 각 파일에서 개별 grep 수행
+- evidence 에 기록된 fix code 가 해당 파일에 없으면 regression → 즉시 재 fix
 - 보존 의무: evidence 의 cycle 1 부터 현재까지 모든 block 사유 fix code 가 현재 코드에 존재해야 함
 
 ## 의무 항목 8 — fix evidence 쓰기 (persist)
@@ -136,8 +146,8 @@ fix 완료 후 반드시 `.omc/state/fix-evidence/pr-<PR-NUM>.json` 에 현재 c
 # 디렉토리 생성 (최초 1회)
 mkdir -p .omc/state/fix-evidence
 
-# evidence 파일 쓰기 (기존 파일이 있으면 cycles 에 추가, 없으면 신규 생성)
-# cycle 번호는 기존 파일의 마지막 cycle + 1 (없으면 cycle_1)
+# evidence 파일 쓰기 (기존 파일이 있으면 cycles 배열에 append, 없으면 신규 생성)
+# cycle 번호는 기존 배열의 마지막 entry 의 cycle + 1 (배열 비어있거나 파일 없으면 1)
 ```
 
 evidence entry 필수 필드:

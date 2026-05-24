@@ -50,13 +50,21 @@ git show HEAD -- <fix-file>
 verifier sub-agent 는 evidence 파일에 기록된 옛 fix 가 새 작업으로 overwrite 됐는지 검출해야 함.
 
 ```bash
-# evidence 파일의 각 cycle fix_lines[].code 가 현재 파일에 있는지 grep
+# evidence 파일의 각 cycle fix_lines[].code + file 를 추출해 해당 파일에서 grep
 cat ".omc/state/fix-evidence/pr-<PR-NUM>.json" | \
-  python3 -c "import json,sys; d=json.load(sys.stdin); [print(fl['code']) for c in d.get('cycles',{}).values() for fl in c.get('fix_lines',[])]" | \
-  while read -r code; do grep -qF "$code" <fix-file> || echo "MISSING: $code"; done
+  python3 -c "
+import json, sys
+d = json.load(sys.stdin)
+for c in d.get('cycles', []):
+    for fl in c.get('fix_lines', []):
+        print(fl['file'] + '\t' + fl['code'])
+" | while IFS=$'\t' read -r file code; do
+    grep -qF "$code" "$file" || echo "MISSING in $file: $code"
+done
 ```
 
-- evidence 에 기록된 fix code 가 현재 파일에 없으면 → **FAIL** 즉시 보고
+- fix_lines[].file 별로 iterate 하므로 multi-file fix 에서도 각 파일에서 개별 grep 수행
+- evidence 에 기록된 fix code 가 해당 파일에 없으면 → **FAIL** 즉시 보고
 - regression 발견 시 어떤 commit 이 overwrite 했는지 특정:
 
 ```bash
