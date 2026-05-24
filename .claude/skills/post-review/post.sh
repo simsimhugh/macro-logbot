@@ -344,8 +344,10 @@ case "$EXPECTED_VERDICT" in
         # role-specific blocking policy message (사용자 명시 2026-05-23)
         if [ "$ROLE" = "code-reviewer" ]; then
             VERDICT_LINE="**REQUEST_CHANGES** — CRITICAL/HIGH at HIGH confidence 만 blocking."
-        else
+        elif [ "$ROLE" = "architect" ]; then
             VERDICT_LINE="**REQUEST_CHANGES** — CRITICAL/HIGH/MED/WARN blocking."
+        else
+            VERDICT_LINE="**REQUEST_CHANGES** — CRITICAL/HIGH blocking."
         fi
         ;;
     # code-r LOW-1: wildcard branch 제거 — expected_verdict 는 APPROVE/REQUEST_CHANGES 만 반환
