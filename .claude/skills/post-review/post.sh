@@ -267,6 +267,24 @@ if [ -n "$LAST_SHA" ] && [ "$LAST_SHA" = "$HEAD_SHA" ]; then
     exit 0
 fi
 
+#-----------------------------------------------------------------------
+# 6.5. dismiss old reviews from same role — 새 review 게시 전 같은 bot user 의
+#      기존 review 를 dismiss (superseded). 다른 role/bot 의 review 는 미터치.
+#      dismiss 실패는 non-fatal (WARN) — 새 review 게시가 우선.
+#-----------------------------------------------------------------------
+if [ "${POST_REVIEW_DRY_RUN:-}" != "1" ]; then
+    _old_review_ids="$(printf '%s' "$_reviews_raw" | python3 "$HELPER" extract_review_ids "$GH_USER" 2>/dev/null || true)"
+    if [ -n "$_old_review_ids" ]; then
+        while IFS= read -r _rid; do
+            [ -z "$_rid" ] && continue
+            gh api -X PUT "/repos/${REPO}/pulls/${PR_NUM}/reviews/${_rid}/dismissals" \
+                -f message="Superseded by new review at ${HEAD_SHA:0:7}" >/dev/null 2>&1 || {
+                echo "[post-review] WARN: failed to dismiss old review $_rid (non-fatal)" >&2
+            }
+        done <<< "$_old_review_ids"
+    fi
+fi
+
 # commit 범위 표기 — PR base ~ HEAD (full SHA, GitHub 자동 링크)
 COMMIT_LIST="${PR_BASE_SHA} ~ ${HEAD_SHA}"
 
