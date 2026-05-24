@@ -652,3 +652,94 @@ def test_render_findings_low_info_skip_all_roles(tmp_template: str):
     for role in ("code-reviewer", "architect", "security-reviewer", "test-engineer", ""):
         assert ph.render_findings(low_findings, tmp_template, role) == "_(no blocking findings)_"
         assert ph.render_findings(info_findings, tmp_template, role) == "_(no blocking findings)_"
+
+
+# ---------------------------------------------------------------------------
+# extract_review_ids (PR #75: dismiss old reviews from same role)
+# ---------------------------------------------------------------------------
+
+
+def test_extract_review_ids_returns_matching_user_id():
+    reviews = json.dumps([{"id": 111, "user": {"login": "my-bot"}}])
+    result = ph.extract_review_ids(reviews, "my-bot")
+    assert result == "111"
+
+
+def test_extract_review_ids_returns_multiple_ids_newline_separated():
+    reviews = json.dumps(
+        [
+            {"id": 10, "user": {"login": "my-bot"}},
+            {"id": 20, "user": {"login": "my-bot"}},
+        ]
+    )
+    result = ph.extract_review_ids(reviews, "my-bot")
+    assert result == "10\n20"
+
+
+def test_extract_review_ids_ignores_other_users():
+    reviews = json.dumps(
+        [
+            {"id": 10, "user": {"login": "my-bot"}},
+            {"id": 99, "user": {"login": "other-bot"}},
+        ]
+    )
+    result = ph.extract_review_ids(reviews, "my-bot")
+    assert result == "10"
+    assert "99" not in result
+
+
+def test_extract_review_ids_returns_empty_string_when_no_match():
+    reviews = json.dumps([{"id": 55, "user": {"login": "other-bot"}}])
+    result = ph.extract_review_ids(reviews, "my-bot")
+    assert result == ""
+
+
+def test_extract_review_ids_empty_array_returns_empty_string():
+    result = ph.extract_review_ids("[]", "my-bot")
+    assert result == ""
+
+
+def test_extract_review_ids_skips_non_dict_items():
+    # non-dict entries (e.g. null, string) must be skipped without crashing
+    reviews = json.dumps([None, "bad", {"id": 42, "user": {"login": "my-bot"}}])
+    result = ph.extract_review_ids(reviews, "my-bot")
+    assert result == "42"
+
+
+def test_extract_review_ids_skips_entry_with_missing_user_key():
+    reviews = json.dumps([{"id": 7}, {"id": 8, "user": {"login": "my-bot"}}])
+    result = ph.extract_review_ids(reviews, "my-bot")
+    assert result == "8"
+
+
+def test_extract_review_ids_skips_entry_with_null_user():
+    reviews = json.dumps([{"id": 3, "user": None}, {"id": 4, "user": {"login": "my-bot"}}])
+    result = ph.extract_review_ids(reviews, "my-bot")
+    assert result == "4"
+
+
+def test_extract_review_ids_id_returned_as_string():
+    # IDs must be strings (used in shell loop as gh api path segment)
+    reviews = json.dumps([{"id": 9999, "user": {"login": "bot"}}])
+    ids = ph.extract_review_ids(reviews, "bot").split("\n")
+    assert all(isinstance(i, str) for i in ids)
+    assert ids == ["9999"]
+
+
+def test_extract_review_ids_skips_dismissed():
+    reviews = json.dumps(
+        [
+            {"id": 100, "user": {"login": "bot"}, "state": "APPROVED"},
+            {"id": 200, "user": {"login": "bot"}, "state": "DISMISSED"},
+            {"id": 300, "user": {"login": "bot"}, "state": "CHANGES_REQUESTED"},
+        ]
+    )
+    result = ph.extract_review_ids(reviews, "bot")
+    assert result == "100\n300"
+
+
+def test_extract_review_ids_int_cast():
+    # non-integer id raises ValueError (defense-in-depth)
+    reviews = json.dumps([{"id": "not-a-number", "user": {"login": "bot"}}])
+    with pytest.raises(ValueError):
+        ph.extract_review_ids(reviews, "bot")

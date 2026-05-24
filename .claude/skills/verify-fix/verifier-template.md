@@ -5,24 +5,23 @@ main session 은 verifier spawn 시 아래 항목을 모두 포함한 brief 를 
 
 ---
 
-## 의무 항목 1 — 옛 fix evidence preserved 검증
+## 의무 항목 1 — 옛 fix evidence preserved 검증 (evidence 파일 기반)
 
-verifier sub-agent 는 이전 모든 cycle 의 fix 가 현 HEAD 에 그대로 있는지 확인해야 함.
+verifier sub-agent 는 evidence 파일에 기록된 모든 cycle 의 fix 가 현 HEAD 에 그대로 있는지 확인해야 함.
 
 ```bash
-# 전체 commit history (main 이후)
-git log --oneline origin/main..HEAD
+# evidence 파일 읽기
+EVIDENCE_FILE=".omc/state/fix-evidence/pr-<PR-NUM>.json"
+cat "$EVIDENCE_FILE" 2>/dev/null || echo "no evidence file"
 
-# 특정 이전 cycle commit 의 변경 내용
-git show <옛-cycle-sha> --stat
-git show <옛-cycle-sha> -- <fix-file>
-
-# 옛 fix 의 핵심 코드가 현 HEAD 에 있는지 grep
-grep -n "<옛-fix-핵심-코드>" <fix-file>
+# evidence 의 각 cycle fix_lines[].code 가 현재 파일에 있는지 grep
+grep -n "<evidence 의 fix code>" <fix-file>
 ```
 
-- 옛 cycle 의 fix 가 현 HEAD 에 없으면 → **FAIL** + 재 fix 의무 보고
-- 각 이전 cycle 의 핵심 fix file:line 을 표로 정리해 존재 여부 명시
+- evidence 파일이 없으면 → **FAIL** (fix sub-agent 가 의무 항목 8 미이행)
+- evidence 에 기록된 fix code 가 현 HEAD 에 없으면 → **FAIL** + regression 보고
+- evidence 파일의 각 cycle 별 fix code 를 표로 정리해 존재 여부 명시
+- 라인 번호 drift 는 허용 — code 내용 기준으로 판정
 
 ## 의무 항목 2 — 새 finding fix evidence 매핑
 
@@ -46,23 +45,30 @@ git show HEAD -- <fix-file>
 
 - fix evidence 가 없는 finding → **FAIL** + 재 fix 의무 보고
 
-## 의무 항목 3 — regression catch
+## 의무 항목 3 — regression catch (evidence 기반)
 
-verifier sub-agent 는 옛 fix 가 새 작업으로 overwrite 됐는지 검출해야 함.
+verifier sub-agent 는 evidence 파일에 기록된 옛 fix 가 새 작업으로 overwrite 됐는지 검출해야 함.
 
 ```bash
-# 옛 cycle SHA 와 현 HEAD 의 fix file diff
-git diff <옛-cycle-sha>..HEAD -- <fix-file>
-
-# 옛 fix 의 핵심 line 이 삭제됐는지 확인 (- 라인으로 표기되면 regression)
-git diff <옛-cycle-sha>..HEAD -- <fix-file> | grep "^-"
+# evidence 파일의 각 cycle fix_lines[].code + file 를 추출해 해당 파일에서 grep
+cat ".omc/state/fix-evidence/pr-<PR-NUM>.json" | \
+  python3 -c "
+import json, sys
+d = json.load(sys.stdin)
+for c in d.get('cycles', []):
+    for fl in c.get('fix_lines', []):
+        print(fl['file'] + '\t' + fl['code'])
+" | while IFS=$'\t' read -r file code; do
+    grep -qF "$code" "$file" || echo "MISSING in $file: $code"
+done
 ```
 
-- 옛 fix line 이 `-` 로 표기 (삭제) 됐으면 → **FAIL** 즉시 보고
+- fix_lines[].file 별로 iterate 하므로 multi-file fix 에서도 각 파일에서 개별 grep 수행
+- evidence 에 기록된 fix code 가 해당 파일에 없으면 → **FAIL** 즉시 보고
 - regression 발견 시 어떤 commit 이 overwrite 했는지 특정:
 
 ```bash
-git log --oneline <옛-cycle-sha>..HEAD -- <fix-file>
+git log --oneline <evidence-cycle-sha>..HEAD -- <fix-file>
 ```
 
 ## 의무 항목 4 — end-to-end test (post.sh dry-run)
@@ -130,25 +136,31 @@ grep -n "<정밀화된-regex>" .claude/hooks/pre-bash-gate.sh
 - finding 의 `code` field 와 현재 파일 내용 비교 — `code` 가 더 이상 존재하지 않아야 정상
 - e.g. "hook 의 false-positive" finding → hook 의 regex pattern 이 정밀화 됐는지 grep + diff verify
 
-## 의무 항목 6 — cycle history regression tracking
+## 의무 항목 6 — cycle history regression tracking (evidence 기반)
 
-verifier sub-agent 는 옛 cycle (cycle 1~N) 의 block 사유 list 가 새 cycle 에서 재 surface 됐는지 추적해야 함.
+verifier sub-agent 는 evidence 파일의 모든 cycle 의 block 사유 fix 가 현 HEAD 에 보존됐는지 추적해야 함.
 
 ```bash
-# PR review history 에서 옛 cycle 의 block 사유 finding 목록 추출
-gh pr view <PR-NUM> --json reviews --jq '.reviews[].body' | grep -E "(CRITICAL|HIGH|MED|WARN)"
+# evidence 파일에서 전체 cycle 의 finding + fix code 목록 추출
+cat ".omc/state/fix-evidence/pr-<PR-NUM>.json" | \
+  python3 -c "
+import json, sys
+d = json.load(sys.stdin)
+for c in d.get('cycles', []):
+    cname = f'cycle_{c.get(\"cycle\", \"?\")}'
+    for fl in c.get('fix_lines', []):
+        print(f'{cname}: {fl[\"file\"]}:{fl[\"line\"]} → {fl[\"code\"]!r}')
+"
 
-# 옛 cycle SHA 에서 fix 된 코드가 현 HEAD 에도 fix 돼 있는지 확인
-git show <옛-cycle-sha> -- <fix-file> | grep "^+"  # 옛 cycle 이 추가한 fix 코드
-grep -n "<옛-fix-코드>" <fix-file>                 # 현 HEAD 에도 존재해야 함
+# 각 fix code 가 현재 파일에 존재하는지 grep
+grep -qF "<fix code>" <fix-file> || echo "REGRESSION"
 ```
 
-- 옛 cycle 의 block 사유 finding title 목록을 PR review history 에서 추출해라
-- 해당 finding 이 새 cycle 에서 다시 나타나면 → **FAIL** (regression — fix 가 덮어쓰여졌거나 revert 됨)
+- evidence 에 기록된 fix code 가 현 HEAD 에 없으면 → **FAIL** (regression)
 - cycle history regression 발견 시 어떤 commit 이 재 도입했는지 특정:
 
 ```bash
-git log --oneline <옛-cycle-sha>..HEAD -- <fix-file>
+git log --oneline <evidence-cycle-sha>..HEAD -- <fix-file>
 ```
 
 ## 의무 항목 7 — end-to-end dry-run (post.sh sample 호출)
@@ -188,17 +200,49 @@ python3 "$HELPER" expected_verdict '[{"severity":"CRITICAL","title":"SQL injecti
 - 위 6 개 dry-run 모두 기대 결과와 일치해야 함 → 하나라도 다르면 **FAIL**
 - 옛 block 사유 finding 을 sample 로 사용해 실제 blocking 여부 confirm
 
+## 의무 항목 8 — evidence 파일 존재 + 무결성 검증
+
+verifier sub-agent 는 fix sub-agent 가 evidence 파일을 올바르게 작성했는지 검증해야 함.
+
+```bash
+EVIDENCE_FILE=".omc/state/fix-evidence/pr-<PR-NUM>.json"
+
+# 파일 존재 확인
+[ -f "$EVIDENCE_FILE" ] || echo "FAIL: evidence file missing"
+
+# JSON 파싱 + 필수 필드 확인
+python3 -c "
+import json, sys
+d = json.load(open(sys.argv[1]))
+assert 'pr' in d, 'missing pr field'
+assert 'cycles' in d, 'missing cycles field'
+for c in d['cycles']:
+    cname = f'cycle_{c.get(\"cycle\", \"?\")}'
+    assert 'findings' in c, f'{cname}: missing findings'
+    assert 'fix_commit' in c, f'{cname}: missing fix_commit'
+    assert 'fix_lines' in c, f'{cname}: missing fix_lines'
+    for fl in c['fix_lines']:
+        assert 'file' in fl and 'line' in fl and 'code' in fl, f'{cname}: fix_line missing field'
+print('OK')
+" "$EVIDENCE_FILE"
+```
+
+- evidence 파일이 없으면 → **FAIL** (fix sub-agent 의무 항목 8 미이행)
+- JSON 파싱 실패 또는 필수 필드 누락 → **FAIL**
+- 최신 cycle entry 의 `fix_commit` 이 실제 commit SHA 인지 `git log` 로 확인
+
 ---
 
 ## 완료 보고 의무 항목
 
 verifier sub-agent 의 완료 보고에는 반드시 다음을 포함해야 함:
 
-1. **옛 fix preserved 표** — 옛 cycle 핵심 fix 의 file:line → 현 HEAD 존재 여부 (PASS/FAIL)
+1. **옛 fix preserved 표** — evidence 파일의 각 cycle fix code → 현 HEAD 존재 여부 (PASS/FAIL)
 2. **새 finding fix evidence 표** — finding 별 fix file:line + diff 요약
-3. **regression 없음 확인** — "옛 fix overwrite 없음" 또는 발견된 regression 상세
+3. **regression 없음 확인** — evidence 기반 code grep 결과 (regression 없음 또는 상세)
 4. **end-to-end test 결과** — render_findings / expected_verdict 단위 테스트 출력
 5. **block 사유 별 specific verify** — 각 finding location 의 actual content fix 확인
-6. **cycle history regression tracking** — 옛 cycle block 사유 재 surface 여부 (PASS/FAIL)
+6. **cycle history regression tracking** — evidence 파일 기반 전체 cycle fix 보존 여부 (PASS/FAIL)
 7. **end-to-end dry-run 결과** — post.sh helper 6 개 sample 호출 + 기대 결과 일치 여부
-8. **전체 verdict** — PASS (모두 확인) 또는 FAIL (재 fix 필요 항목 명시)
+8. **evidence 파일 무결성** — 파일 존재 + JSON 파싱 + 필수 필드 확인 (PASS/FAIL)
+9. **전체 verdict** — PASS (모두 확인) 또는 FAIL (재 fix 필요 항목 명시)
