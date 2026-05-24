@@ -97,8 +97,8 @@ last review SHA 산출 — gh api /pulls/<PR>/reviews | select(.user.login == "$
   ↓
 last SHA == HEAD → idempotent skip (exit 0, 게시 안 함)
   ↓
-dismiss old reviews — 같은 bot user ($GH_USER) 의 기존 review dismiss (Superseded)
-  다른 role/bot 의 review 미터치. dismiss 실패는 non-fatal (WARN). dry-run 시 skip.
+minimize old reviews — 같은 bot user ($GH_USER) 의 기존 review 를 "Hidden as outdated" 처리
+  다른 role/bot 의 review 미터치. minimize 실패는 non-fatal (WARN). dry-run 시 skip.
   ↓
 commit 범위 표기 — PR_BASE_SHA ~ HEAD_SHA (full SHA, GitHub 자동 링크)
   ↓

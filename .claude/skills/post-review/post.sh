@@ -268,20 +268,21 @@ if [ -n "$LAST_SHA" ] && [ "$LAST_SHA" = "$HEAD_SHA" ]; then
 fi
 
 #-----------------------------------------------------------------------
-# 6.5. dismiss old reviews from same role — 새 review 게시 전 같은 bot user 의
-#      기존 review 를 dismiss (superseded). 다른 role/bot 의 review 는 미터치.
-#      dismiss 실패는 non-fatal (WARN) — 새 review 게시가 우선.
+# 6.5. minimize (hide) old reviews from same role — 새 review 게시 전 같은
+#      bot user 의 기존 review 를 "Hidden as outdated" 처리.
+#      다른 role/bot 의 review 는 미터치.
+#      minimize 실패는 non-fatal (WARN) — 새 review 게시가 우선.
 #-----------------------------------------------------------------------
 if [ "${POST_REVIEW_DRY_RUN:-}" != "1" ]; then
-    _old_review_ids="$(printf '%s' "$_reviews_raw" | python3 "$HELPER" extract_review_ids "$GH_USER" 2>/dev/null || true)"
-    if [ -n "$_old_review_ids" ]; then
-        while IFS= read -r _rid; do
-            [ -z "$_rid" ] && continue
-            gh api -X PUT "/repos/${REPO}/pulls/${PR_NUM}/reviews/${_rid}/dismissals" \
-                -f message="Superseded by new review at ${HEAD_SHA:0:7}" >/dev/null 2>&1 || {
-                echo "[post-review] WARN: failed to dismiss old review $_rid (non-fatal)" >&2
+    _old_node_ids="$(printf '%s' "$_reviews_raw" | python3 "$HELPER" extract_review_node_ids "$GH_USER" 2>/dev/null || true)"
+    if [ -n "$_old_node_ids" ]; then
+        while IFS= read -r _nid; do
+            [ -z "$_nid" ] && continue
+            gh api graphql -f query='mutation($id:ID!){minimizeComment(input:{subjectId:$id,classifier:OUTDATED}){minimizedComment{isMinimized}}}' \
+                -f id="$_nid" >/dev/null 2>&1 || {
+                echo "[post-review] WARN: failed to minimize old review $_nid (non-fatal)" >&2
             }
-        done <<< "$_old_review_ids"
+        done <<< "$_old_node_ids"
     fi
 fi
 
