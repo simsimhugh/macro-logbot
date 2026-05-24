@@ -27,10 +27,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v4
 
       - name: Set up Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@v5
         with:
           python-version: "3.14"
           cache: pip
@@ -54,7 +54,7 @@ jobs:
     container:
       image: semgrep/semgrep:latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v4
 
       - name: semgrep ci
         # `p/python` + `p/security-audit` + `p/owasp-top-ten` ruleset.
@@ -68,19 +68,19 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v4
 
       - name: Initialize CodeQL
-        uses: github/codeql-action/init@v4
+        uses: github/codeql-action/init@v3
         with:
           languages: python
           # default queries + security-extended.
           queries: security-extended,security-and-quality
 
       - name: Autobuild
-        uses: github/codeql-action/autobuild@v4
+        uses: github/codeql-action/autobuild@v3
 
       - name: Perform CodeQL Analysis
-        uses: github/codeql-action/analyze@v4
+        uses: github/codeql-action/analyze@v3
         with:
           category: "/language:python"

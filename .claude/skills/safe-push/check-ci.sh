@@ -38,6 +38,8 @@ fi
 # --- poll loop ---
 start=$(date +%s)
 poll_interval=30  # 30s — gh API rate limit 보호 + CI completion 의 typical timing.
+empty_count=0
+EMPTY_MAX=10  # finding R: EMPTY rollup N회 연속 시 early exit (CI workflow 미등록 PR 추정)
 
 while true; do
     elapsed=$(($(date +%s) - start))
@@ -102,10 +104,18 @@ PY
             exit 1
             ;;
         EMPTY)
-            echo "WAIT: CI run 미시작 (elapsed=${elapsed}s) — wait $poll_interval s..." >&2
+            empty_count=$((empty_count + 1))
+            if [ "$empty_count" -ge "$EMPTY_MAX" ]; then
+                echo "FAIL: statusCheckRollup 가 ${EMPTY_MAX}회 연속 빈 배열 — CI workflow 미등록 PR 추정. 수동 확인 필요." >&2
+                exit 1
+            fi
+            echo "WAIT: CI run 미시작 (elapsed=${elapsed}s, empty=${empty_count}/${EMPTY_MAX}) — wait $poll_interval s..." >&2
             sleep "$poll_interval"
             ;;
         PENDING:*)
+            # test-eng LOW-2: empty_count 초기화 조건 명시 — PENDING / PASSED 상태 시 초기화
+            # (CI 가 시작됐음 = workflow 등록 확인됨 → EMPTY_MAX early exit 불필요)
+            empty_count=0
             n="${analysis#PENDING:}"
             n="${n%%:*}"
             echo "WAIT: $n CI checks pending (elapsed=${elapsed}s) — wait $poll_interval s..." >&2
@@ -117,6 +127,7 @@ PY
             exit 1
             ;;
         PASSED:*)
+            empty_count=0  # test-eng LOW-2: PASSED 시도 초기화 (workflow 등록 확인됨)
             n="${analysis#PASSED:}"
             n="${n%%:*}"
             echo "PASS: 모든 $n CI checks success (elapsed=${elapsed}s) — reviewer cycle 시작 가능" >&2
