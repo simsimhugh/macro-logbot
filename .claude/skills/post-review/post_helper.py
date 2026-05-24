@@ -13,7 +13,7 @@ commands:
                                       (사용자 명시: template 이 render 의 단일 source)
   verdict_reason <json>             — severity count 요약 출력
   severity_set <json>               — severity set 출력 (sorted, bracket)
-  extract_review_ids               — stdin: reviews JSON, argv: user → newline-separated review IDs
+  extract_review_node_ids          — stdin: reviews JSON, argv: user → node IDs (GraphQL)
   validate_findings <json>          — OK / PARSE_ERROR:<msg> / NOT_ARRAY:<type>
   validate_finding_format <json>    — finding severity/length/format validate
                                       (finding A: severity allow-list, finding E: location range)
@@ -52,21 +52,19 @@ def extract_field(json_str: str, field: str) -> str:
     return str(d.get(field, "") or "")
 
 
-def extract_review_ids(reviews_json: str, user: str) -> str:
-    """reviews JSON array 에서 user.login == user 인 review 의 id 목록 반환.
+def extract_review_node_ids(reviews_json: str, user: str) -> str:
+    """reviews JSON array 에서 user.login == user 인 review 의 node_id 목록 반환.
 
     stdin 으로 raw reviews JSON 수신, user 는 CLI arg.
-    반환: newline-separated review ID (정수). 매칭 없으면 빈 문자열.
+    반환: newline-separated node_id (GraphQL minimizeComment 용). 매칭 없으면 빈 문자열.
     """
     reviews = json.loads(reviews_json)
-    ids = [
-        str(int(r["id"]))
+    node_ids = [
+        str(r["node_id"])
         for r in reviews
-        if isinstance(r, dict)
-        and (r.get("user") or {}).get("login") == user
-        and r.get("state") != "DISMISSED"
+        if isinstance(r, dict) and (r.get("user") or {}).get("login") == user and r.get("node_id")
     ]
-    return "\n".join(ids)
+    return "\n".join(node_ids)
 
 
 def findings_len(json_str: str) -> str:
@@ -520,10 +518,10 @@ def main() -> None:
             print(severity_set(sys.argv[2]))
         elif cmd == "validate_findings":
             print(validate_findings(sys.argv[2]))
-        elif cmd == "extract_review_ids":
+        elif cmd == "extract_review_node_ids":
             # stdin 으로 reviews JSON 수신, argv[2] = user
             reviews_input = sys.stdin.read()
-            print(extract_review_ids(reviews_input, sys.argv[2]))
+            print(extract_review_node_ids(reviews_input, sys.argv[2]))
         elif cmd == "validate_finding_format":
             validate_finding_format(sys.argv[2])
         elif cmd == "render_template":
