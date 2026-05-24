@@ -146,7 +146,8 @@ cat ".omc/state/fix-evidence/pr-<PR-NUM>.json" | \
   python3 -c "
 import json, sys
 d = json.load(sys.stdin)
-for cname, c in d.get('cycles', {}).items():
+for c in d.get('cycles', []):
+    cname = f'cycle_{c.get(\"cycle\", \"?\")}'
     for fl in c.get('fix_lines', []):
         print(f'{cname}: {fl[\"file\"]}:{fl[\"line\"]} → {fl[\"code\"]!r}')
 "
@@ -215,7 +216,8 @@ import json, sys
 d = json.load(open(sys.argv[1]))
 assert 'pr' in d, 'missing pr field'
 assert 'cycles' in d, 'missing cycles field'
-for cname, c in d['cycles'].items():
+for c in d['cycles']:
+    cname = f'cycle_{c.get(\"cycle\", \"?\")}'
     assert 'findings' in c, f'{cname}: missing findings'
     assert 'fix_commit' in c, f'{cname}: missing fix_commit'
     assert 'fix_lines' in c, f'{cname}: missing fix_lines'
