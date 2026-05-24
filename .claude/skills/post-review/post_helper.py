@@ -62,9 +62,9 @@ def expected_verdict(json_str: str, role: str = "") -> str:
     role-specific blocking severity set:
       code-reviewer: CRITICAL / HIGH at HIGH confidence 만 blocking
                      (OMC code-reviewer prompt 정의)
-      architect / security-reviewer / test-engineer (강화):
-                     CRITICAL + HIGH + MED + WARN blocking
-                     confidence 무관
+      architect (강화): CRITICAL + HIGH + MED + WARN blocking, confidence 무관
+      security-reviewer / test-engineer: CRITICAL + HIGH 만 blocking
+                     MED / WARN = informational (verdict 영향 X)
     """
     findings = json.loads(json_str)
 
@@ -73,9 +73,14 @@ def expected_verdict(json_str: str, role: str = "") -> str:
         # OMC prompt 정의: CRITICAL / HIGH at HIGH confidence 만 blocking
         blocking_sev = {"CRITICAL", "HIGH"}
         require_high_confidence = True
-    else:
-        # architect / security-reviewer / test-engineer (강화, 사용자 명시 2026-05-23)
+    elif role == "architect":
+        # architect (강화, 사용자 명시 2026-05-23)
         blocking_sev = {"CRITICAL", "HIGH", "MED", "MEDIUM", "WARN"}
+        require_high_confidence = False
+    else:
+        # security-reviewer / test-engineer: CRITICAL + HIGH 만 blocking
+        # MED / WARN = informational (사용자 명시 2026-05-24)
+        blocking_sev = {"CRITICAL", "HIGH"}
         require_high_confidence = False
 
     all_sev = {f.get("severity", "").upper() for f in findings if isinstance(f, dict)}

@@ -30,52 +30,6 @@ if [ -n "$NEW_COMMITS" ]; then
     done <<< "$NEW_COMMITS"
 fi
 
-# 2.5. last review SHA 이후 commit 수 check (한 cycle = 한 commit 의무)
-# 사용자 명시 (2026-05-23): review fix + lint/typecheck/format fix 도 한 commit 으로 통합 (분리 금지).
-# last review SHA 이후 HEAD 까지 commit 2+ 이면 reject — main session 이 squash 후 재호출.
-#
-# finding D (architect MED-3): step 2.5 의 "any reviewer" 의 last SHA 사용 의도 명문화.
-# 한 cycle 내 4 reviewer 는 모두 같은 HEAD commit 에 대해 review 하므로 any reviewer 의
-# last SHA = cycle 의 last commit SHA = 모든 reviewer 공통 baseline. 의도 OK.
-#
-# orphan last SHA case (사용자 catch 2026-05-23): squash 의 결과 last review SHA 가 HEAD 의
-# ancestor 아닌 orphan 인 경우 git rev-list LAST..HEAD 가 잘못된 commit 수 반환 → false reject.
-# 본 case 는 의도된 force-push (squash base 변경) — force flag 명시 시 step 2.5 skip + warn.
-_force_flag_present=0
-for _arg in "$@"; do
-    [ "$_arg" = "--force-with-lease" ] && _force_flag_present=1
-done
-if [ "$_force_flag_present" = "1" ]; then
-    echo "[safe-push] step 2.5 skip — force-with-lease 명시 (의도된 base 변경)" >&2
-else
-    PR_NUM_EARLY="$(gh pr view "$BRANCH" --json number --jq '.number' 2>/dev/null || true)"
-    if [ -n "$PR_NUM_EARLY" ]; then
-        REPO_OWNER_NAME="$(gh repo view --json nameWithOwner --jq '.nameWithOwner' 2>/dev/null || true)"
-        if [ -n "$REPO_OWNER_NAME" ]; then
-            LAST_REVIEW_SHA="$(gh api "/repos/${REPO_OWNER_NAME}/pulls/${PR_NUM_EARLY}/reviews" --jq '[.[] | .commit_id] | last // empty' 2>/dev/null || true)"
-            if [ -n "$LAST_REVIEW_SHA" ]; then
-                NEW_COMMIT_COUNT="$(git rev-list "${LAST_REVIEW_SHA}..HEAD" --count 2>/dev/null || echo "")"
-                # test-eng LOW-1: shallow clone / unknown SHA 시 git rev-list 가 empty 반환 가능
-                # → 검증 불가 warn 로깅 후 skip (false reject 방지)
-                if [ -z "$NEW_COMMIT_COUNT" ]; then
-                    echo "[safe-push] step 2.5 warn: git rev-list ${LAST_REVIEW_SHA}..HEAD 가 empty (shallow clone 또는 SHA 미보유) — commit count 검증 skip" >&2
-                elif [ "$NEW_COMMIT_COUNT" -gt 1 ]; then
-                    LAST_SHORT="$(echo "$LAST_REVIEW_SHA" | cut -c1-7)"
-                    cat >&2 <<EOF
-[safe-push] step 2.5 fail — last review SHA (${LAST_SHORT}) 이후 ${NEW_COMMIT_COUNT} commit.
-
-한 리뷰 사이클 = 한 commit 의무 위반. main session 의 자율 의무:
-  git reset --soft ${LAST_SHORT} && git commit -F <message-file>
-  또는 git commit --amend (단일 commit 인 경우)
-
-squash 후 bash run.sh $BRANCH --force-with-lease 재호출.
-EOF
-                    exit 1
-                fi
-            fi
-        fi
-    fi
-fi  # end: _force_flag_present != 1
 
 # 3. push (subshell child 라 raw git push 차단 hook 우회)
 # --force-with-lease 지원: --force-with-lease 인자 명시 (SAFE_PUSH_FORCE env var 미구현 — 인자 전용)

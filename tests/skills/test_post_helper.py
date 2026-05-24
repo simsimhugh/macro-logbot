@@ -607,11 +607,11 @@ def test_expected_verdict_architect_med_request_changes():
     )
 
 
-def test_expected_verdict_security_warn_request_changes():
-    # security-reviewer + WARN only → REQUEST_CHANGES
+def test_expected_verdict_security_warn_approve():
+    # security-reviewer + WARN only → APPROVE (MED/WARN = informational, 2026-05-24)
     assert (
         ph.expected_verdict('[{"severity":"WARN","title":"Weak cipher"}]', "security-reviewer")
-        == "REQUEST_CHANGES"
+        == "APPROVE"
     )
 
 
