@@ -166,9 +166,9 @@ python3 "$HELPER" expected_verdict '[{"severity":"MED","title":"Dead code"}]' "c
 python3 "$HELPER" expected_verdict '[{"severity":"MED","title":"Dead code"}]' "architect"
 # 기대: REQUEST_CHANGES
 
-# 3. security-reviewer + WARN only → REQUEST_CHANGES
+# 3. security-reviewer + WARN only → APPROVE (MED/WARN = informational, 2026-05-24)
 python3 "$HELPER" expected_verdict '[{"severity":"WARN","title":"Weak cipher"}]' "security-reviewer"
-# 기대: REQUEST_CHANGES
+# 기대: APPROVE
 
 # 4. code-reviewer body render: MED finding → body 에 없음
 python3 "$HELPER" render_findings '[{"severity":"MED","title":"Dead code","detail":"unused"}]' \

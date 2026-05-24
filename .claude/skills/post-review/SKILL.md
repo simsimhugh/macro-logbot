@@ -72,7 +72,7 @@ severity ∈ {`CRITICAL`, `HIGH`, `MED`, `WARN`, `LOW`, `INFO`, `PASS`}
 ### 예시
 
 ```bash
-.claude/skills/post-review/post.sh code-reviewer 65 REQUEST_CHANGES '[
+.claude/skills/post-review/post.sh code-reviewer 65 APPROVE '[
   {"severity":"MED","title":"Unbounded loop","location":"src/x.py:42","code":"while True:\n    count += 1","detail":"무한 증가."},
   {"severity":"LOW","title":"Typo","location":"src/x.py:7","code":"\"Returs the count\"","detail":"Returs → Returns"}
 ]'

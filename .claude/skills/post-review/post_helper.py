@@ -75,7 +75,7 @@ def expected_verdict(json_str: str, role: str = "") -> str:
         require_high_confidence = True
     elif role == "architect":
         # architect (강화, 사용자 명시 2026-05-23)
-        blocking_sev = {"CRITICAL", "HIGH", "MED", "MEDIUM", "WARN"}
+        blocking_sev = {"CRITICAL", "HIGH", "MED", "WARN"}
         require_high_confidence = False
     else:
         # security-reviewer / test-engineer: CRITICAL + HIGH 만 blocking
@@ -195,7 +195,7 @@ def render_findings(json_str: str, template_file: str, role: str = "") -> str:
     if role == "code-reviewer":
         body_sev = {"CRITICAL", "HIGH"}
     else:
-        body_sev = {"CRITICAL", "HIGH", "MED", "MEDIUM", "WARN"}
+        body_sev = {"CRITICAL", "HIGH", "MED", "WARN"}
 
     findings = json.loads(json_str)
     render_findings_list = [

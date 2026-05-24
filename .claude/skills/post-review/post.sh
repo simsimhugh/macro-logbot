@@ -8,7 +8,7 @@
 #     (옵션 C 2026-05-23: MED/WARN = informational — OMC code-reviewer prompt 정합)
 #   - identity 검증: token user.login ↔ 명시 GH_USER 일치.
 #   - scope 검증: <role> ↔ token username substring 일치 (e.g. architect ↔ *architect-bot).
-#   - incremental: last <role> review SHA 이후 commits 만 review 대상.
+#   - full PR scope: origin/main...HEAD 전체 diff review (incremental 아님).
 #   - idempotent: last review SHA == HEAD 면 게시 skip.
 #
 # 사용법:
@@ -246,7 +246,6 @@ print(json.dumps(matched[-1] if matched else {}))
 }
 LAST_REVIEW_JSON="$_reviews_out"
 LAST_SHA="$(python3 "$SCRIPT_DIR/post_helper.py" extract_field "$LAST_REVIEW_JSON" commit_id)"
-LAST_TIME="$(python3 "$SCRIPT_DIR/post_helper.py" extract_field "$LAST_REVIEW_JSON" submitted_at)"
 
 #-----------------------------------------------------------------------
 # 6. PR head/base SHA 산출 — finding K: last_sha ↔ head_sha atomic snapshot
@@ -298,8 +297,10 @@ EXPECTED_VERDICT="$(python3 "$HELPER" expected_verdict "$FINDINGS_JSON" "$ROLE")
 if [ "$VERDICT_ARG" != "$EXPECTED_VERDICT" ]; then
     if [ "$ROLE" = "code-reviewer" ]; then
         _policy_msg="정책 (code-reviewer, 옵션 C 2026-05-23): CRITICAL/HIGH at HIGH confidence → REQUEST_CHANGES. MED/WARN/LOW/INFO/PASS = informational → APPROVE. LOW-confidence CRITICAL/HIGH = informational → APPROVE."
+    elif [ "$ROLE" = "architect" ]; then
+        _policy_msg="정책 (architect, 2026-05-23 강화): CRITICAL/HIGH/MED/WARN → REQUEST_CHANGES. LOW/INFO/PASS = informational → APPROVE."
     else
-        _policy_msg="정책 (${ROLE}, 2026-05-23 강화): CRITICAL/HIGH/MED/WARN → REQUEST_CHANGES. LOW/INFO/PASS = informational → APPROVE."
+        _policy_msg="정책 (${ROLE}, 2026-05-24): CRITICAL/HIGH → REQUEST_CHANGES. MED/WARN/LOW/INFO/PASS = informational → APPROVE."
     fi
     cat >&2 <<EOF
 [post-review] verdict mismatch — agent 의 verdict 결정 ↔ findings severity 일관성 위반
