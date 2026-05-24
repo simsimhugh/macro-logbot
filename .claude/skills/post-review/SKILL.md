@@ -15,7 +15,7 @@ description: 4 reviewer agent (architect / code-reviewer / security-reviewer / t
    - `security-reviewer` / `test-engineer`: CRITICAL + HIGH → REQUEST_CHANGES, MED / WARN / LOW / INFO / PASS → APPROVE
 3. **identity verify** — token user.login ↔ `$GH_USER` 일치 (token 오염 / 다른 bot 명의 게시 catch).
 4. **scope verify** — `<role>` ↔ `$GH_USER` substring 일치 (architect agent 가 code-reviewer-bot 명의로 게시 catch).
-5. **incremental review** — `<role>` 의 last review SHA 이후 commits 만 review (template 의 `Reviewed commits` 섹션 자동 embed). last review SHA == 현 HEAD 면 게시 skip (idempotent).
+5. **full PR review** — 매 cycle 전체 PR diff (`origin/main...HEAD`) 를 review scope 로 사용. main session 이 reviewer agent prompt 작성 시 scope 를 incremental 로 좁히는 것 금지 — 기존 finding 이 scope 밖으로 사라지는 사각지대 방지. last review SHA == 현 HEAD 면 게시 skip (idempotent). commit 범위는 template 에 `PR_BASE_SHA ~ HEAD_SHA` (full SHA) 로 표기 — GitHub 이 자동 링크 + 앞 7자리 표시.
 6. **lockdown** — raw `gh pr comment` / `gh pr review` 는 hook + settings.deny 가 차단. 본 skill 의 post.sh 만 정직한 entry.
 
 ## 사용법 (agent 의 출력 의무)
@@ -97,7 +97,7 @@ last review SHA 산출 — gh api /pulls/<PR>/reviews | select(.user.login == "$
   ↓
 last SHA == HEAD → idempotent skip (exit 0, 게시 안 함)
   ↓
-commit list 산출 — gh api /compare/<last_sha>...HEAD (없으면 PR base 부터)
+commit 범위 표기 — PR_BASE_SHA ~ HEAD_SHA (full SHA, GitHub 자동 링크)
   ↓
 verdict 산출 — findings severity 기반 expected verdict
   ↓
@@ -161,7 +161,7 @@ POST_REVIEW_DRY_RUN=1 .claude/skills/post-review/post.sh <args>
 |---|---|
 | code-reviewer agent 가 CRITICAL/HIGH finding + APPROVE 게시 | verdict mismatch → exit 4 |
 | architect agent 가 code-reviewer-bot 명의로 게시 (token confusion) | identity (exit 2) + scope (exit 3) verify |
-| reviewer 가 PR 의 모든 commit 매번 review (incremental 위반) | `Reviewed commits` 섹션 자동 embed — last review 후 commits 만 |
+| reviewer 가 scope 를 incremental 로 좁혀 기존 finding 사각지대 | 본 SKILL.md 의 full PR review 정책 명시 — main 의 scope 축소 prompt 금지 |
 | 같은 reviewer 가 같은 HEAD commit 에 대해 2번 review 호출 | idempotent skip (last SHA == HEAD → exit 0, 게시 안 함) |
 | reviewer 가 raw `gh pr comment` 직접 호출 (skill bypass) | settings.deny + pre-bash-gate.sh 차단 |
 | main session 이 직접 post.sh 호출 (self-impersonation 시도) | hook 의 agent_type 검사 — agent_type field 없음 → 차단 |

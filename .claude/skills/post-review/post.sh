@@ -260,36 +260,16 @@ HEAD_SHA="$(python3 "$HELPER" extract_field "$_pr_json" head_sha)"
 PR_BASE_SHA="$(python3 "$HELPER" extract_field "$_pr_json" base_sha)"
 [ -z "$HEAD_SHA" ] && { echo "[post-review] failed to fetch PR head.sha" >&2; exit 5; }
 
-if [ -n "$LAST_SHA" ]; then
-    BASE_SHA="$LAST_SHA"
-    LAST_DISPLAY_SHA="${LAST_SHA:0:7}"
-    LAST_DISPLAY_TIME="$LAST_TIME"
-else
-    [ -z "$PR_BASE_SHA" ] && { echo "[post-review] failed to fetch PR base.sha" >&2; exit 5; }
-    BASE_SHA="$PR_BASE_SHA"
-    LAST_DISPLAY_SHA="none"
-    LAST_DISPLAY_TIME="—"
-fi
+[ -z "$PR_BASE_SHA" ] && { echo "[post-review] failed to fetch PR base.sha" >&2; exit 5; }
 
-# idempotent skip — last review 의 SHA == 현 HEAD → 게시 안 함 (사용자 명시 2026-05-22):
-# "한 리뷰싸이클에서 같은 서브에이전트가 리뷰를 2번 다는일이 빈번해" 의 직접 차단.
-# 같은 reviewer 가 같은 HEAD commit 에 대해 2번 호출 시 두번째는 skip — comment 까지 안 감.
-# 정당한 re-review (사용자 "다시 봐줘") 도 comment 까지는 필요 없다는 사용자 결정.
-# 새 commit 이 한 개라도 추가되면 자동으로 재 review 진행.
+# idempotent skip — last review 의 SHA == 현 HEAD → 게시 안 함 (사용자 명시 2026-05-22)
 if [ -n "$LAST_SHA" ] && [ "$LAST_SHA" = "$HEAD_SHA" ]; then
-    echo "[post-review] no new commits since last ${ROLE} review (${LAST_DISPLAY_SHA}) — skip (idempotent)"
+    echo "[post-review] no new commits since last ${ROLE} review (${LAST_SHA:0:7}) — skip (idempotent)"
     exit 0
 fi
 
-# compare API — last_sha (또는 PR base) ↔ HEAD 사이 commits
-# finding D: API failure 별도 처리
-_compare_out="$(gh api "/repos/${REPO}/compare/${BASE_SHA}...${HEAD_SHA}" \
-    --jq '.commits[] | "- `\(.sha[0:7])` \(.commit.message | split("\n")[0])"' 2>&1)" || {
-    echo "[post-review] gh api compare 호출 실패 (exit $?): $_compare_out" >&2
-    exit 5
-}
-COMMIT_LIST="$_compare_out"
-[ -z "$COMMIT_LIST" ] && COMMIT_LIST="_(compare API returned no commits — verify manually)_"
+# commit 범위 표기 — PR base ~ HEAD (full SHA, GitHub 자동 링크)
+COMMIT_LIST="${PR_BASE_SHA} ~ ${HEAD_SHA}"
 
 #-----------------------------------------------------------------------
 # 7. findings → expected verdict 산출 + verdict mismatch check
@@ -414,8 +394,8 @@ role:        $ROLE
 PR:          $PR_NUM
 verdict:     $EXPECTED_VERDICT (arg: $VERDICT_ARG ✓)
 bot user:    $GH_USER
-last review: $LAST_DISPLAY_SHA ($LAST_DISPLAY_TIME)
-new commits: ($BASE_SHA ↔ $HEAD_SHA)
+last review: ${LAST_SHA:-none}
+scope:       ${PR_BASE_SHA} ~ ${HEAD_SHA}
 ============================
 $BODY
 ============================
