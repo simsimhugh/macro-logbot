@@ -1,0 +1,24 @@
+pull_request_rules:
+  - name: auto-merge when 4 AI reviewers approve and CI passes
+    conditions:
+      - base = main
+      - "#approved-reviews-by >= 4"
+      - approved-reviews-by = simsim-architect-bot
+      - approved-reviews-by = simsim-code-reviewer-bot
+      - approved-reviews-by = simsim-security-reviewer-bot
+      - approved-reviews-by = simsim-test-engineer-bot
+      - check-success = lint
+      - check-success = test
+      - check-success = types
+      - check-success = bandit
+      - check-success = semgrep
+      - check-success = gitleaks
+      - check-success = pip-audit
+      - check-success = CodeQL
+      - check-success = codeql
+    actions:
+      merge:
+        method: squash
+        commit_message_format:
+          title: pr-title
+          body: pr-body
