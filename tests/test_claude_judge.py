@@ -1,4 +1,4 @@
-"""단위 테스트 — poc/scripts/claude_judge.py (1-B/2-A/2-B judge 함수).
+"""단위 테스트 — poc/scripts/eval/claude_judge.py (1-B/2-A/2-B judge 함수).
 
 mock LiteLLM completion → happy path + JSON parse 실패 분기.
 """
@@ -13,7 +13,7 @@ from typing import Any
 from unittest.mock import MagicMock, patch
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-JUDGE_PATH = REPO_ROOT / "poc" / "scripts" / "claude_judge.py"
+JUDGE_PATH = REPO_ROOT / "poc" / "scripts" / "eval" / "claude_judge.py"
 
 
 def _load(name: str, path: Path) -> Any:

@@ -18,7 +18,7 @@ import pytest
 pytestmark = pytest.mark.poc
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-SCRIPT_PATH = REPO_ROOT / "poc" / "scripts" / "inject.py"
+SCRIPT_PATH = REPO_ROOT / "poc" / "scripts" / "eval" / "inject.py"
 CATALOG_DIR = REPO_ROOT / "poc" / "error_catalog"
 SNAKE_ORIGINAL = REPO_ROOT / "poc" / "targets" / "snake-game" / "original" / "snake.py"
 

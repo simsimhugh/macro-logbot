@@ -31,10 +31,18 @@ poc/
 │   │   └── summary.md
 │   └── <date>-comparison.md
 ├── scripts/
-│   ├── setup.sh                       # 1회: snake-game clone + venv
-│   ├── inject.py                      # 카탈로그 → injected/ 생성
-│   ├── trigger.py                     # injected 실행 + 에러 로그 캡처
-│   └── evaluate.py                    # macro-logbot 매트릭스 호출 + 결과 저장
+│   ├── eval/                          # PoC 평가 파이프라인
+│   │   ├── inject.py                  # 카탈로그 → injected/ 생성
+│   │   ├── trigger.py                 # injected 실행 + 에러 로그 캡처
+│   │   ├── evaluate.py                # macro-logbot 매트릭스 호출 + 결과 저장
+│   │   ├── claude_judge.py            # Claude judge 채점 함수
+│   │   └── run-onprem-baseline.sh     # 사내 LLM baseline 측정
+│   ├── ops/                           # 환경 구축·배포
+│   │   ├── deploy.sh                  # docker compose 배포
+│   │   ├── setup.sh                   # 1회: snake-game clone + venv
+│   │   └── setup-enforcement.sh       # GitHub repo enforcement 설정
+│   └── demo/                          # 데모 CLI
+│       └── demo_session.py            # 멀티턴 데모
 └── prompts/                           # 약한 LLM 강화용 system prompt iterations
     ├── v1-baseline.md
     ├── v2-cot-added.md
@@ -52,7 +60,7 @@ poc/
 
 ```bash
 cd poc/
-./scripts/setup.sh
+./scripts/ops/setup.sh
 ```
 
 `setup.sh` 내용:
@@ -174,10 +182,10 @@ docker-compose 에서 `/tmp/poc-cases` 를 `:ro` 마운트하여 컨테이너에
 
 ```bash
 # 단일 case
-python scripts/inject.py --case E001
+python poc/scripts/eval/inject.py --case E001
 
 # 전체
-python scripts/inject.py --all
+python poc/scripts/eval/inject.py --all
 ```
 
 동작:
@@ -188,7 +196,7 @@ python scripts/inject.py --all
 ### 6.2 trigger.py — 에러 발생·캡처
 
 ```bash
-python scripts/trigger.py --case E001
+python poc/scripts/eval/trigger.py --case E001
 ```
 
 동작:
@@ -201,21 +209,21 @@ python scripts/trigger.py --case E001
 
 ```bash
 # 모든 모델 × 모든 case
-python scripts/evaluate.py --models all --cases all
+python poc/scripts/eval/evaluate.py --models all --cases all
 
 # 특정 모델만 빠르게
-python scripts/evaluate.py --models openai/gpt-oss-20b --cases E001 E002 E003
+python poc/scripts/eval/evaluate.py --models openai/gpt-oss-20b --cases E001 E002 E003
 
 # Quick mode (test-engineer agent가 PR에서 호출)
-python scripts/evaluate.py --quick   # cases 3개 × default model 1개만
+python poc/scripts/eval/evaluate.py --quick   # cases 3개 × default model 1개만
 
 # 세션 누적 모드 (PR #42 — 이전 --session-cumulative 에서 rename)
-python scripts/evaluate.py --continue-session
+python poc/scripts/eval/evaluate.py --continue-session
 
 # KB Ablation Study (KB on/off 3 모드 비교 — 약한 LLM 강화 사이클 핵심)
-python scripts/evaluate.py --models all --cases all --kb-mode isolated      # KB off (baseline)
-python scripts/evaluate.py --models all --cases all --kb-mode cumulative    # KB 누적 (운영 시뮬레이션)
-python scripts/evaluate.py --models all --cases all --kb-mode pre-seeded    # KB 사전 채움 (운영 초기 시뮬레이션)
+python poc/scripts/eval/evaluate.py --models all --cases all --kb-mode isolated      # KB off (baseline)
+python poc/scripts/eval/evaluate.py --models all --cases all --kb-mode cumulative    # KB 누적 (운영 시뮬레이션)
+python poc/scripts/eval/evaluate.py --models all --cases all --kb-mode pre-seeded    # KB 사전 채움 (운영 초기 시뮬레이션)
 ```
 
 > **PR #42 변경사항**:
@@ -373,7 +381,7 @@ Q3. "어떻게 수정하면 좋을까? 코드 변경 예시를 보여줘."
 
 #### 7.5.1 evaluate.py fail-fast guard (자동 invariant 1)
 
-`evaluate_case` 가 backend response 를 받은 직후 다음 검사를 수행. **단일 source of truth = `poc/scripts/evaluate.py` 의 `TOOL_ERROR_SENTINELS` 상수** (본 doc 의 예시는 가독성용 mirror, 코드 변경 시 본 doc 도 동기화).
+`evaluate_case` 가 backend response 를 받은 직후 다음 검사를 수행. **단일 source of truth = `poc/scripts/eval/evaluate.py` 의 `TOOL_ERROR_SENTINELS` 상수** (본 doc 의 예시는 가독성용 mirror, 코드 변경 시 본 doc 도 동기화).
 
 ```python
 # Tool error sentinel — backend container 가 workspace 접근 실패한 경우
@@ -542,7 +550,7 @@ docker compose logs -f backend  # healthy 확인
 
 ### 9.2 측정 실행 (one-shot 스크립트)
 
-repo 의 `poc/scripts/run-onprem-baseline.sh` (PR #54 신규, PR #57 robustness 강화):
+repo 의 `poc/scripts/eval/run-onprem-baseline.sh` (PR #54 신규, PR #57 robustness 강화):
 
 #### 9.2.1 env file (`.env`)
 
@@ -572,19 +580,19 @@ python3 --version   # 또는 python3.11, python3.12
 python3 -m pip install --user pyyaml
 
 # 3. 그대로 실행 — 자동 검출이 system python3 사용
-./poc/scripts/run-onprem-baseline.sh 3
+./poc/scripts/eval/run-onprem-baseline.sh 3
 
 # 또는 명시 override
-PYTHON_BIN=python3.11 ./poc/scripts/run-onprem-baseline.sh 3
+PYTHON_BIN=python3.11 ./poc/scripts/eval/run-onprem-baseline.sh 3
 ```
 
 #### 9.2.3 기본 실행
 
 ```bash
 cd /path/to/macro-logbot
-./poc/scripts/run-onprem-baseline.sh        # N=3, default
-./poc/scripts/run-onprem-baseline.sh 5      # N=5
-./poc/scripts/run-onprem-baseline.sh 3 E001,E002,E003  # subset cases
+./poc/scripts/eval/run-onprem-baseline.sh        # N=3, default
+./poc/scripts/eval/run-onprem-baseline.sh 5      # N=5
+./poc/scripts/eval/run-onprem-baseline.sh 3 E001,E002,E003  # subset cases
 ```
 
 #### 9.2.4 env override (사내 환경 맞춤)
@@ -595,7 +603,7 @@ cd /path/to/macro-logbot
 | `MACRO_LOGBOT_BACKEND_CONTAINER` | (자동 검출: `docker compose ps -q macro-logbot-backend`) | docker-compose service 이름 다를 때 |
 | `RATE_LIMIT_COOLDOWN` | `0` | 사내 LLM rate limit 시 case 간 sleep (sec) — 예: `RATE_LIMIT_COOLDOWN=2` |
 
-내부 동작 = `poc/scripts/evaluate.py` 를 N 회 반복 + 측정 시작 시각 `started_at` 캡쳐 (invariant 의 session 범위 제한) + run 별 log 분리 (`run-N{1..N}.log`) + 진행상황 화면 출력 (tee).
+내부 동작 = `poc/scripts/eval/evaluate.py` 를 N 회 반복 + 측정 시작 시각 `started_at` 캡쳐 (invariant 의 session 범위 제한) + run 별 log 분리 (`run-N{1..N}.log`) + 진행상황 화면 출력 (tee).
 
 ### 9.3 결과 위치
 
@@ -662,9 +670,9 @@ cp .env.example .env
 nano .env
 
 # Stage 3 구현이 완료된 시점이면 바로 PoC 실행
-./poc/scripts/setup.sh
-python poc/scripts/inject.py --all
-python poc/scripts/evaluate.py --models all --cases all
+./poc/scripts/ops/setup.sh
+python poc/scripts/eval/inject.py --all
+python poc/scripts/eval/evaluate.py --models all --cases all
 
 # Claude Code 세션에서:
 # > "poc/reports/<date>/ 결과 채점해줘"

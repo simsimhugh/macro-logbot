@@ -3,7 +3,7 @@
 Spec ref: docs/process/04-PoC-운영가이드.md §5.1, docs/design/02-설계문서.md §10.4.
 
 Usage:
-    python poc/scripts/inject.py --case E001 --workdir /tmp/snake-E001
+    python poc/scripts/eval/inject.py --case E001 --workdir /tmp/snake-E001
 
 Side effects:
     1. Copies poc/targets/snake-game/original/snake.py to <workdir>/snake.py.
@@ -22,10 +22,10 @@ from typing import Any, cast
 
 import yaml
 
-# poc/scripts/inject.py → repo root 는 두 단계 위.
+# poc/scripts/eval/inject.py → repo root 는 세 단계 위.
 # MACRO_LOGBOT_POC_ROOT env 로 override 가능 (CI / 격리 테스트 환경 지원).
 _ENV_ROOT = os.environ.get("MACRO_LOGBOT_POC_ROOT")
-REPO_ROOT = Path(_ENV_ROOT).resolve() if _ENV_ROOT else Path(__file__).resolve().parents[2]
+REPO_ROOT = Path(_ENV_ROOT).resolve() if _ENV_ROOT else Path(__file__).resolve().parents[3]
 CATALOG_DIR = REPO_ROOT / "poc" / "error_catalog"
 SNAKE_ORIGINAL = REPO_ROOT / "poc" / "targets" / "snake-game" / "original" / "snake.py"
 

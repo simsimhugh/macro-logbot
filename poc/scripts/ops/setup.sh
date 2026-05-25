@@ -8,7 +8,7 @@
 # import pygame 그대로 호환. 본 PoC 는 pygame-ce 사용.
 set -euo pipefail
 
-REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+REPO_ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
 cd "$REPO_ROOT"
 
 if [[ -z "${VIRTUAL_ENV:-}" ]] && [[ -d "$REPO_ROOT/.venv" ]]; then

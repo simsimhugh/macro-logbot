@@ -3,7 +3,7 @@
 Spec ref: docs/process/04-PoC-운영가이드.md §5.2, docs/design/02-설계문서.md §10.4.
 
 Usage:
-    python poc/scripts/trigger.py --case E001 --workdir /tmp/snake-E001 [--timeout 15]
+    python poc/scripts/eval/trigger.py --case E001 --workdir /tmp/snake-E001 [--timeout 15]
 
 Stdout: prints traceback text (may be empty if injection failed / no error).
 Exit code:

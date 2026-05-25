@@ -16,7 +16,7 @@
 ## Test plan
 
 - [ ] `pytest tests/<관련>` — 신규 / 기존 test PASS
-- [ ] bash syntax (`bash -n` scripts/) — 변경 script 있으면
+- [ ] bash syntax (`bash -n` poc/scripts/) — 변경 script 있으면
 - [ ] 실측 (있으면) — 사내 / 사외 environment 검증
 
 ## Reviewer cycle (task-PROCESS-002 enforcement)

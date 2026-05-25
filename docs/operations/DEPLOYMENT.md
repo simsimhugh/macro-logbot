@@ -83,7 +83,7 @@ git clone https://github.com/simsimhugh/macro-logbot.git
 cd macro-logbot
 cp .env.example .env
 nano .env          # 아래 .env 작성 가이드 참고
-./scripts/deploy.sh
+./poc/scripts/ops/deploy.sh
 ```
 
 ---
@@ -184,17 +184,17 @@ curl -X POST http://localhost:8000/v1/chat/completions \
 
 ### multi-turn 데모 CLI (task-MVP-004 session_id 활용)
 
-`scripts/demo_session.py` 가 첫 분석 → 같은 session_id 로 follow-up 대화를 ENABLE.
+`poc/scripts/demo/demo_session.py` 가 첫 분석 → 같은 session_id 로 follow-up 대화를 ENABLE.
 
 ```bash
 # 1. PoC case 자동 inject + trigger + 분석
-.venv/bin/python scripts/demo_session.py --case E001
+.venv/bin/python poc/scripts/demo/demo_session.py --case E001
 
 # 2. 직접 로그 분석
-.venv/bin/python scripts/demo_session.py --log "$(cat /tmp/error.log)"
+.venv/bin/python poc/scripts/demo/demo_session.py --log "$(cat /tmp/error.log)"
 
 # 3. 단순 prompt
-.venv/bin/python scripts/demo_session.py --prompt "안녕"
+.venv/bin/python poc/scripts/demo/demo_session.py --prompt "안녕"
 ```
 
 흐름: 첫 호출에서 `session_id` 발급 → REPL (`You>` 프롬프트) → 같은 session_id 로 follow-up. Ctrl+C 또는 빈 입력으로 종료.

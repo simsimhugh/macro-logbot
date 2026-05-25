@@ -41,7 +41,7 @@ from claude_judge import (  # noqa: E402
 from inject import inject  # noqa: E402
 from trigger import trigger  # noqa: E402
 
-REPO_ROOT = SCRIPT_DIR.parent.parent
+REPO_ROOT = SCRIPT_DIR.parents[2]
 REPORTS_ROOT = REPO_ROOT / "poc" / "reports"
 
 DEFAULT_API_URL = "http://localhost:8000"

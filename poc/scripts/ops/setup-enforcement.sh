@@ -4,7 +4,7 @@
 # 다른 프로젝트 적용 시 .claude/ + .githooks/ + .github/ copy 후 본 script 실행.
 #
 # Usage:
-#   ./scripts/setup-enforcement.sh [<OWNER>/<REPO>]
+#   ./poc/scripts/ops/setup-enforcement.sh [<OWNER>/<REPO>]
 #
 # 의무:
 #   - gh CLI 인증 (admin 권한 — branch protection rule 설정)
