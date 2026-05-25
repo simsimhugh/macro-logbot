@@ -24,7 +24,7 @@ python original/snake.py --headless --auto-play 5
 ## 의존성
 
 - `pygame-ce>=2.5` (Python 3.14 cp314 manylinux 휠 제공 — `import pygame` 그대로 호환).
-- pygame mainline 은 Python 3.14 휠 미제공 — `poc/scripts/setup.sh` 가 pygame-ce 설치.
+- pygame mainline 은 Python 3.14 휠 미제공 — `poc/scripts/ops/setup.sh` 가 pygame-ce 설치.
 
 ## 라이선스
 

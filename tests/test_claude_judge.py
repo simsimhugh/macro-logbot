@@ -1,4 +1,4 @@
-"""단위 테스트 — poc/scripts/claude_judge.py (1-B/2-A/2-B judge 함수).
+"""단위 테스트 — poc/scripts/eval/claude_judge.py (1-B/2-A/2-B judge 함수).
 
 mock LiteLLM completion → happy path + JSON parse 실패 분기.
 """
