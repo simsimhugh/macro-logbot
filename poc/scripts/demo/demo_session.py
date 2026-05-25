@@ -29,8 +29,8 @@ import urllib.request
 from pathlib import Path
 from typing import Any, cast
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
-POC_SCRIPTS = REPO_ROOT / "poc" / "scripts"
+REPO_ROOT = Path(__file__).resolve().parents[3]
+POC_SCRIPTS = REPO_ROOT / "poc" / "scripts" / "eval"
 
 DEFAULT_API_URL = "http://localhost:8000"
 DEFAULT_TIMEOUT = 180
