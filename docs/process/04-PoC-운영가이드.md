@@ -31,10 +31,18 @@ poc/
 │   │   └── summary.md
 │   └── <date>-comparison.md
 ├── scripts/
-│   ├── setup.sh                       # 1회: snake-game clone + venv
-│   ├── inject.py                      # 카탈로그 → injected/ 생성
-│   ├── trigger.py                     # injected 실행 + 에러 로그 캡처
-│   └── evaluate.py                    # macro-logbot 매트릭스 호출 + 결과 저장
+│   ├── eval/                          # PoC 평가 파이프라인
+│   │   ├── inject.py                  # 카탈로그 → injected/ 생성
+│   │   ├── trigger.py                 # injected 실행 + 에러 로그 캡처
+│   │   ├── evaluate.py                # macro-logbot 매트릭스 호출 + 결과 저장
+│   │   ├── claude_judge.py            # Claude judge 채점 함수
+│   │   └── run-onprem-baseline.sh     # 사내 LLM baseline 측정
+│   ├── ops/                           # 환경 구축·배포
+│   │   ├── deploy.sh                  # docker compose 배포
+│   │   ├── setup.sh                   # 1회: snake-game clone + venv
+│   │   └── setup-enforcement.sh       # GitHub repo enforcement 설정
+│   └── demo/                          # 데모 CLI
+│       └── demo_session.py            # 멀티턴 데모
 └── prompts/                           # 약한 LLM 강화용 system prompt iterations
     ├── v1-baseline.md
     ├── v2-cot-added.md
