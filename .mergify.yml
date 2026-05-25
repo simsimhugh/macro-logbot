@@ -31,3 +31,26 @@ pull_request_rules:
         commit_message_format:
           title: pr-title
           body: pr-body
+
+  - name: auto-merge Dependabot PRs when CI passes
+    conditions:
+      - base = main
+      - author = dependabot[bot]
+      - check-success = lint
+      - check-success = test
+      - check-success = types
+      - check-success = bandit
+      - check-success = semgrep
+      - check-success = gitleaks
+      - check-success = pip-audit
+      - check-success = CodeQL
+      - check-success = codeql
+    actions:
+      review:
+        type: APPROVE
+        message: Dependabot PR — all CI checks passed, auto-approving.
+      merge:
+        method: squash
+        commit_message_format:
+          title: pr-title
+          body: pr-body
