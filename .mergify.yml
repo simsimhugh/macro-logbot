@@ -1,4 +1,13 @@
 pull_request_rules:
+  - name: dismiss approvals on new commits
+    conditions:
+      - base = main
+    actions:
+      dismiss_reviews:
+        approved: true
+        message: "New commits pushed — approvals dismissed."
+
+
   - name: auto-merge when 4 AI reviewers approve and CI passes
     conditions:
       - base = main
