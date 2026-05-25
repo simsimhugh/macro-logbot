@@ -18,7 +18,7 @@
    ```
 3. **기동**:
    ```bash
-   docker compose up -d --build       # 또는 ./scripts/deploy.sh
+   docker compose up -d --build       # 또는 ./poc/scripts/ops/deploy.sh
    ```
 
 확인: `http://localhost:3000` (Open WebUI), `curl http://localhost:8000/health`.

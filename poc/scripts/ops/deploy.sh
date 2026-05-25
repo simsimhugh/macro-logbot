@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 # macro-logbot 원샷 배포 스크립트
-# 사용법: ./scripts/deploy.sh
+# 사용법: ./poc/scripts/ops/deploy.sh
 # Ubuntu 22.04 LTS 기준. 사전 요구사항: docker, docker compose v2, git
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/../../.." && pwd)"
 
 echo "=== macro-logbot 배포 시작 ==="
 echo "경로: ${REPO_ROOT}"

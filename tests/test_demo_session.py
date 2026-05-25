@@ -1,4 +1,4 @@
-"""scripts/demo_session.py 단위 테스트 — mock HTTP, argparse 검증."""
+"""poc/scripts/demo/demo_session.py 단위 테스트 — mock HTTP, argparse 검증."""
 
 from __future__ import annotations
 

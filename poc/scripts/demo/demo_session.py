@@ -2,13 +2,13 @@
 
 사용 예:
     # PoC case 자동 inject + trigger + 분석
-    python scripts/demo_session.py --case E001
+    python poc/scripts/demo/demo_session.py --case E001
 
     # 직접 로그 분석
-    python scripts/demo_session.py --log "$(cat /tmp/error.log)"
+    python poc/scripts/demo/demo_session.py --log "$(cat /tmp/error.log)"
 
     # 직접 prompt
-    python scripts/demo_session.py --prompt "안녕하세요"
+    python poc/scripts/demo/demo_session.py --prompt "안녕하세요"
 
 흐름:
     1. 첫 호출 — POST /agent/analyze (session_id=None) → session_id + 분석 응답.

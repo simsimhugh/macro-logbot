@@ -9,9 +9,9 @@
 #      예: python3 -m pip install --user pyyaml
 #
 # Usage:
-#   ./poc/scripts/run-onprem-baseline.sh           # N=3 (default)
-#   ./poc/scripts/run-onprem-baseline.sh 5         # N=5
-#   ./poc/scripts/run-onprem-baseline.sh 3 E001,E002,E003  # subset cases
+#   ./poc/scripts/eval/run-onprem-baseline.sh           # N=3 (default)
+#   ./poc/scripts/eval/run-onprem-baseline.sh 5         # N=5
+#   ./poc/scripts/eval/run-onprem-baseline.sh 3 E001,E002,E003  # subset cases
 #
 # Env overrides:
 #   PYTHON_BIN=python3.11                          # 사내 host Python 3.14 미지원 시
@@ -51,7 +51,7 @@ RATE_LIMIT_COOLDOWN="${RATE_LIMIT_COOLDOWN:-0}"
 
 # --- repo root 자동 검출 ---
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
 cd "$REPO_ROOT"
 
 # --- env load (.env 단일화 — 사외/사내 동일) ---
@@ -104,7 +104,7 @@ elif sudo -n docker info >/dev/null 2>&1; then
 else
     echo "ERROR: docker not accessible — tried 'docker' (group) + 'sudo -n docker' (passwordless)" >&2
     echo "       해결책: (1) 사용자를 docker group 에 추가 또는 (2) sudo passwordless 설정" >&2
-    echo "       또는 DOCKER_CMD=\"sudo docker\" ./poc/scripts/run-onprem-baseline.sh" >&2
+    echo "       또는 DOCKER_CMD=\"sudo docker\" ./poc/scripts/eval/run-onprem-baseline.sh" >&2
     exit 1
 fi
 echo "Docker command:    $DOCKER_CMD"
@@ -139,7 +139,7 @@ for i in $(seq 1 "$N"); do
     LOG_FILE="$ROOT/run-N$i.log"
     {
         echo "=== Run N$i start $(date +%H:%M:%S) ==="
-        "$PYTHON" poc/scripts/evaluate.py \
+        "$PYTHON" poc/scripts/eval/evaluate.py \
             --cases "$CASES" \
             --model "${MACRO_LOGBOT_DEFAULT_MODEL:?MACRO_LOGBOT_DEFAULT_MODEL not set}" \
             --api-url "http://localhost:8000" \

@@ -174,10 +174,10 @@ docker-compose 에서 `/tmp/poc-cases` 를 `:ro` 마운트하여 컨테이너에
 
 ```bash
 # 단일 case
-python scripts/inject.py --case E001
+python poc/scripts/eval/inject.py --case E001
 
 # 전체
-python scripts/inject.py --all
+python poc/scripts/eval/inject.py --all
 ```
 
 동작:
@@ -188,7 +188,7 @@ python scripts/inject.py --all
 ### 6.2 trigger.py — 에러 발생·캡처
 
 ```bash
-python scripts/trigger.py --case E001
+python poc/scripts/eval/trigger.py --case E001
 ```
 
 동작:
@@ -201,21 +201,21 @@ python scripts/trigger.py --case E001
 
 ```bash
 # 모든 모델 × 모든 case
-python scripts/evaluate.py --models all --cases all
+python poc/scripts/eval/evaluate.py --models all --cases all
 
 # 특정 모델만 빠르게
-python scripts/evaluate.py --models openai/gpt-oss-20b --cases E001 E002 E003
+python poc/scripts/eval/evaluate.py --models openai/gpt-oss-20b --cases E001 E002 E003
 
 # Quick mode (test-engineer agent가 PR에서 호출)
-python scripts/evaluate.py --quick   # cases 3개 × default model 1개만
+python poc/scripts/eval/evaluate.py --quick   # cases 3개 × default model 1개만
 
 # 세션 누적 모드 (PR #42 — 이전 --session-cumulative 에서 rename)
-python scripts/evaluate.py --continue-session
+python poc/scripts/eval/evaluate.py --continue-session
 
 # KB Ablation Study (KB on/off 3 모드 비교 — 약한 LLM 강화 사이클 핵심)
-python scripts/evaluate.py --models all --cases all --kb-mode isolated      # KB off (baseline)
-python scripts/evaluate.py --models all --cases all --kb-mode cumulative    # KB 누적 (운영 시뮬레이션)
-python scripts/evaluate.py --models all --cases all --kb-mode pre-seeded    # KB 사전 채움 (운영 초기 시뮬레이션)
+python poc/scripts/eval/evaluate.py --models all --cases all --kb-mode isolated      # KB off (baseline)
+python poc/scripts/eval/evaluate.py --models all --cases all --kb-mode cumulative    # KB 누적 (운영 시뮬레이션)
+python poc/scripts/eval/evaluate.py --models all --cases all --kb-mode pre-seeded    # KB 사전 채움 (운영 초기 시뮬레이션)
 ```
 
 > **PR #42 변경사항**:

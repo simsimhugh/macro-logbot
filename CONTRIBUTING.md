@@ -9,7 +9,7 @@ git clone https://github.com/simsimhugh/macro-logbot.git
 cd macro-logbot
 
 # 사외 PoC 환경 setup (별도 가이드)
-./poc/scripts/setup.sh
+./poc/scripts/ops/setup.sh
 ```
 
 ## 본 repo를 읽는 법 (PR history)
