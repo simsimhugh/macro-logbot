@@ -17,7 +17,7 @@ import pytest
 pytestmark = pytest.mark.poc
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-EVALUATE_PATH = REPO_ROOT / "poc" / "scripts" / "evaluate.py"
+EVALUATE_PATH = REPO_ROOT / "poc" / "scripts" / "eval" / "evaluate.py"
 
 
 def _load(name: str, path: Path) -> object:

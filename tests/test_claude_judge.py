@@ -13,7 +13,7 @@ from typing import Any
 from unittest.mock import MagicMock, patch
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-JUDGE_PATH = REPO_ROOT / "poc" / "scripts" / "claude_judge.py"
+JUDGE_PATH = REPO_ROOT / "poc" / "scripts" / "eval" / "claude_judge.py"
 
 
 def _load(name: str, path: Path) -> Any:

@@ -13,7 +13,7 @@ from unittest.mock import patch
 import pytest
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-DEMO_PATH = REPO_ROOT / "scripts" / "demo_session.py"
+DEMO_PATH = REPO_ROOT / "poc" / "scripts" / "demo" / "demo_session.py"
 
 
 def _load(name: str, path: Path) -> Any:
