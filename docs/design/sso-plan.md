@@ -2,7 +2,7 @@
 
 > 출처: architect agent (read-only) 2026-05-19, PR #38 docs 정착
 
-본 문서는 architect agent 의 분석 결과로, `docs/process/FOLLOWUP-TASKS.md::task-SEC-002` 의 sub-task 분해 근거 및 구현 지침으로 사용한다.
+본 문서는 architect agent 의 분석 결과로, task-SEC-002 ([GitHub Issues `follow-up`](https://github.com/simsim-lab/macro-logbot/issues?q=is%3Aopen+label%3Afollow-up)) 의 sub-task 분해 근거 및 구현 지침으로 사용한다.
 
 ---
 
@@ -17,14 +17,14 @@
 | 환경 | 인증 |
 |---|---|
 | 사외 PoC (현재) | 공유 API key (`MACRO_LOGBOT_API_KEY`) Bearer + X-API-Key 동치. `src/macro_logbot/auth.py:57-101`. WEBUI_AUTH=false (`docker-compose.yml:61`) |
-| 사내 production | SSO 필수 — task-SEC-002. 운영 진입 차단 사유 (`docs/process/FOLLOWUP-TASKS.md:117` 부터, `docs/operations/DEPLOYMENT.md:241-247`) |
+| 사내 production | SSO 필수 — task-SEC-002. 운영 진입 차단 사유 (`docs/operations/DEPLOYMENT.md:241-247`) |
 
 핵심 원칙: **API key 인증은 deprecate 가 아닌 fallback 으로 유지** — 서비스 계정(evaluate.py, intake webhook, MACRO platform → backend)이 SSO 미지원이라서 영구 공존 필요.
 
 ### 1.3 단일 사용자 vs 다중 사용자 — 영향 평가 (critical)
 현재 시스템은 사실상 단일 사용자 가정:
 - `verify_api_key` 가 단일 server_key 와 timing-safe 비교만 수행 — principal 개념 없음 (`src/macro_logbot/auth.py:57-101`).
-- `SQLiteSessionStore.get(session_id)` 는 owner 검증 없음 + `app.py:242-249` 가 미존재 session_id 받으면 **새 session 발급으로 fallback** — IDOR 회피 + DoS/저장소 오염 vector. 우려가 이미 인지되어 있음 (`docs/process/FOLLOWUP-TASKS.md:268` "principal scoping → task-SEC-002 묶음").
+- `SQLiteSessionStore.get(session_id)` 는 owner 검증 없음 + `app.py:242-249` 가 미존재 session_id 받으면 **새 session 발급으로 fallback** — IDOR 회피 + DoS/저장소 오염 vector. principal scoping → task-SEC-002 묶음 (§6 sub-task 참조).
 - `AgentState` 에 `user_id` / `principal` 필드 없음 — `session_id` / `event_id` 만 존재 (`docs/design/02-설계문서.md:136-148`).
 
 **영향**: SSO 도입 시 단순 인증만 추가하면 부족. 다음 4개 모델 변경이 동반되어야 함:
@@ -185,7 +185,7 @@
 
 ## 6. task-SEC-002 sub-task 분해
 
-`docs/process/FOLLOWUP-TASKS.md` 의 task-SEC-002 를 6 sub-task 로 분해:
+task-SEC-002 를 6 sub-task 로 분해 (GitHub Issues `follow-up` 으로 등록):
 
 | sub-task | Sprint | 내용 | priority |
 |---|---|---|---|
@@ -255,6 +255,5 @@
 - `docs/design/02-설계문서.md:136-147` — `AgentState` (principal 필드 부재)
 - `docs/design/02-설계문서.md:730-748` — §12 보안 검증
 - `docs/operations/DEPLOYMENT.md:241-247` — 운영 진입 전 체크리스트 (task-SEC-002 의 운영 진입 차단 사유)
-- `docs/process/FOLLOWUP-TASKS.md:117` 부터 — task-SEC-002 현재 stub (본 PR 에서 a~f 로 분해)
-- `docs/process/FOLLOWUP-TASKS.md:268` — IDOR principal scoping
-- `docs/process/FOLLOWUP-TASKS.md::task-MVP-006` — Tool 보안 강화 (task-SEC-002 와 묶음 후보)
+- task-SEC-002 — 본 PR 에서 a~f 로 분해 (§6 참조). GitHub Issue 로 등록.
+- task-MVP-006 — Tool 보안 강화 (task-SEC-002 와 묶음 후보). GitHub Issue 로 등록.

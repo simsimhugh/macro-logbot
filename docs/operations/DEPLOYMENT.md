@@ -260,7 +260,7 @@ docker compose down -v   # 볼륨(Open WebUI 데이터) 포함 삭제
 
 ## 운영 진입 전 체크리스트
 
-현재 MVP/PoC 단계. **사내 운영 투입 전** 아래 task 완료 필수 (`docs/process/FOLLOWUP-TASKS.md` 참조):
+현재 MVP/PoC 단계. **사내 운영 투입 전** 아래 task 완료 필수 ([GitHub Issues `follow-up`](https://github.com/simsim-lab/macro-logbot/issues?q=is%3Aopen+label%3Afollow-up) 참조):
 
 | Task ID | 항목 | 우선순위 |
 |---|---|---|
@@ -291,5 +291,5 @@ docker compose down -v   # 볼륨(Open WebUI 데이터) 포함 삭제
 
 - [`.env.example`](../../.env.example) — 전체 환경변수 목록 + 주석
 - [`docker-compose.yml`](../../docker-compose.yml) — 서비스 정의
-- [`docs/process/FOLLOWUP-TASKS.md`](../process/FOLLOWUP-TASKS.md) — 후속 task 큐
+- [GitHub Issues (label: `follow-up`)](https://github.com/simsim-lab/macro-logbot/issues?q=is%3Aopen+label%3Afollow-up) — 후속 task 큐
 - [`docs/design/02-설계문서.md`](../design/02-설계문서.md) — §8.4 사내 LLM 통합 상세

@@ -142,6 +142,6 @@ curl -X POST http://localhost:8000/agent/analyze \
   WARN 로깅 후 인증 skip (dev 편의).
 - `MACRO_LOGBOT_AUTH_REQUIRED=true` + key 미설정 → 503 (misconfigured).
 
-상세 후속 작업은 `docs/process/FOLLOWUP-TASKS.md` (task-SEC-002 등) 참고.
+상세 후속 작업은 [GitHub Issues (label: `follow-up`)](https://github.com/simsim-lab/macro-logbot/issues?q=is%3Aopen+label%3Afollow-up) 참고.
 
 > 사내 운영 시 `.env` 의 사내 mirror 3줄 (image/pip) uncomment 하면 같은 명령으로 동작 — LLM endpoint 1줄은 task-LG-002 후속 — `docs/design/02-설계문서.md` §8.4 참조.
