@@ -112,7 +112,7 @@ Agent(subagent_type="oh-my-claudecode:test-engineer",   prompt="PR #N review ...
 
 ## 본 skill 의 정책 본체
 
-- `docs/process/03-개발-프로세스.md §<task-PROCESS-002>`
+- [`docs/process/03-개발-프로세스.md`](../../../docs/process/03-개발-프로세스.md) §7 (Client-side safety net)
 - `.claude/settings.json` — 모든 raw git push 차단
 - `.claude/hooks/pre-bash-gate.sh` — Bash PreToolUse hook
 
