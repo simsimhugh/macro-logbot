@@ -1,23 +1,42 @@
-%%{init: {"theme":"default", "themeVariables": {"fontFamily": "Noto Sans CJK KR, sans-serif", "fontSize": "28px", "actorFontSize": "30px", "messageFontSize": "26px"}}}%%
-sequenceDiagram
-    autonumber
-    participant Main as Orchestrator
-    participant Exec as 코드 작성 AI
-    participant Rev as 리뷰 AI<br/>(4종 병렬)
-    participant Ver as 판정 AI
-    participant GH as GitHub
-
-    Main->>Exec: 작업 부여
-    Exec->>GH: 코드 + PR 생성
-
-    Main->>Rev: 병렬 리뷰
-    Note right of Rev: 아키텍처<br/>코드 품질<br/>보안<br/>테스트
-    Rev->>GH: 코멘트 + 평가
-
-    Main->>Ver: 종합 판정
-
-    alt 통과
-        Ver->>GH: 자동 머지
-    else 미달
-        Ver->>Exec: 재작업
+flowchart LR
+    subgraph orchestration["Orchestrator - Main Session"]
+        direction TB
+        orch[Claude Code<br/>main session]
     end
+
+    subgraph push["Push"]
+        direction TB
+        exec[AI executor] --> pr[PR 생성]
+    end
+
+    subgraph mechanical["Mechanical - GitHub, 토큰 소비 없음"]
+        direction TB
+        ci1[lint · types · test]
+        ci2[bandit · semgrep · CodeQL]
+        ci3[gitleaks · pip-audit]
+        ci1 --- ci2 --- ci3
+    end
+
+    subgraph semantic["Semantic - 4 AI Reviewer"]
+        direction TB
+        r1[architect]
+        r2[code-reviewer]
+        r3[security-reviewer]
+        r4[test-engineer]
+    end
+
+    fix[fix sub-agent<br/>fix-review skill]
+    issue[GitHub Issue<br/>follow-up PR]
+    mergify[Mergify<br/>auto squash merge]
+
+    orch -->|task 부여| exec
+    orch -->|safe-push| pr
+    pr --> mechanical
+    mechanical -->|9 checks ✓| orch
+    orch -->|4 reviewer spawn| semantic
+    semantic -->|4 APPROVE| mergify
+    semantic -.->|REQUEST_CHANGES| orch
+    orch -.->|scope 안 fix 위임| fix
+    orch -.->|scope 밖 / PR 비대| issue
+    fix -.-> exec
+    mergify --> main((main))

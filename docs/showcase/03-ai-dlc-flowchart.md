@@ -1,6 +1,6 @@
-# AI DLC (AI Development Life Cycle) — 발표용
+# AI DLC (AI Development Life Cycle) — v2
 
-**AI 서브에이전트가 SDLC 각 단계의 reviewer / executor 역할을 수행해 코드 작성부터 자동 머지까지 처리하는 개발 사이클**
+**Mechanical (GitHub, 토큰 소비 없음) + Semantic (AI reviewer, 토큰 사용) 분업으로 코드 작성부터 자동 머지까지 처리하는 개발 사이클**
 
 ## 한 장 정리
 
@@ -8,11 +8,21 @@
 
 ## 4 단계 요약
 
-1. **작성** — Orchestrator → executor → PR
-2. **병렬 리뷰** — 아키텍처 / 코드 / 보안 / 테스트 (4 AI 동시)
-3. **종합 판정** — verifier 가 모든 리뷰 결과 합의
-4. **자동 머지** — 통과 시 봇 PAT 로 self-approve + squash
+1. **Mechanical 검증** — GitHub Actions 9 checks (lint/types/test/SAST/secrets/deps) + Dependabot + Push Protection. 토큰 소비 없음.
+2. **Semantic 리뷰** — architect / code-reviewer / security-reviewer / test-engineer (4 AI 병렬). GitHub 이 이미 하는 영역은 검토 금지 → 토큰 절약.
+3. **Fix cycle** — REQUEST_CHANGES 시 scope 안은 fix sub-agent 위임, scope 밖은 GitHub Issue 로 분리 (follow-up PR).
+4. **자동 머지** — 4 APPROVE + 9 CI pass → Mergify auto squash merge.
+
+## v1 과의 차이
+
+| | v1 | v2 |
+|---|---|---|
+| 판정 | verifier agent 종합 | Mergify rule (server-side) |
+| 머지 | bot PAT self-approve | Mergify auto-merge |
+| mechanical | 없음 | GitHub Actions 9 checks |
+| 분업 | AI 가 전부 | GitHub (mechanical) + AI (semantic) |
 
 ---
 
 > 다이어그램 원본은 `03-ai-dlc-flowchart.mmd` (mermaid). 수정 시 PNG 재생성 필요.
+> v1 은 `03-ai-dlc-flowchart-v1.{md,mmd,png}` 에 보존.
