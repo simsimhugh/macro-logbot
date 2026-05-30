@@ -21,15 +21,11 @@ REQUEST_CHANGES 낸 **각 reviewer 마다 전용 fix sub-agent 1 개** 를 spawn
 | architect · security-reviewer | opus |
 | code-reviewer · test-engineer | sonnet |
 
-### 실행 모델 — 순차 · 단일 worktree · commit 은 main
+### 실행 모델 — 순차 · 단일 worktree
 
 - **단일 worktree**: 모든 fix sub-agent 는 같은 worktree 에서 작업 (격리된 작업 공간).
 - **순차 호출**: fix sub-agent 는 **병렬 금지**, 순차 호출. 여러 reviewer 가 같은 파일/함수를 지적하면 병렬 편집 시 충돌하기 때문. 순서: opus 도메인(architect → security) 먼저, 그다음 sonnet(code-reviewer → test-engineer).
-- **fix sub-agent 는 commit 안 함**: working tree 만 편집. commit·push 규칙:
-  - fix 가 끝나면 **main session(orchestrator)** 이 commit. cycle 당 새 commit 1 개로 통합하는 건 **권장**(작성 위생)일 뿐 **강제 아님**.
-  - 이미 push 된 commit 에 추가 fix 가 필요하면 **amend/squash 하지 말고 별도 commit 으로 push** (최종 squash 는 머지 시 Mergify).
-  - **verifier `PASS` 보고** 후 main session 이 `safe-push` (→ [`safe-push/SKILL.md`](../safe-push/SKILL.md)) 로 push (raw `git push` 금지).
-- **push 금지**: fix sub-agent 는 push 하지 않는다. push 는 verify `PASS` 후 main 의 의무. → [`verify-fix/SKILL.md`](../verify-fix/SKILL.md)
+- **fix sub-agent 는 commit·push 안 함**: working tree 만 편집. fix 완료 후 commit·push 는 main session 의 일 (fix sub-agent 권한 없음) → [`safe-push/SKILL.md`](../safe-push/SKILL.md).
 
 ## 사용법
 

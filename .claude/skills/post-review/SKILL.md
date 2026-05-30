@@ -162,7 +162,7 @@ POST_REVIEW_DRY_RUN=1 .claude/skills/post-review/post.sh <args>
 |---|---|
 | code-reviewer agent 가 CRITICAL/HIGH finding + APPROVE 게시 | verdict mismatch → exit 4 |
 | architect agent 가 code-reviewer-bot 명의로 게시 (token confusion) | identity (exit 2) + scope (exit 3) verify |
-| reviewer 가 scope 를 incremental 로 좁혀 기존 finding 사각지대 | 본 SKILL.md 의 full PR review 정책 명시 — main 의 scope 축소 prompt 금지 |
+| reviewer 가 scope 를 incremental 로 좁혀 기존 finding 사각지대 | 본 SKILL.md 의 full PR review 정책 명시 — main session 의 scope 축소 prompt 금지 |
 | 같은 reviewer 가 같은 HEAD commit 에 대해 2번 review 호출 | idempotent skip (last SHA == HEAD → exit 0, 게시 안 함) |
 | reviewer 가 raw `gh pr comment` 직접 호출 (skill bypass) | settings.deny + pre-bash-gate.sh 차단 |
 | main session 이 직접 post.sh 호출 (self-impersonation 시도) | hook 의 agent_type 검사 — agent_type field 없음 → 차단 |
@@ -186,10 +186,10 @@ POST_REVIEW_DRY_RUN=1 .claude/skills/post-review/post.sh <args>
 ### OMC agent prompt 의 정직성 안전망 비대칭
 
 OMC code-reviewer prompt 만 강한 안전망 갖고 있음:
-- `Discovery_Filtering_Separation` — main 의 dishonest filter prompt ("only important issues", "don't nitpick") 거부
+- `Discovery_Filtering_Separation` — main session 의 dishonest filter prompt ("only important issues", "don't nitpick") 거부
 - `Never approve ... HIGH at HIGH confidence` — 자동 approve 거부
 
-architect / security-reviewer / test-engineer prompt 는 약함 — main 의 dishonest review 지시 거부 vector 명시 X. 매우 정교한 main prompt 의 agent behavior override 시도 시 무력화 가능성.
+architect / security-reviewer / test-engineer prompt 는 약함 — main session 의 dishonest review 지시 거부 vector 명시 X. 매우 정교한 main session prompt 의 agent behavior override 시도 시 무력화 가능성.
 
 ### 차단 못 하는 vector
 

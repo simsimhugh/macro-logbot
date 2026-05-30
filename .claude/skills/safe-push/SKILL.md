@@ -96,7 +96,9 @@ Agent(subagent_type="oh-my-claudecode:test-engineer",   prompt="PR #N review ...
 
 **reviewer cycle (outer loop) 재시도 한도**: 같은 finding 으로 reviewer 가 **3 cycle 연속 REQUEST_CHANGES** 면 본 PR 에 `needs-human-review` label + 사용자 개입 (orchestrator 자율 진행 중단). fix→verify inner loop 한도는 [`verify-fix/SKILL.md`](../verify-fix/SKILL.md) 소유.
 
-> **fix → verify → re-push 메커니즘**: 흐름·순서는 [`docs/process/03-개발-프로세스.md`](../../../docs/process/03-개발-프로세스.md) §5 (Fix cycle) 참조 — 거기서 각 규칙이 `fix-review` / `verify-fix` 로 링크됨.
+**re-push commit 규칙**: fix 수렴 후 main session 이 commit 한 뒤 `run.sh` 로 push. cycle 당 새 commit 1 개로 통합은 **권장**(작성 위생)이지 **강제 아님** — 이미 push 된 commit 에 추가 fix 면 amend/force 말고 **별도 commit 으로 push** (머지 시 Mergify 가 squash).
+
+> **fix → verify → re-push 메커니즘**: 흐름·순서는 [`docs/process/03-개발-프로세스.md`](../../../docs/process/03-개발-프로세스.md) §5 (Fix cycle) 참조. 규칙 정의 — fix sub-agent 구성: [`fix-review/SKILL.md`](../fix-review/SKILL.md), verify: [`verify-fix/SKILL.md`](../verify-fix/SKILL.md), commit·push: 본 skill(위).
 
 ## Exit codes
 
