@@ -20,7 +20,7 @@ REQUEST_CHANGES 낸 **각 reviewer 마다 전용 fix sub-agent 1 개** 를 spawn
 
 - **단일 worktree**: 모든 fix sub-agent 는 같은 worktree 에서 작업 (격리된 작업 공간).
 - **순차 호출**: fix sub-agent 는 **병렬 금지**, 순차 호출. 여러 reviewer 가 같은 파일/함수를 지적하면 병렬 편집 시 충돌하기 때문. 순서: opus 도메인(architect → security) 먼저, 그다음 sonnet(code-reviewer → test-engineer).
-- **fix sub-agent 는 commit 안 함**: working tree 만 편집. 순차 fix 가 모두 끝난 뒤 **main 이 1 회 commit 으로 통합** (개별 commit 시 N 개 → 충돌·squash 복잡). commit 1 개 수렴 규칙은 [`docs/process/03-개발-프로세스.md`](../../../docs/process/03-개발-프로세스.md) §5.2 가 단일 진실.
+- **fix sub-agent 는 commit 안 함**: working tree 만 편집. 순차 fix 가 모두 끝난 뒤 **main 이 1 회 commit 으로 통합**하는 것을 권장 (cycle 당 새 commit 1 개 — 작성 위생, 강제 아님). 상세는 [`docs/process/03-개발-프로세스.md`](../../../docs/process/03-개발-프로세스.md) §5.2 가 단일 진실.
 - **push 금지**: fix sub-agent 는 push 하지 않는다. push 는 verify `PASS` 후 main 의 의무. → [`verify-fix/SKILL.md`](../verify-fix/SKILL.md)
 
 ## 사용법
