@@ -363,6 +363,33 @@ assert_exit "env A=1 git push still block"     2 "$(_gate_rc "env A=1 git push o
 # cycle-2 regression: env FOO=1 git status → 허용 유지
 assert_exit "env FOO=1 git status still allow" 0 "$(_gate_rc "env FOO=1 git status" "")"
 
+# --- 20. PR #104 cycle-5: env -S / --split-string bypass ---
+# env -S '<cmd>' / env --split-string='<cmd>' 는 payload 를 split 후 execvp — push/merge/review
+# 우회 벡터. 3 가지 형태(glued / spaced / --split-string=) 모두 차단.
+echo "=== Test group 20: env -S / --split-string bypass (PR #104 cycle-5) ==="
+# 차단: glued form — env -S'git push origin main'
+assert_exit "env -S glued git push block"                    2 "$(_gate_rc "env -S'git push origin main'" "")"
+# 차단: spaced form — env -S 'git push origin main'
+assert_exit "env -S spaced git push block"                   2 "$(_gate_rc "env -S 'git push origin main'" "")"
+# 차단: long-opt form — env --split-string='git push origin main'
+assert_exit "env --split-string= git push block"             2 "$(_gate_rc "env --split-string='git push origin main'" "")"
+# 차단: gh pr merge payload
+assert_exit "env -S gh pr merge block"                       2 "$(_gate_rc "env -S'gh pr merge 104'" "")"
+# 차단: gh pr review payload
+assert_exit "env -S gh pr review block"                      2 "$(_gate_rc "env -S'gh pr review 104 --approve'" "")"
+# 차단: git update-ref payload
+assert_exit "env -S git update-ref block"                    2 "$(_gate_rc "env -S'git update-ref refs/heads/main HEAD'" "")"
+# 차단: sub-agent 가 env -S'bash run.sh' 로 safe-push 우회 시도
+assert_exit "env -S run.sh sub-agent block"                  2 "$(_gate_rc "env -S'bash .claude/skills/safe-push/run.sh br'" "oh-my-claudecode:executor")"
+# 차단: main 이 env -S'bash post.sh' 로 self-impersonate 시도
+assert_exit "env -S post.sh main self-impersonate block"     2 "$(_gate_rc "env -S'bash .claude/skills/post-review/post.sh architect 5 APPROVE x'" "")"
+# cycle-4 regression: env -i / -u / -- 여전히 차단
+assert_exit "env -i git push still block (c4 reg)"           2 "$(_gate_rc "env -i git push origin main" "")"
+assert_exit "env -u FOO git push still block (c4 reg)"       2 "$(_gate_rc "env -u FOO git push origin main" "")"
+assert_exit "env -- git push still block (c4 reg)"           2 "$(_gate_rc "env -- git push origin main" "")"
+# cycle-4 regression: env -i git status → 여전히 허용
+assert_exit "env -i git status still allow (c4 reg)"         0 "$(_gate_rc "env -i git status" "")"
+
 # --- 결과 ---
 echo ""
 echo "=== Summary ==="

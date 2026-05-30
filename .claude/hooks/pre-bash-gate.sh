@@ -126,13 +126,16 @@ while toks and re.match(r"^[A-Za-z_][A-Za-z_0-9]*=", toks[0]):
     toks.pop(0)
 if toks and toks[0] == "env":
     toks.pop(0)
-    # skip env option flags before real argv0
-    _OPTS_WITH_ARG = {"-u", "--unset", "-C", "--chdir", "-S", "--split-string"}
+    # skip env option flags before real argv0.
+    # env -S / --split-string executes its payload as a command — hard-block.
+    _OPTS_WITH_ARG = {"-u", "--unset", "-C", "--chdir"}
     while toks:
         if toks[0] == "--":
             toks.pop(0); break
         if toks[0].startswith("-"):
             opt = toks.pop(0)
+            if opt.startswith("-S") or opt == "--split-string" or opt.startswith("--split-string="):
+                print("__ENV_S_BLOCKED__"); sys.exit(0)
             if opt in _OPTS_WITH_ARG and toks:
                 toks.pop(0)
         else:
@@ -167,13 +170,16 @@ while toks and re.match(r"^[A-Za-z_][A-Za-z_0-9]*=", toks[0]):
     toks.pop(0)
 if toks and toks[0] == "env":
     toks.pop(0)
-    # skip env option flags before real argv0
-    _OPTS_WITH_ARG = {"-u", "--unset", "-C", "--chdir", "-S", "--split-string"}
+    # skip env option flags before real argv0.
+    # env -S / --split-string executes its payload as a command — hard-block.
+    _OPTS_WITH_ARG = {"-u", "--unset", "-C", "--chdir"}
     while toks:
         if toks[0] == "--":
             toks.pop(0); break
         if toks[0].startswith("-"):
             opt = toks.pop(0)
+            if opt.startswith("-S") or opt == "--split-string" or opt.startswith("--split-string="):
+                print("__ENV_S_BLOCKED__"); sys.exit(0)
             if opt in _OPTS_WITH_ARG and toks:
                 toks.pop(0)
         else:
@@ -193,6 +199,7 @@ print(" ".join(toks[:8]))
     rest="${canonical#* }"; sub1="${rest%% *}"
     sub2="${rest#* }"; sub2="${sub2%% *}"
     case "$argv0_base" in
+        __ENV_S_BLOCKED__) return 1 ;;
         gh)
             case "$sub1 $sub2" in
                 "pr merge"|"api "*)
@@ -224,6 +231,17 @@ _caller_check() {
     local _kind="" _role="" _expected=""
     read -r _kind _role <<< "$(_classify_caller "$_seg")"
     case "$_kind" in
+        __ENV_S_BLOCKED__)
+            cat >&2 <<EOF
+[pre-bash-gate] Bash 명령 차단 — env -S / --split-string payload 실행 차단.
+
+명령: $command
+검출 segment: $_seg
+
+env -S / --split-string 은 payload 문자열을 명령으로 실행합니다 — 허용되지 않습니다.
+EOF
+            exit 2
+            ;;
         UNPARSEABLE)
             cat >&2 <<EOF
 [pre-bash-gate] caller 검증: shlex parse 불가 — fail-closed.
