@@ -14,7 +14,7 @@
 set -uo pipefail
 
 REPO_ROOT="$(git rev-parse --show-toplevel)"
-cd "$REPO_ROOT"
+cd "$REPO_ROOT" || exit 1
 
 HOOK="$REPO_ROOT/.claude/hooks/pre-bash-gate.sh"
 PRE_PUSH="$REPO_ROOT/.githooks/pre-push"
@@ -47,10 +47,12 @@ for cmd in \
     "git push origin HEAD:main" \
     "git update-ref refs/heads/main abc" \
     "git update-ref refs/heads/master abc" \
-    "git merge --ff-only origin/main"; do
+    "git merge --ff-only origin/main" \
+    "git push origin feature-branch"; do
     actual=$(printf '%s' "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"$cmd\"}}" | "$HOOK" >/dev/null 2>&1; echo $?)
     assert_exit "block '$cmd'" 2 "$actual"
 done
+# 주: 현 정책은 feature branch 포함 모든 raw `git push` 차단 — push 는 safe-push/run.sh 전용.
 
 # --- 2. pre-bash-gate.sh: block chain / env / eval ---
 echo "=== Test group 2: hook block chain/env/eval ==="
@@ -70,17 +72,19 @@ echo "=== Test group 3: hook 통과 case ==="
 for cmd in \
     "git status" \
     "gh pr view 60" \
-    "git push origin feature-branch" \
+    "git fetch origin main" \
     "ls -la" \
     "echo hello"; do
     actual=$(printf '%s' "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"$cmd\"}}" | "$HOOK" >/dev/null 2>&1; echo $?)
     assert_exit "pass '$cmd'" 0 "$actual"
 done
 
-# --- 4. pre-bash-gate.sh: bypass env ---
-echo "=== Test group 4: SAFE_MERGE_BYPASS ==="
+# --- 4. pre-bash-gate.sh: SAFE_MERGE_BYPASS 제거 확인 (bypass 미존재) ---
+# 옛 SAFE_MERGE_BYPASS escape hatch 는 현 hook 에서 제거됨 — env var 로 차단 우회 불가.
+# 본 case 는 bypass 가 더 이상 통하지 않음(차단 유지)을 회귀 고정.
+echo "=== Test group 4: SAFE_MERGE_BYPASS 미존재 (no bypass) ==="
 actual=$(SAFE_MERGE_BYPASS=1 bash -c "echo '{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"gh pr merge 60\"}}' | $HOOK" >/dev/null 2>&1; echo $?)
-assert_exit "SAFE_MERGE_BYPASS=1 통과" 0 "$actual"
+assert_exit "SAFE_MERGE_BYPASS=1 도 차단 (bypass 제거됨)" 2 "$actual"
 
 # --- 5. pre-bash-gate.sh: malformed JSON fail-closed ---
 echo "=== Test group 5: malformed JSON fail-closed ==="
@@ -98,7 +102,9 @@ assert_exit "pre-push main block" 1 "$actual"
 actual=$(printf '%s\n' "refs/heads/master abc refs/heads/master def" | "$PRE_PUSH" >/dev/null 2>&1; echo $?)
 assert_exit "pre-push master block" 1 "$actual"
 
-actual=$(printf '%s\n' "refs/heads/feature/x abc refs/heads/feature/x def" | "$PRE_PUSH" >/dev/null 2>&1; echo $?)
+# feature/x 는 protected 아니라 pre-push 의 self-test 단계까지 도달 → 그 self-test 가 본 test 를
+# 다시 부르는 무한 재귀를 막기 위해 PREPUSH_SELFTEST_GUARD=1 로 nested self-test 를 skip.
+actual=$(printf '%s\n' "refs/heads/feature/x abc refs/heads/feature/x def" | PREPUSH_SELFTEST_GUARD=1 "$PRE_PUSH" >/dev/null 2>&1; echo $?)
 assert_exit "pre-push feature/x pass" 0 "$actual"
 
 # --- 7. (deprecated) safe-merge/check.sh argument validation ---
@@ -123,6 +129,101 @@ done
 # --- 9. (deprecated) safe-merge/check.sh injection-safe ---
 # safe-merge skill 제거. CRITICAL #1 fix verification 의 의미 사라짐.
 # 본 verify 는 safe-push/check-ci.sh (heredoc env var pattern) 의 일부로 별 test (FOLLOWUP).
+
+# helper: command + agent_type → hook 호출 exit code.
+# agent_type 은 Claude Code stdin 메타 필드 — main 은 빈값, sub-agent 는 역할 문자열.
+_gate_rc() {
+    local _cmd="$1" _agent="$2"
+    python3 -c 'import json,sys; print(json.dumps({"tool_input":{"command":sys.argv[1]},"agent_type":sys.argv[2]}))' "$_cmd" "$_agent" \
+        | "$HOOK" >/dev/null 2>&1; echo $?
+}
+
+# --- 10. issue #95: safe-push 호출자 검증 (push = main 전용) ---
+# "review = sub-agent 전용 (post.sh)" 의 정반대 대칭 — push 는 main 전용.
+echo "=== Test group 10: safe-push caller verification (#95) ==="
+# main (agent_type 빈값) → run.sh 호출 허용 (상대경로/--force-with-lease/argv0 형식)
+for cmd in \
+    "bash .claude/skills/safe-push/run.sh feature/x" \
+    "bash .claude/skills/safe-push/run.sh feature/x --force-with-lease" \
+    "./.claude/skills/safe-push/run.sh feature/x"; do
+    actual=$(_gate_rc "$cmd" "")
+    assert_exit "safe-push main allow '$cmd'" 0 "$actual"
+done
+# sub-agent (agent_type 있음) → run.sh 호출 차단 (bash/sh/env wrapper + argv0 우회 형식 포함)
+for cmd in \
+    "bash .claude/skills/safe-push/run.sh feature/x" \
+    "sh .claude/skills/safe-push/run.sh feature/x" \
+    "env bash .claude/skills/safe-push/run.sh feature/x" \
+    "./.claude/skills/safe-push/run.sh feature/x"; do
+    actual=$(_gate_rc "$cmd" "oh-my-claudecode:executor")
+    assert_exit "safe-push sub-agent block '$cmd'" 2 "$actual"
+done
+# file-path-as-argument false-positive 방어 — run.sh 가 push 호출이 아니라 인자
+for cmd in \
+    "git add .claude/skills/safe-push/run.sh" \
+    "cat .claude/skills/safe-push/run.sh"; do
+    actual=$(_gate_rc "$cmd" "oh-my-claudecode:executor")
+    assert_exit "safe-push file-path-as-arg pass '$cmd'" 0 "$actual"
+done
+
+# --- 11. issue #95: post.sh 상대경로 탐지 (옛 hole 회귀 방지) ---
+# 옛 "/.claude/..." 절대경로 suffix 는 문서 권장 상대경로 형식을 탐지 못해 main 의 직접
+# post.sh 호출이 통과하던 hole. 본 group 은 상대경로 탐지 동작을 회귀 고정.
+echo "=== Test group 11: post.sh 상대경로 탐지 (#95) ==="
+# main(빈 agent_type) 의 상대경로 post.sh 직접 호출 → 차단 (self-impersonation)
+actual=$(_gate_rc "bash .claude/skills/post-review/post.sh architect 5 APPROVE x" "")
+assert_exit "post.sh relative main block" 2 "$actual"
+# 일치하는 reviewer agent 의 상대경로 호출 → 허용
+actual=$(_gate_rc "bash .claude/skills/post-review/post.sh architect 5 APPROVE x" "oh-my-claudecode:architect")
+assert_exit "post.sh relative matching reviewer allow" 0 "$actual"
+# role mismatch (다른 reviewer 명의) → 차단
+actual=$(_gate_rc "bash .claude/skills/post-review/post.sh security-reviewer 5 APPROVE x" "oh-my-claudecode:architect")
+assert_exit "post.sh relative role mismatch block" 2 "$actual"
+
+# --- 12. issue #95 group A: 체인 명령 분해 검사 (우회 차단 + false-positive 방어) ---
+# argv0-only 검사가 놓치던 `&&`/`||`/`;`/`|`/subshell 뒤 merge·push 를 segment 분해로 차단.
+# 동시에 따옴표 내부 연산자 / 인자로 쓰인 push 문자열은 false-positive 없이 통과해야 함.
+echo "=== Test group 12: 체인 분해 검사 (#95 group A) ==="
+# 실재 체인 뒤 merge/push → 차단
+for cmd in \
+    "cd /tmp && git push origin main" \
+    "gh pr view 60 || gh pr merge 60" \
+    "(cd x; git push origin main)" \
+    "echo a | gh pr merge 60" \
+    "true && FOO=1 gh pr merge 60" \
+    "git status; git push origin feature"; do
+    actual=$(_gate_rc "$cmd" "")
+    assert_exit "chain block '$cmd'" 2 "$actual"
+done
+# 따옴표 내부 연산자 / push·merge 가 인자·문자열인 경우 → 통과 (false-positive 방어)
+for cmd in \
+    'git commit -m "fix: a; b && c"' \
+    'echo "x && gh pr merge 60"' \
+    'git log --oneline | grep push' \
+    'grep -r "gh pr merge" docs/'; do
+    actual=$(_gate_rc "$cmd" "")
+    assert_exit "chain false-positive pass '$cmd'" 0 "$actual"
+done
+
+# --- 13. issue #95 검증 라운드 fix: 개행 / source / 경로정규화 ---
+echo "=== Test group 13: 개행·source·normpath (#95 verify-round) ==="
+# HIGH-1: 여러 줄(개행) 명령의 각 line 이 독립 segment 로 검사돼 raw push/merge 차단
+assert_exit "newline push block"  2 "$(_gate_rc "$(printf 'echo hi\ngit push origin main')" "")"
+assert_exit "newline 3-line push block" 2 "$(_gate_rc "$(printf 'git add -A\ngit commit -m x\ngit push origin feature/x')" "")"
+assert_exit "newline merge block" 2 "$(_gate_rc "$(printf 'gh pr view 60\ngh pr merge 60')" "")"
+# 개행 false-positive 방어 — 따옴표 내부 개행 문자열은 통과
+assert_exit "newline-in-string pass" 0 "$(_gate_rc 'echo "line1
+line2 ok"' "")"
+# MED-3: source / dot-source 로 run.sh·post.sh 호출 탐지
+assert_exit "source run.sh sub-agent block"   2 "$(_gate_rc "source .claude/skills/safe-push/run.sh feature/x" "oh-my-claudecode:executor")"
+assert_exit "dot-source run.sh sub-agent block" 2 "$(_gate_rc ". .claude/skills/safe-push/run.sh feature/x" "oh-my-claudecode:executor")"
+assert_exit "source post.sh main block"       2 "$(_gate_rc "source .claude/skills/post-review/post.sh architect 5 APPROVE x" "")"
+# dot 가 source 가 아니라 path 인자인 경우(argv0 아님) → false-positive 없이 통과
+assert_exit "dot-as-pathfix pass" 0 "$(_gate_rc "ls . .claude/skills/safe-push/run.sh" "oh-my-claudecode:executor")"
+# LOW-1: 경로 정규화(//, /./, ..) 변형도 탐지
+assert_exit "normpath // block"   2 "$(_gate_rc "bash .claude/skills/safe-push//run.sh feature/x" "oh-my-claudecode:executor")"
+assert_exit "normpath /./ block"  2 "$(_gate_rc "bash .claude/skills/safe-push/./run.sh feature/x" "oh-my-claudecode:executor")"
+assert_exit "normpath .. block"   2 "$(_gate_rc "bash .claude/skills/../skills/safe-push/run.sh feature/x" "oh-my-claudecode:executor")"
 
 # --- 결과 ---
 echo ""
