@@ -23,7 +23,7 @@ bash .claude/skills/safe-push/run.sh <BRANCH> [--force-with-lease]
 
 `<BRANCH>` 생략 시 현재 branch 자동 사용.
 
-`--force-with-lease` — force push 가 **정말로 필요한 경우에만** 쓰는 opt-in (remote 에 다른 변경이 있으면 거절하는 안전한 force push). 단, 리뷰 후 commit 을 1 개로 유지하려고 amend/squash + force push 할 필요는 없다 — 새 commit 을 일반 push 하면 된다 ([`docs/process/03-개발-프로세스.md`](../../../docs/process/03-개발-프로세스.md) §5.2).
+`--force-with-lease` — 안전한 force push (remote 에 다른 변경이 있으면 거절). 필요한 경우에만 쓰는 opt-in.
 
 ## 동작 흐름
 
