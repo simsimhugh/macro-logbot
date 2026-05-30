@@ -57,6 +57,18 @@ run_check_ci() {
         bash "$CHECK_CI" 999 "$timeout" 2>&1
 }
 
+run_check_ci_no_sha() {
+    # run_check_ci_no_sha <fixture_subdir> <max> <timeout>
+    # T5 전용: EXPECTED_HEAD_SHA 를 env 에서 빼고 호출(standalone 가드-off 경로).
+    local fdir="$TMP/$1" max="$2" timeout="$3"
+    rm -f "$fdir/counter"
+    env -u EXPECTED_HEAD_SHA \
+        PATH="$BIN:$PATH" \
+        FIXTURE_DIR="$fdir" FIXTURE_MAX="$max" \
+        CHECK_CI_POLL_INTERVAL=0 \
+        bash "$CHECK_CI" 999 "$timeout" 2>&1
+}
+
 SUCCESS_ROLLUP='[{"name":"test","status":"COMPLETED","conclusion":"SUCCESS"}]'
 
 # === Test 1: stale-green 가드 — 직전 SHA green 을 PASS 하지 않고 새 SHA 까지 poll ===
@@ -91,6 +103,29 @@ out="$(run_check_ci t3 1 NEWSHA 60)"; rc=$?
 echo "$out" | grep -q "WAIT: rollup 이 push 한 SHA 미반영" \
     && assert "T3 일치 시 STALE 오발생" fail \
     || assert "T3 일치 시 STALE 미발생 (정상)" ok
+
+# === Test 4: SHA 일치 + FAILURE conclusion → exit 1 (FAILED 분기 회귀 방지) ===
+echo "=== Test 4: headRefOid == EXPECTED 이고 lint FAILURE → exit 1 ==="
+mkdir -p "$TMP/t4"
+printf '{"headRefOid":"NEWSHA","statusCheckRollup":[{"name":"lint","status":"COMPLETED","conclusion":"FAILURE"}]}\n' > "$TMP/t4/resp_1.json"
+out="$(run_check_ci t4 1 NEWSHA 60)"; rc=$?
+[ "$rc" -eq 1 ] && assert "T4 FAILURE conclusion 시 exit 1" ok || assert "T4 expected exit 1, got $rc" fail
+echo "$out" | grep -q "FAIL: CI 1+ check failed" \
+    && assert "T4 FAILED 메시지 출력" ok \
+    || assert "T4 FAILED 메시지 누락" fail
+
+# === Test 5: EXPECTED_HEAD_SHA 미지정(standalone) → 가드 off + 즉시 PASS + WARN ===
+echo "=== Test 5: EXPECTED_HEAD_SHA unset → 가드 비활성, all-green 즉시 PASS + WARN ==="
+mkdir -p "$TMP/t5"
+printf '{"headRefOid":"ANYSHA","statusCheckRollup":%s}\n' "$SUCCESS_ROLLUP" > "$TMP/t5/resp_1.json"
+out="$(run_check_ci_no_sha t5 1 60)"; rc=$?
+[ "$rc" -eq 0 ] && assert "T5 가드-off 즉시 exit 0" ok || assert "T5 expected exit 0, got $rc" fail
+echo "$out" | grep -q "가드 비활성" \
+    && assert "T5 가드 비활성 WARN 출력 (silent off 아님)" ok \
+    || assert "T5 가드 비활성 WARN 누락" fail
+echo "$out" | grep -q "WAIT: rollup 이 push 한 SHA 미반영" \
+    && assert "T5 가드-off 인데 STALE 발생 (가드 미우회)" fail \
+    || assert "T5 가드-off 로 STALE 미발생 (정상)" ok
 
 # --- 결과 ---
 echo ""

@@ -14,7 +14,8 @@
 # Env (optional):
 #   EXPECTED_HEAD_SHA      — 방금 push 한 HEAD SHA. rollup 의 headRefOid 와 일치할
 #                            때까지 poll (issue #105 stale-green 가드). 미지정 시
-#                            local HEAD fallback. safe-push run.sh 가 자동 주입.
+#                            가드 비활성(stderr WARN 1줄) + pre-fix 즉시 판정.
+#                            safe-push run.sh 가 자동 주입.
 #   CHECK_CI_POLL_INTERVAL — poll 간격 초 (default 30). test 시 단축용.
 #
 # Exit:
@@ -46,8 +47,13 @@ start=$(date +%s)
 poll_interval="${CHECK_CI_POLL_INTERVAL:-30}"  # 30s — gh API rate limit 보호 + CI completion 의 typical timing. (test 시 env 로 단축)
 
 # push 직후 stale-green 가드 (issue #105): rollup 이 방금 push 한 commit 의 것인지
-# headRefOid 로 검증. EXPECTED_HEAD_SHA 미지정 시 local HEAD fallback (standalone 재실행 호환).
-EXPECTED_SHA="${EXPECTED_HEAD_SHA:-$(git rev-parse HEAD 2>/dev/null || echo "")}"
+# headRefOid 로 검증. EXPECTED_HEAD_SHA 미지정(standalone) 시 가드 비활성 — local HEAD
+# fallback 은 remote PR head 와 어긋날 때 무한 STALE→timeout 을 유발하므로 제거.
+# 빈 EXPECTED_SHA 시 python 비교(if expected and ...)가 우회되어 pre-fix 즉시 판정 복원.
+EXPECTED_SHA="${EXPECTED_HEAD_SHA:-}"
+if [ -z "$EXPECTED_SHA" ]; then
+    echo "WARN: EXPECTED_HEAD_SHA 미지정 — push 직후 stale-green 가드 비활성(standalone 모드). run.sh 경유 시 자동 주입." >&2
+fi
 
 empty_count=0
 EMPTY_MAX=10  # finding R: EMPTY rollup N회 연속 시 early exit (CI workflow 미등록 PR 추정)

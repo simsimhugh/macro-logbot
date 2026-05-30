@@ -40,8 +40,9 @@ done
 echo "[safe-push] step 3: git push $FORCE_FLAG -u origin $BRANCH"
 # shellcheck disable=SC2086
 git push $FORCE_FLAG -u origin "$BRANCH"
-# issue #105: 방금 push 한 HEAD SHA 를 check-ci.sh 로 전달 → rollup stale-green 가드.
-PUSHED_SHA="$(git rev-parse HEAD)"
+# issue #105: 방금 push 한 ref tip SHA 를 check-ci.sh 로 전달 → rollup stale-green 가드.
+# push 대상이 $BRANCH 이므로 HEAD 가 아닌 $BRANCH tip 을 캡처(다른 branch 지정 시 정합).
+PUSHED_SHA="$(git rev-parse "$BRANCH")"
 
 # 4. CI all-green wait
 echo "[safe-push] step 4: CI all-green 대기"
