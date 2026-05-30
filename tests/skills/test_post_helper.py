@@ -360,23 +360,18 @@ def test_render_findings_no_false_redaction(tmp_template: str):
 # render_template — BOT_USER _safe_bot_user 적용 (finding C)
 # ---------------------------------------------------------------------------
 
+# role template 은 issue #100 이후 FINDING_*_TEMPLATE block 을 보유하지 않음
+# (공유 _finding_template.md 로 추출) — render_template 도 strip 단계 없음.
 _FULL_TEMPLATE = """\
 ## review
 
-<!-- finding format template — spec comment
-<!-- FINDING_TEMPLATE_START -->
-line
-<!-- FINDING_TEMPLATE_END -->
-
-<!-- FINDING_PLAIN_TEMPLATE_START -->
-plain
-<!-- FINDING_PLAIN_TEMPLATE_END -->
-
-<!-- FINDING_LOCATION_ONLY_TEMPLATE_START -->
-loc
-<!-- FINDING_LOCATION_ONLY_TEMPLATE_END -->
+### Findings
 
 {{FINDINGS}}
+
+### Verdict
+
+{{VERDICT_LINE}}
 
 ---
 🤖 posted by `{{BOT_USER}}` via post.sh (commit `{{POST_SCRIPT_SHA}}`)
@@ -397,10 +392,9 @@ def test_render_template_bot_user_substituted(tmp_path: Path, monkeypatch: pytes
     monkeypatch.setenv("_PR_VERDICT_REASON", "")
     result = ph.render_template(str(tpl))
     assert "macro-logbot-architect-bot" in result
-    # template blocks stripped from review body
-    assert "FINDING_TEMPLATE_START" not in result
-    assert "FINDING_PLAIN_TEMPLATE_START" not in result
-    assert "FINDING_LOCATION_ONLY_TEMPLATE_START" not in result
+    # placeholder 치환 완료 — 미치환 {{...}} 잔존 없음
+    assert "findings here" in result
+    assert "{{" not in result
 
 
 def test_render_template_impersonation_in_bot_user(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
