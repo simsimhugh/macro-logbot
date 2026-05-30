@@ -40,6 +40,8 @@ done
 echo "[safe-push] step 3: git push $FORCE_FLAG -u origin $BRANCH"
 # shellcheck disable=SC2086
 git push $FORCE_FLAG -u origin "$BRANCH"
+# issue #105: 방금 push 한 HEAD SHA 를 check-ci.sh 로 전달 → rollup stale-green 가드.
+PUSHED_SHA="$(git rev-parse HEAD)"
 
 # 4. CI all-green wait
 echo "[safe-push] step 4: CI all-green 대기"
@@ -54,7 +56,7 @@ if [ -x "$CHECK_CI" ]; then
     # || CI_EXIT=$? — set -e 환경에서 non-zero exit 시 script 즉시 종료 방지.
     # check-ci.sh exit 1 (CI fail) / exit 2 (timeout) 을 case block 까지 전달.
     CI_EXIT=0
-    "$CHECK_CI" "$PR_NUM" || CI_EXIT=$?
+    EXPECTED_HEAD_SHA="$PUSHED_SHA" "$CHECK_CI" "$PR_NUM" || CI_EXIT=$?
 else
     echo "[safe-push] warn: check-ci.sh 없음 또는 실행 권한 없음, CI 대기 skip" >&2
     CI_EXIT=0
