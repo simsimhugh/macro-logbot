@@ -9,7 +9,7 @@ description: 4 reviewer agent (architect / code-reviewer / security-reviewer / t
 
 4 reviewer agent 의 PR review 게시:
 1. **per-role template** — `templates/{architect,code-reviewer,security-reviewer,test-engineer}.md` 의 일관 형식.
-2. **verdict 자동 결정** — finding severity + confidence 기반 (role-specific). agent 의 verdict 자율 결정 금지. 정책 표 = 본 문서 § "verdict 자동 결정" (이 skill 이 단일 진실).
+2. **verdict 자동 결정** — finding severity + confidence 기반 (role-specific). agent 의 verdict 자율 결정 금지. 정책 표는 본 문서 § "verdict 자동 결정" 참조.
 3. **identity verify** — token user.login ↔ `$GH_USER` 일치 (token 오염 / 다른 bot 명의 게시 catch).
 4. **scope verify** — `<role>` ↔ `$GH_USER` substring 일치 (architect agent 가 code-reviewer-bot 명의로 게시 catch).
 5. **full PR review** — 매 cycle 전체 PR diff (`origin/main...HEAD`) 를 review scope 로 사용. main session 이 reviewer agent prompt 작성 시 scope 를 incremental 로 좁히는 것 금지 — 기존 finding 이 scope 밖으로 사라지는 사각지대 방지. last review SHA == 현 HEAD 면 게시 skip (idempotent). commit 범위는 template 에 `PR_BASE_SHA ~ HEAD_SHA` (full SHA) 로 표기 — GitHub 이 자동 링크 + 앞 7자리 표시.
@@ -61,7 +61,7 @@ severity ∈ {`CRITICAL`, `HIGH`, `MED`, `WARN`, `LOW`, `INFO`, `PASS`}
 - `detail` — optional, 짧은 요약
 - `confidence` — optional, `HIGH` / `MEDIUM` / `LOW` (생략 시 `HIGH`). 옵션 C (2026-05-23): CRITICAL/HIGH at HIGH confidence 만 blocking. LOW-confidence CRITICAL/HIGH = informational → APPROVE.
 
-> **verdict 정책**: severity → verdict 산출 규칙은 본 문서 § "verdict 자동 결정" 참조 (role-specific, 이 skill 이 단일 진실).
+> **verdict 정책**: severity → verdict 산출 규칙은 본 문서 § "verdict 자동 결정" 참조 (role-specific).
 
 ### 예시
 
@@ -119,7 +119,7 @@ gh pr review <PR> --approve|--request-changes --body "$rendered"
 
 ## verdict 자동 결정 (role-specific, 2026-05-24 갱신)
 
-이 표가 verdict 정책의 **단일 진실** — post.sh 의 `expected_verdict()` 가 이대로 구현하며, 다른 문서(03 §4.2)·스킬(safe-push)·템플릿은 여기를 참조만 한다.
+이 표대로 post.sh 의 `expected_verdict()` 가 verdict 를 산출한다.
 
 | role | blocking severity (→ `REQUEST_CHANGES`) |
 |---|---|
@@ -128,8 +128,9 @@ gh pr review <PR> --approve|--request-changes --body "$rendered"
 | `security-reviewer` / `test-engineer` | CRITICAL + HIGH 만. MED / WARN = informational |
 
 - `code-reviewer` 의 CRITICAL/HIGH 는 **confidence=HIGH(또는 생략)** 일 때만 blocking — LOW-confidence CRITICAL/HIGH 는 informational → `APPROVE`. (OMC code-reviewer prompt `"REQUEST_CHANGES: CRITICAL or HIGH issues present at HIGH confidence"` 와 정합.)
-- LOW / INFO / PASS 는 informational — verdict 영향 X, body render 안 함.
-- security-reviewer / test-engineer 의 MED / WARN 는 body render 하되 verdict 영향 X.
+- 위 표의 blocking severity 외에는 전부 informational — verdict 영향 X.
+
+> 어떤 severity 를 코멘트 본문에 표시할지(**body render**)는 verdict 와 별개 정책 → 위 § "body 표기 정책" 참조.
 
 ## env 의 위치
 
