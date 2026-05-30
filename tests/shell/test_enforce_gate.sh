@@ -440,6 +440,30 @@ assert_exit "env -a x post.sh main block"                    2 "$(_gate_rc "env 
 assert_exit "env -a x git status allow"                      0 "$(_gate_rc "env -a x git status" "")"
 assert_exit "env --argv0 x git status allow"                 0 "$(_gate_rc "env --argv0 x git status" "")"
 
+echo ""
+echo "=== Test group 22: nested env bypass (PR #104 cycle-8) ==="
+# env-strip 이 단 한 번만 일어나면 NESTED env 가 두 번째 env 를 argv0 로 남긴다
+# (block list 부재 -> rc=0 ALLOW). fix: env-strip 을 while 루프로 모든 nested 층 peel.
+# nested env -> 차단 (depth 2 / depth 3 / arg-flag 섞인 nested)
+assert_exit "env env git push block"                         2 "$(_gate_rc "env env git push origin main" "")"
+assert_exit "env env gh pr merge block"                      2 "$(_gate_rc "env env gh pr merge 104" "")"
+assert_exit "env env gh pr review block"                     2 "$(_gate_rc "env env gh pr review 104 --approve" "")"
+assert_exit "env env git update-ref main block"              2 "$(_gate_rc "env env git update-ref refs/heads/main abc" "")"
+assert_exit "env env env git push block (triple)"            2 "$(_gate_rc "env env env git push origin main" "")"
+# arg-flag 가 섞인 nested: 층마다 option-skip + VAR=val drop 가 돌아야 다음 env 도달
+assert_exit "env -a x env -a y git push block"               2 "$(_gate_rc "env -a x env -a y git push origin main" "")"
+assert_exit "env A=1 env B=2 git push block (per-layer VAR)" 2 "$(_gate_rc "env A=1 env B=2 git push" "")"
+# nested + caller gate (run.sh = main 전용 / post.sh = role match)
+assert_exit "env env run.sh sub-agent block"                 2 "$(_gate_rc "env env bash .claude/skills/safe-push/run.sh br" "oh-my-claudecode:executor")"
+assert_exit "env env post.sh role-match block"               2 "$(_gate_rc "env env bash .claude/skills/post-review/post.sh architect 5 APPROVE x" "")"
+# nested + split-string: 안쪽 층의 -S 도 위치무관 scan 으로 차단
+assert_exit "env env -S git push block (nested split)"       2 "$(_gate_rc "env env -S'git push'" "")"
+assert_exit "env env -a x0 -S git push block (nested)"       2 "$(_gate_rc "env env -a x0 -S'git push'" "")"
+# nested env false-positive: 비차단 명령은 모든 층 peel 후 허용 유지
+assert_exit "env env git status allow"                       0 "$(_gate_rc "env env git status" "")"
+assert_exit "env env git log allow"                          0 "$(_gate_rc "env env git log" "")"
+assert_exit "env -i env -i git status allow"                 0 "$(_gate_rc "env -i env -i git status" "")"
+
 # --- 결과 ---
 echo ""
 echo "=== Summary ==="

@@ -143,7 +143,11 @@ except Exception:
     print("UNPARSEABLE"); sys.exit(0)
 while toks and re.match(r"^[A-Za-z_][A-Za-z_0-9]*=", toks[0]):
     toks.pop(0)
-if toks and toks[0] == "env":
+# Peel EVERY nested `env` layer (env env git push / env -a x env -a y git push).
+# Stripping `env` once leaves a nested `env` as argv0 (absent from the block list)
+# -> bypass. Loop: per layer pop `env`, run split-string scan + option-flag skip +
+# VAR=val drop, then re-check whether the NEXT argv0 is again `env`.
+while toks and toks[0] == "env":
     toks.pop(0)
     # env -S / --split-string executes its payload as a command — hard-block.
     # Position-independent scan: env has arg-taking flags beyond {-u,-C} (e.g.
@@ -167,6 +171,7 @@ if toks and toks[0] == "env":
                 toks.pop(0)
         else:
             break
+    # VAR=val drop must run per-layer (env A=1 env B=2 git push).
     while toks and re.match(r"^[A-Za-z_][A-Za-z_0-9]*=", toks[0]):
         toks.pop(0)
 def matched(t, suf, base):
@@ -212,7 +217,11 @@ except Exception:
     sys.exit(0)
 while toks and re.match(r"^[A-Za-z_][A-Za-z_0-9]*=", toks[0]):
     toks.pop(0)
-if toks and toks[0] == "env":
+# Peel EVERY nested `env` layer (env env git push / env -a x env -a y git push).
+# Stripping `env` once leaves a nested `env` as argv0 (absent from the block list)
+# -> bypass. Loop: per layer pop `env`, run split-string scan + option-flag skip +
+# VAR=val drop, then re-check whether the NEXT argv0 is again `env`.
+while toks and toks[0] == "env":
     toks.pop(0)
     # env -S / --split-string executes its payload as a command — hard-block.
     # Position-independent scan over the whole option region (see helper).
@@ -233,6 +242,7 @@ if toks and toks[0] == "env":
                 toks.pop(0)
         else:
             break
+    # VAR=val drop must run per-layer (env A=1 env B=2 git push).
     while toks and re.match(r"^[A-Za-z_][A-Za-z_0-9]*=", toks[0]):
         toks.pop(0)
 if toks and toks[0].endswith("git"):
