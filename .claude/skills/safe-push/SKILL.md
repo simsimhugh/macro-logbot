@@ -81,8 +81,7 @@ Agent(subagent_type="oh-my-claudecode:test-engineer",   prompt="PR #N review ...
 각 agent prompt 에 명시:
 - 대상 PR 번호
 - `post.sh` 통해서만 게시 (raw `gh pr review` / `gh pr comment` 금지 — hook 차단)
-- finding 의 severity 명시 (CRITICAL/HIGH/MED/WARN/LOW/INFO/PASS)
-- verdict 자동 산출 (PASS/LOW/INFO 만 APPROVE)
+- finding 의 severity 명시. severity 목록·verdict 정책은 [`post-review/SKILL.md`](../post-review/SKILL.md) § "verdict 자동 결정" 이 단일 진실 — **role-specific** (architect 는 MED/WARN 도 blocking이라 "PASS/LOW/INFO 만 APPROVE" 식 일률 적용 금지)
 
 **본 의무를 따르지 않으면**: review 0 상태 유지 + 머지 불가. run.sh exit 후 침묵은 spec 위반.
 
@@ -96,7 +95,9 @@ Agent(subagent_type="oh-my-claudecode:test-engineer",   prompt="PR #N review ...
 - **1+ REQUEST_CHANGES** → fix → verify → re-push 후 새 reviewer cycle 재진입 (모두 APPROVE 까지 반복)
 - **COMMENT 만** → main session 판단 (finding 정합성 검토 후 필요 시 fix)
 
-> **fix → verify → re-push 의 상세 메커니즘**(reviewer별 fix · 모델 고정 · commit 통합 권장 · 단일 verifier · 횟수 한도)은 [`docs/process/03-개발-프로세스.md`](../../../docs/process/03-개발-프로세스.md) §5 (Fix cycle) 가 **단일 진실** — 본 스킬은 중복 정의하지 않음 (drift 방지).
+**reviewer cycle (outer loop) 재시도 한도** — 이 skill 이 단일 진실 (03 §5.4 는 참조): 같은 finding 으로 reviewer 가 **3 cycle 연속 REQUEST_CHANGES** 면 본 PR 에 `needs-human-review` label + 사용자 개입 (orchestrator 자율 진행 중단). fix→verify inner loop 한도는 [`verify-fix/SKILL.md`](../verify-fix/SKILL.md) 소유.
+
+> **fix → verify → re-push 의 상세**: 흐름·순서는 [`docs/process/03-개발-프로세스.md`](../../../docs/process/03-개발-프로세스.md) §5, 규칙 정의는 각 스킬이 단일 진실 — fix·모델·commit 통합 = [`fix-review/SKILL.md`](../fix-review/SKILL.md), 단일 verifier·inner 재시도 한도 = [`verify-fix/SKILL.md`](../verify-fix/SKILL.md).
 
 ## Exit codes
 
