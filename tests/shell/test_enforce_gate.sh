@@ -383,6 +383,23 @@ assert_exit "env -S git update-ref block"                    2 "$(_gate_rc "env 
 assert_exit "env -S run.sh sub-agent block"                  2 "$(_gate_rc "env -S'bash .claude/skills/safe-push/run.sh br'" "oh-my-claudecode:executor")"
 # 차단: main 이 env -S'bash post.sh' 로 self-impersonate 시도
 assert_exit "env -S post.sh main self-impersonate block"     2 "$(_gate_rc "env -S'bash .claude/skills/post-review/post.sh architect 5 APPROVE x'" "")"
+# cycle-6: combined short-flag cluster — S 가 첫 글자가 아닌 cluster (-vS / -uvS / -iS)
+# 도 env 가 --split-string 을 활성화하므로 차단해야 함 (startswith('-S') 미탐 벡터).
+assert_exit "env -vS cluster git push block"                 2 "$(_gate_rc "env -vS'git push origin main'" "")"
+assert_exit "env -uvS cluster git push block"                2 "$(_gate_rc "env -uvS'git push origin main'" "")"
+assert_exit "env -iS cluster git push block"                 2 "$(_gate_rc "env -iS'git push'" "")"
+assert_exit "env -vS cluster gh pr merge block"              2 "$(_gate_rc "env -vS'gh pr merge 104'" "")"
+assert_exit "env -vS cluster run.sh sub-agent block"         2 "$(_gate_rc "env -vS'bash .claude/skills/safe-push/run.sh br'" "oh-my-claudecode:executor")"
+assert_exit "env -vS cluster post.sh main block"             2 "$(_gate_rc "env -vS'bash .claude/skills/post-review/post.sh security-reviewer 104 PASS x'" "")"
+# cycle-6 LOW pin (test-engineer): -S after another flag — 여전히 차단
+assert_exit "env -v -S git push block (S after flag)"        2 "$(_gate_rc "env -v -S'git push origin main'" "")"
+# cycle-6 LOW pin (test-engineer): -C ARG git push — option-with-arg 소비 후 push 차단 유지
+assert_exit "env -C /tmp git push block (C arg)"             2 "$(_gate_rc "env -C /tmp git push origin main" "")"
+# false-positive: -S/--split-string 가 env segment 밖의 리터럴 텍스트일 때 허용
+assert_exit "git commit -m use --split-string allow"         0 "$(_gate_rc "git commit -m \"use --split-string\"" "")"
+assert_exit "echo env -vS literal text allow"                0 "$(_gate_rc "echo \"env -vS x\"" "")"
+# false-positive: env -C /tmp git status (push 아님) 허용 유지
+assert_exit "env -C /tmp git status allow"                   0 "$(_gate_rc "env -C /tmp git status" "")"
 # cycle-4 regression: env -i / -u / -- 여전히 차단
 assert_exit "env -i git push still block (c4 reg)"           2 "$(_gate_rc "env -i git push origin main" "")"
 assert_exit "env -u FOO git push still block (c4 reg)"       2 "$(_gate_rc "env -u FOO git push origin main" "")"

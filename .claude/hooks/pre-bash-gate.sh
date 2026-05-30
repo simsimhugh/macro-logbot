@@ -134,7 +134,12 @@ if toks and toks[0] == "env":
             toks.pop(0); break
         if toks[0].startswith("-"):
             opt = toks.pop(0)
-            if opt.startswith("-S") or opt == "--split-string" or opt.startswith("--split-string="):
+            # env activates --split-string whenever S appears in a short-flag
+            # cluster (-S, -vS, -uvS, -iS, ...) — not only when S is first.
+            if opt == "--split-string" or opt.startswith("--split-string="):
+                print("__ENV_S_BLOCKED__"); sys.exit(0)
+            if opt.startswith("-") and not opt.startswith("--") \
+                    and "S" in opt[1:].split("=", 1)[0]:
                 print("__ENV_S_BLOCKED__"); sys.exit(0)
             if opt in _OPTS_WITH_ARG and toks:
                 toks.pop(0)
@@ -178,7 +183,12 @@ if toks and toks[0] == "env":
             toks.pop(0); break
         if toks[0].startswith("-"):
             opt = toks.pop(0)
-            if opt.startswith("-S") or opt == "--split-string" or opt.startswith("--split-string="):
+            # env activates --split-string whenever S appears in a short-flag
+            # cluster (-S, -vS, -uvS, -iS, ...) — not only when S is first.
+            if opt == "--split-string" or opt.startswith("--split-string="):
+                print("__ENV_S_BLOCKED__"); sys.exit(0)
+            if opt.startswith("-") and not opt.startswith("--") \
+                    and "S" in opt[1:].split("=", 1)[0]:
                 print("__ENV_S_BLOCKED__"); sys.exit(0)
             if opt in _OPTS_WITH_ARG and toks:
                 toks.pop(0)
