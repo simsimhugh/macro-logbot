@@ -10,6 +10,14 @@ description: 검증 sub-agent 가 fix 의 정확성 verify 의무 spec. main ses
 fix sub-agent 의 작업 완료 후 main session 이 verifier sub-agent 를 spawn 해 fix 의 정확성을 검증.
 `verifier-template.md` 를 main session 의 verifier sub-agent prompt 에 포함시켜 regression 및 누락 fix 를 catch.
 
+## verifier 구성 (단일 · 전체 통합 · 보고 전용)
+
+- **단일 verifier**: fix 가 여러 reviewer 도메인에 걸쳐도 **verifier sub-agent 는 1 개** (agent type `oh-my-claudecode:verifier`, sonnet). reviewer 별로 쪼개지 않는다 — verify 의 핵심은 **도메인 간 regression 검출**(한 도메인의 fix 가 다른 도메인의 fix 를 깨뜨림, 예: security fix 가 architect fix 를 깼나)이라, 변경 전체를 한 agent 가 한 번에 봐야 사각지대가 없다. **reviewer 4 개(다양한 전문성 렌즈) → verifier 1 개(전체 통합 조망)** 의 비대칭이 의도된 설계.
+- **검증 대상**: fix 가 수렴한 **단일 commit 의 전체 변경** (단일 worktree 산출물).
+- **보고 전용 · push 금지**: verifier 는 결과를 **`PASS` / `FAIL` 로 main 에 보고만** 한다. push / merge / commit 권한 없음 — consequential 행동은 main 의 gated entry(safe-push)로만 (settings.deny 가 물리적으로도 raw push 차단). push 직후 4 reviewer spawn 도 main 전용 의무라, verifier 가 push 해도 제어는 어차피 main 으로 돌아옴 → verifier push 는 이득 없이 choke-point 만 흐림.
+  - `FAIL` → main 이 재-fix 지시 (fix→verify 재실행 — **이 루프엔 별도 횟수 제한 없음**. [`03-개발-프로세스.md`](../../../docs/process/03-개발-프로세스.md) §5.4 의 3 cycle 한도는 reviewer cycle 기준이지 fix→verify 가 아님)
+  - `PASS` → main 이 safe-push 진행 → 4 reviewer cycle 재진입
+
 ## 사용법
 
 main session 이 verifier sub-agent prompt 작성 시 `verifier-template.md` 의 모든 의무 항목을 포함시켜야 함.

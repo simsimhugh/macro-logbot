@@ -10,6 +10,26 @@ description: fix sub-agent 위임 시 따라야 할 brief 의무 spec. main sess
 main session 이 fix sub-agent 를 spawn 할 때 sub-agent 가 반드시 따라야 할 의무 항목을 spec 화.
 `brief-template.md` 를 main session 의 fix sub-agent prompt 에 포함시켜 regression 및 찾기 누락을 차단.
 
+## fix sub-agent 구성 (agent type · 모델 · 실행)
+
+REQUEST_CHANGES 낸 **각 reviewer 마다 전용 fix sub-agent 1 개** 를 spawn (APPROVE 한 reviewer 는 fix 대상 아님). agent type 은 `oh-my-claudecode:executor`, 모델은 해당 reviewer 의 도메인에 맞춰 **정적 고정**:
+
+| REQUEST_CHANGES reviewer | fix sub-agent | 모델 |
+|---|---|---|
+| architect (설계) | executor | **opus** |
+| security-reviewer (보안) | executor | **opus** |
+| code-reviewer (로직/SOLID) | executor | **sonnet** |
+| test-engineer (테스트) | executor | **sonnet** |
+
+→ 설계·보안 결함 수정은 깊은 추론이 필요해 opus, 로직·테스트 수정은 sonnet. main 의 런타임 "복잡하면 escalate" 판단 없이 **reviewer↔모델 정적 매핑** 으로 비결정성 제거.
+
+### 실행 모델 — 순차 · 단일 worktree · commit 1 개
+
+- **단일 worktree**: 모든 fix sub-agent 는 같은 worktree 에서 작업 (격리된 작업 공간).
+- **순차 호출**: fix sub-agent 는 **병렬 금지**, 순차 호출. 여러 reviewer 가 같은 파일/함수를 지적하면 병렬 편집 시 충돌하기 때문. 순서: opus 도메인(architect → security) 먼저, 그다음 sonnet(code-reviewer → test-engineer).
+- **commit 1 개로 수렴**: 모든 fix 적용 후 main 이 **정확히 1 개 commit** 으로 통합 (last review SHA 이후 HEAD 까지 commit 1 개 — Mergify dismiss + squash 정합). → [`safe-push/SKILL.md`](../safe-push/SKILL.md) §4
+- **push 금지**: fix sub-agent 는 push 하지 않는다. push 는 verify `PASS` 후 main 의 의무. → [`verify-fix/SKILL.md`](../verify-fix/SKILL.md)
+
 ## 사용법
 
 main session 이 fix sub-agent prompt 작성 시 `brief-template.md` 의 모든 의무 항목을 포함시켜야 함.

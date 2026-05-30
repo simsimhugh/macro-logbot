@@ -70,10 +70,10 @@ Co-Authored-By: code-reviewer-agent <noreply@anthropic.com>
 
 1. `executor` agent가 feature branch에 코드 작성 + commit
 2. PR 생성 (`gh pr create`) — description은 `executor`가 자동 작성
-3. `architect` → `code-reviewer` → `security-reviewer` → `test-engineer` → `verifier` 순차 호출
+3. `architect` / `code-reviewer` / `security-reviewer` / `test-engineer` 4 reviewer **병렬** 호출
 4. 각 reviewer가 PR comment 자동 post (🤖 표식 + severity)
-5. blocker가 있으면 → `executor`가 재작업 (최대 3회 시도)
-6. 모든 reviewer pass → `verifier`가 auto-merge 승인 → squash merge
+5. blocker(REQUEST_CHANGES)가 있으면 → reviewer별 fix sub-agent(`executor`, 순차·모델고정) → 단일 `verifier` 전체통합 검증(PASS/FAIL을 main에 보고) → PASS 시 main이 push → 4 reviewer 재검토
+6. 모든 reviewer APPROVE + CI pass → Mergify auto squash merge
 
 ## 코드 스타일
 

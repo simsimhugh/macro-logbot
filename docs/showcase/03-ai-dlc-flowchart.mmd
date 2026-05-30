@@ -25,7 +25,8 @@ flowchart LR
         r4[test-engineer]
     end
 
-    fix[fix sub-agent<br/>fix-review skill]
+    fix[fix sub-agent<br/>reviewer별·순차·모델고정]
+    verify[verifier<br/>단일·전체통합 검증]
     issue[GitHub Issue<br/>follow-up PR]
     mergify[Mergify<br/>auto squash merge]
 
@@ -36,7 +37,9 @@ flowchart LR
     orch -->|4 reviewer spawn| semantic
     semantic -->|4 APPROVE| mergify
     semantic -.->|REQUEST_CHANGES| orch
-    orch -.->|scope 안 fix 위임| fix
+    orch -.->|fix 위임 / FAIL 재-fix| fix
+    fix -.->|완료 보고| orch
+    orch -.->|verify 위임| verify
+    verify -.->|PASS·FAIL 보고| orch
     orch -.->|scope 밖 / PR 비대| issue
-    fix -.-> exec
     mergify --> main((main))
