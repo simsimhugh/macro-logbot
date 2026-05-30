@@ -225,6 +225,29 @@ assert_exit "normpath // block"   2 "$(_gate_rc "bash .claude/skills/safe-push//
 assert_exit "normpath /./ block"  2 "$(_gate_rc "bash .claude/skills/safe-push/./run.sh feature/x" "oh-my-claudecode:executor")"
 assert_exit "normpath .. block"   2 "$(_gate_rc "bash .claude/skills/../skills/safe-push/run.sh feature/x" "oh-my-claudecode:executor")"
 
+# --- 14. issue #95 reviewer fix: glued subshell / env·체인 dot-source / 체인 role / agent_type 경계 ---
+echo "=== Test group 14: glued subshell·env-dot·체인 role·agent_type 경계 (#95) ==="
+SP="bash .claude/skills/safe-push/run.sh feat"
+PR="bash .claude/skills/post-review/post.sh"
+# glued subshell/paren·brace 우회 — sub-agent run.sh 차단 (caller-identity 도 segment 분해)
+for cmd in "($SP)" "true &&($SP)" ";($SP)" "(($SP))" "{ $SP; }"; do
+    assert_exit "glued subshell run.sh block '$cmd'" 2 "$(_gate_rc "$cmd" "oh-my-claudecode:executor")"
+done
+# env-prefix / 체인 dot-source — sub-agent run.sh 차단
+assert_exit "env-prefix dot-source block" 2 "$(_gate_rc "FOO=1 . .claude/skills/safe-push/run.sh feat" "oh-my-claudecode:executor")"
+assert_exit "chain dot-source block"      2 "$(_gate_rc "cd /tmp && . .claude/skills/safe-push/run.sh feat" "oh-my-claudecode:executor")"
+# 체인된 post.sh role mismatch (full path, first-match 가 아니라 전체 segment 검사) → 차단
+assert_exit "chained post.sh role mismatch block" 2 "$(_gate_rc "$PR architect 5 APPROVE x && $PR security-reviewer 5 APPROVE y" "oh-my-claudecode:architect")"
+# main 이 glued subshell 로 post.sh self-impersonation → 차단
+assert_exit "glued post.sh main self-impersonation block" 2 "$(_gate_rc "($PR security-reviewer 104 PASS x)" "")"
+# glued subshell 로 raw push → 차단
+assert_exit "glued subshell raw push block" 2 "$(_gate_rc "true &&(git push origin main)" "")"
+# agent_type 경계: 부재/null = main(run.sh 허용), whitespace = sub-agent(차단)
+_gate_json() { printf '%s' "$1" | "$HOOK" >/dev/null 2>&1; echo $?; }
+assert_exit "agent_type 부재 = main run.sh 허용" 0 "$(_gate_json '{"tool_input":{"command":"bash .claude/skills/safe-push/run.sh feat"}}')"
+assert_exit "agent_type null = main run.sh 허용"  0 "$(_gate_json '{"tool_input":{"command":"bash .claude/skills/safe-push/run.sh feat"},"agent_type":null}')"
+assert_exit "agent_type whitespace = sub-agent run.sh 차단" 2 "$(_gate_json '{"tool_input":{"command":"bash .claude/skills/safe-push/run.sh feat"},"agent_type":"  "}')"
+
 # --- 결과 ---
 echo ""
 echo "=== Summary ==="
