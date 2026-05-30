@@ -66,9 +66,13 @@ except Exception:
 # "git add .claude/skills/post-review/post.sh" 같은 file-path-as-argument 는 무시.
 # finding C: shlex parse 불가 명령 → fail-closed (exit 2 block). 옛 except sys.exit(0) 는
 #            fail-open 이었음 — obfuscated 명령이 post.sh detect 를 우회할 수 있는 hole.
-# finding M: suffix match 강화 — "/.claude/skills/post-review/post.sh" 절대 경로 suffix 또는
+# finding M: suffix match 강화 — ".claude/skills/post-review/post.sh" 경로 suffix 또는
 #            basename == "post.sh" 의 양쪽 검사로 false-positive(다른 post.sh) 방어.
-_POST_SH_CANONICAL_SUFFIX="/.claude/skills/post-review/post.sh"
+# issue #95: suffix 앞 슬래시 제거 — 상대경로 카논형식(`bash .claude/skills/post-review/post.sh`),
+#            `./` prefix, 절대경로를 모두 catch. (옛 "/.claude/..." 는 절대경로만 잡아, 문서가 권장하는
+#            상대경로 형식이 탐지를 우회하는 hole 이 있었음 — main 의 직접 post.sh 호출 차단이 무력화.)
+#            file-path-as-argument 는 argv0/bash 위치 guard 가 계속 방어.
+_POST_SH_CANONICAL_SUFFIX=".claude/skills/post-review/post.sh"
 _post_sh_invoked="$(printf '%s' "$command" | python3 -c '
 import shlex, sys, os
 suffix = sys.argv[1]
@@ -78,14 +82,17 @@ except Exception as exc:
     print(f"__UNPARSEABLE__:{exc}", file=sys.stderr)
     sys.exit(2)
 def is_post_sh(t):
-    return t.endswith(suffix) or (os.path.basename(t) == "post.sh" and suffix in t)
-# post.sh 가 argv0 이거나 bash/sh 의 스크립트 인자인 경우만 invoked=true
+    # normpath: "//", "/./", "/../" 변형으로 suffix 우회 방어 (issue #95 LOW-1)
+    n = os.path.normpath(t)
+    return n.endswith(suffix) or (os.path.basename(n) == "post.sh" and suffix in n)
+# post.sh 가 argv0 이거나 bash/sh/env/source 의 스크립트 인자인 경우만 invoked=true
 for i, t in enumerate(toks):
     if is_post_sh(t):
         if i == 0:
             print("yes")  # argv0
-        elif i > 0 and toks[i-1] in ("bash", "sh", "env"):
-            print("yes")  # bash post.sh ... 형태
+        elif i > 0 and (toks[i-1] in ("bash", "sh", "env", "source")
+                        or (toks[i-1] == "." and i == 1)):
+            print("yes")  # bash/source post.sh, `. post.sh`(argv0 dot-source) 형태 (issue #95 MED-3)
         # else: file path as argument (git add, cp 등) — 무시
         sys.exit(0)
 ' "$_POST_SH_CANONICAL_SUFFIX" 2>/dev/null)"
@@ -120,7 +127,8 @@ except Exception as exc:
     print(f"__UNPARSEABLE__:{exc}", file=sys.stderr)
     sys.exit(2)
 def is_post_sh(t):
-    return t.endswith(suffix) or os.path.basename(t) == "post.sh"
+    n = os.path.normpath(t)
+    return n.endswith(suffix) or os.path.basename(n) == "post.sh"
 # post.sh 의 index 찾기
 for i, t in enumerate(toks):
     if is_post_sh(t):
@@ -167,6 +175,70 @@ agent 가 다른 role 명의로 post.sh 호출 시도 감지.
 EOF
         exit 2
     fi
+fi
+
+# safe-push/run.sh 호출 detect — caller 정체성 검증 (push = main 전용 강제, issue #95)
+# post.sh(review) 의 정반대 대칭:
+#   - post.sh (review) → sub-agent 전용 : agent_type 비어있으면(=main) 차단
+#   - run.sh  (push)   → main 전용     : agent_type 비어있지 않으면(=sub-agent) 차단
+# detect 방식은 post.sh 와 동일한 robust 방식:
+#   canonical suffix ".claude/skills/safe-push/run.sh" + basename "run.sh" + 앞 토큰 bash/sh/env.
+#   (suffix 앞 슬래시 없음 — 상대경로 카논형식 `bash .claude/skills/safe-push/run.sh` + `./` + 절대경로
+#    모두 catch. post.sh 와 동일한 issue #95 fix.)
+# "git add .claude/skills/safe-push/run.sh" 같은 file-path-as-argument 는 무시 (argv0 또는 bash/sh/env
+#   직후 token 인 경우만 invoked=yes).
+# finding C 대칭: shlex parse 불가 명령 → fail-closed (exit 2 block).
+#
+# 핵심 불변식(INVARIANT): "agent_type 부재 = main" 추정은 — spawn 하는 *모든* sub-agent 에
+#   agent_type(역할) 이 명시되는 한 — 성립한다. 역할 없이 sub-agent 를 띄우면 main 으로 오인되어
+#   push 가 허용된다. 모든 sub-agent invocation 에 subagent_type 명시는 본 layer 의 전제.
+# Caveat: agent_type stdin 필드 의존 — Claude Code 내부 미문서 API, 버전 변경 시 silent break 가능.
+#   특히 본 방향은 fail-OPEN: 필드가 사라지면 sub-agent 가 main 으로 보여 push 허용 → 강제 소멸.
+#   (post.sh 는 반대로 fail-closed.) 따라서 본질 보안 경계는 server-side(branch protection + Mergify);
+#   본 layer 는 defense-in-depth 의 early-block 편의지 단독 방어 아님.
+_SAFE_PUSH_CANONICAL_SUFFIX=".claude/skills/safe-push/run.sh"
+_safe_push_invoked="$(printf '%s' "$command" | python3 -c '
+import shlex, sys, os
+suffix = sys.argv[1]
+try:
+    toks = shlex.split(sys.stdin.read(), posix=True, comments=False)
+except Exception as exc:
+    print(f"__UNPARSEABLE__:{exc}", file=sys.stderr)
+    sys.exit(2)
+def is_run_sh(t):
+    # normpath: "//", "/./", "/../" 변형으로 suffix 우회하는 것 방어 (issue #95 LOW-1)
+    n = os.path.normpath(t)
+    return n.endswith(suffix) or (os.path.basename(n) == "run.sh" and suffix in n)
+# run.sh 가 argv0 이거나 bash/sh/env/source 의 스크립트 인자인 경우만 invoked=true
+for i, t in enumerate(toks):
+    if is_run_sh(t):
+        if i == 0:
+            print("yes")  # argv0 (./run.sh 또는 절대경로 직접 실행)
+        elif i > 0 and (toks[i-1] in ("bash", "sh", "env", "source")
+                        or (toks[i-1] == "." and i == 1)):
+            print("yes")  # bash/source run.sh, `. run.sh`(argv0 dot-source) 형태 (issue #95 MED-3)
+        # else: file path as argument (git add, cp 등) — 무시
+        sys.exit(0)
+' "$_SAFE_PUSH_CANONICAL_SUFFIX" 2>/dev/null)"
+_safe_push_rc=$?
+if [ "$_safe_push_rc" -eq 2 ]; then
+    cat >&2 <<EOF
+[pre-bash-gate] safe-push detect: shlex parse 불가 명령 — fail-closed (issue #95).
+명령: $command
+EOF
+    exit 2
+fi
+if [ "$_safe_push_invoked" = "yes" ] && [ -n "$agent_type" ]; then
+    cat >&2 <<EOF
+[pre-bash-gate] safe-push/run.sh 호출 차단 — sub-agent 의 push 금지 (push = main 전용).
+
+agent_type: $agent_type
+
+run.sh (push) 는 main session 에서만 호출 가능 (agent_type field 없음).
+sub-agent (verifier · fix executor 등) 의 직접 push 는 차단 — "push = main 전용" 규칙 (issue #95).
+"review = sub-agent 전용 (post.sh)" 의 정반대 대칭.
+EOF
+    exit 2
 fi
 
 # tokenize + canonical form 검증 — alias / variable / git -c / -C 우회 시도 catch.
@@ -226,30 +298,69 @@ print(" ".join(toks[:8]))
     return 0
 }
 
-if ! canonical_check "$command"; then
-    cat >&2 <<EOF
+# issue #95 group A (체인 우회 방어): 명령을 shell 제어 연산자(&&, ||, ;, |, &, 개행, (), {})로
+# 분해해 각 sub-command 를 독립 검사. 옛 코드는 전체 명령의 argv0 만 봐서 `echo x && gh pr merge`
+# `true; git push origin main` 같은 체인 뒤 명령을 놓쳤음 (실재 보안 구멍).
+# 따옴표 내부 연산자는 split 안 함 (shlex punctuation_chars). parse 불가 시 통째 1 segment.
+_seg_split() {
+    printf '%s' "$1" | python3 -c '
+import shlex, sys
+s = sys.stdin.read()
+ops = {"&&", "||", ";", ";;", "|", "|&", "&", "(", ")", "{", "}"}
+out = []
+# 물리 개행을 먼저 분리 — shlex(whitespace_split=True) 는 개행을 일반 공백 취급하여 토큰으로
+# 만들지 않으므로, 여러 줄 명령(git add / git commit / git push)이 한 segment 로 합쳐져
+# 우회되는 것을 막기 위해 line 단위로 먼저 쪼갠다 (issue #95 HIGH-1).
+for line in s.split("\n"):
+    if not line.strip():
+        continue
+    try:
+        lex = shlex.shlex(line, posix=True, punctuation_chars=True)
+        lex.whitespace_split = True
+        toks = list(lex)
+    except Exception:
+        out.append(line)  # parse 불가 → 해당 line 통째 (canonical_check 가 __UNPARSEABLE__ 처리)
+        continue
+    cur = []
+    for t in toks:
+        if t in ops:
+            if cur:
+                out.append(" ".join(shlex.quote(x) for x in cur)); cur = []
+        else:
+            cur.append(t)
+    if cur:
+        out.append(" ".join(shlex.quote(x) for x in cur))
+print("\n".join(out))
+'
+}
+
+# Layer 1+2 를 segment 단위로 적용. 하나라도 block 이면 전체 명령 차단.
+mapfile -t _segments < <(_seg_split "$command")
+for _seg in "${_segments[@]}"; do
+    [ -z "$_seg" ] && continue
+
+    # Layer 1: canonical form 검증 (tokenize 후 우회 시도 catch, argv0 기준 정밀 판단)
+    if ! canonical_check "$_seg"; then
+        cat >&2 <<EOF
 [pre-bash-gate] Bash 명령 차단 — raw 머지/푸시/review 시도 감지 (canonical form).
 
 명령: $command
-검출: tokenize 후 canonical form 의 머지/푸시/review 시도 (alias / variable / git -c / 우회 형식)
+검출 segment: $_seg
+검출: tokenize 후 canonical form 의 머지/푸시/review 시도 (alias / variable / git -c / 체인 / 우회 형식)
 
 본 명령을 직접 사용 금지. 다음 skill 사용:
   bash .claude/skills/safe-push/run.sh <BRANCH>   — feature branch push entry
   (main/master push 자체 금지 — PR 경로)
   .claude/skills/post-review/post.sh <role> <PR> <verdict> <findings>     — review/comment entry
 EOF
-    exit 2
-fi
+        exit 2
+    fi
 
-# Layer 2: 차단 pattern (grep -E) — argv0 기준 정밀화 (finding A).
-# canonical_check (Layer 1) 가 shlex tokenize 기반으로 정확하게 판단.
-# Layer 2 는 Layer 1 의 canonical_check 가 __UNPARSEABLE__ 반환한 경우(shlex 실패)에 대한
-# 보조 catch — obfuscated / eval 우회 명령의 grep-level 보조 방어.
-# argv0 추출 후 해당 argv0 에만 관련 패턴 적용 — 다른 명령의 args 안 substring false-positive 방지.
-# (code-r LOW-3: "Layer 2 catch" promise ↔ 실제 logic 정합 — Layer 1 통과 후 보조 grep layer 역할)
-
-# argv0 추출 (env prefix 제거 후 첫 token)
-_argv0="$(printf '%s' "$command" | python3 -c '
+    # Layer 2: 차단 pattern (grep -E) — argv0 기준 정밀화 (finding A).
+    # canonical_check (Layer 1) 가 shlex tokenize 기반으로 정확하게 판단.
+    # Layer 2 는 Layer 1 이 __UNPARSEABLE__ 반환한 경우(shlex 실패)에 대한 보조 catch —
+    # obfuscated / eval 우회 명령의 grep-level 보조 방어. 본 segment 의 argv0 에만 관련 패턴 적용.
+    _argv0="$(printf '%s' "$_seg" | python3 -c '
 import shlex, sys, re
 try:
     toks = shlex.split(sys.stdin.read(), posix=True, comments=False)
@@ -260,57 +371,59 @@ while toks and re.match(r"^[A-Za-z_][A-Za-z_0-9]*=", toks[0]):
     toks.pop(0)
 print(toks[0] if toks else "")
 ' 2>/dev/null || echo "__UNPARSEABLE__")"
-_argv0_base="${_argv0##*/}"
+    _argv0_base="${_argv0##*/}"
 
-case "$_argv0_base" in
-    gh)
-        BLOCK_PATTERNS=(
-            '^[[:space:]]*([A-Za-z_][A-Za-z_0-9]*=[^[:space:]]*[[:space:]]+)*gh[[:space:]]+pr[[:space:]]+merge([[:space:]]|$)'
-            '^[[:space:]]*([A-Za-z_][A-Za-z_0-9]*=[^[:space:]]*[[:space:]]+)*gh[[:space:]]+api[[:space:]].*/(merges|merge)([[:space:]"/]|$)'
-            '^[[:space:]]*([A-Za-z_][A-Za-z_0-9]*=[^[:space:]]*[[:space:]]+)*gh[[:space:]]+pr[[:space:]]+review([[:space:]]|$)'
-            '^[[:space:]]*([A-Za-z_][A-Za-z_0-9]*=[^[:space:]]*[[:space:]]+)*gh[[:space:]]+pr[[:space:]]+comment([[:space:]]|$)'
-        )
-        for pat in "${BLOCK_PATTERNS[@]}"; do
-            if printf '%s' "$command" | grep -qE "$pat"; then
-                cat >&2 <<EOF
+    case "$_argv0_base" in
+        gh)
+            BLOCK_PATTERNS=(
+                '^[[:space:]]*([A-Za-z_][A-Za-z_0-9]*=[^[:space:]]*[[:space:]]+)*gh[[:space:]]+pr[[:space:]]+merge([[:space:]]|$)'
+                '^[[:space:]]*([A-Za-z_][A-Za-z_0-9]*=[^[:space:]]*[[:space:]]+)*gh[[:space:]]+api[[:space:]].*/(merges|merge)([[:space:]"/]|$)'
+                '^[[:space:]]*([A-Za-z_][A-Za-z_0-9]*=[^[:space:]]*[[:space:]]+)*gh[[:space:]]+pr[[:space:]]+review([[:space:]]|$)'
+                '^[[:space:]]*([A-Za-z_][A-Za-z_0-9]*=[^[:space:]]*[[:space:]]+)*gh[[:space:]]+pr[[:space:]]+comment([[:space:]]|$)'
+            )
+            for pat in "${BLOCK_PATTERNS[@]}"; do
+                if printf '%s' "$_seg" | grep -qE "$pat"; then
+                    cat >&2 <<EOF
 [pre-bash-gate] Bash 명령 차단 — raw gh merge/review/comment 시도 감지.
 
 명령: $command
+검출 segment: $_seg
 매칭 pattern: $pat
 
 본 명령을 직접 사용 금지. 다음 skill 사용:
   .claude/skills/post-review/post.sh <role> <PR> <verdict> <findings>     — review/comment entry
 EOF
-                exit 2
-            fi
-        done
-        ;;
-    git)
-        BLOCK_PATTERNS=(
-            '^[[:space:]]*([A-Za-z_][A-Za-z_0-9]*=[^[:space:]]*[[:space:]]+)*(git|git[[:space:]]+-[cC][[:space:]]+[^[:space:]]+)[[:space:]]+push([[:space:]]|$)'
-            '^[[:space:]]*([A-Za-z_][A-Za-z_0-9]*=[^[:space:]]*[[:space:]]+)*git[[:space:]]+push([[:space:]]|$)'
-            '^[[:space:]]*([A-Za-z_][A-Za-z_0-9]*=[^[:space:]]*[[:space:]]+)*git[[:space:]]+update-ref[[:space:]]+refs/heads/(main|master)([[:space:]]|$)'
-            '^[[:space:]]*([A-Za-z_][A-Za-z_0-9]*=[^[:space:]]*[[:space:]]+)*git[[:space:]]+merge[[:space:]].*--ff-only[[:space:]]+origin/(main|master)([[:space:]]|$)'
-        )
-        for pat in "${BLOCK_PATTERNS[@]}"; do
-            if printf '%s' "$command" | grep -qE "$pat"; then
-                cat >&2 <<EOF
+                    exit 2
+                fi
+            done
+            ;;
+        git)
+            BLOCK_PATTERNS=(
+                '^[[:space:]]*([A-Za-z_][A-Za-z_0-9]*=[^[:space:]]*[[:space:]]+)*(git|git[[:space:]]+-[cC][[:space:]]+[^[:space:]]+)[[:space:]]+push([[:space:]]|$)'
+                '^[[:space:]]*([A-Za-z_][A-Za-z_0-9]*=[^[:space:]]*[[:space:]]+)*git[[:space:]]+push([[:space:]]|$)'
+                '^[[:space:]]*([A-Za-z_][A-Za-z_0-9]*=[^[:space:]]*[[:space:]]+)*git[[:space:]]+update-ref[[:space:]]+refs/heads/(main|master)([[:space:]]|$)'
+                '^[[:space:]]*([A-Za-z_][A-Za-z_0-9]*=[^[:space:]]*[[:space:]]+)*git[[:space:]]+merge[[:space:]].*--ff-only[[:space:]]+origin/(main|master)([[:space:]]|$)'
+            )
+            for pat in "${BLOCK_PATTERNS[@]}"; do
+                if printf '%s' "$_seg" | grep -qE "$pat"; then
+                    cat >&2 <<EOF
 [pre-bash-gate] Bash 명령 차단 — raw git push/merge 시도 감지.
 
 명령: $command
+검출 segment: $_seg
 매칭 pattern: $pat
 
 본 명령을 직접 사용 금지. 다음 skill 사용:
   bash .claude/skills/safe-push/run.sh <BRANCH>   — feature branch push entry
   (main/master push 자체 금지 — PR 경로)
 EOF
-                exit 2
-            fi
-        done
-        ;;
-    bash|sh)
-        # finding F: bash/sh -c 'gh pr merge ...' 우회 — -c 인자 내부 내용 검사
-        _inner="$(printf '%s' "$command" | python3 -c '
+                    exit 2
+                fi
+            done
+            ;;
+        bash|sh)
+            # finding F: bash/sh -c 'gh pr merge ...' 우회 — -c 인자 내부 내용 검사
+            _inner="$(printf '%s' "$_seg" | python3 -c '
 import shlex, sys
 try:
     toks = shlex.split(sys.stdin.read(), posix=True, comments=False)
@@ -323,45 +436,51 @@ for i, t in enumerate(toks):
         print(toks[i + 1])
         sys.exit(0)
 ' 2>/dev/null || echo "")"
-        if [ -n "$_inner" ]; then
-            # inner command 를 재귀적으로 canonical_check
-            if ! canonical_check "$_inner"; then
-                cat >&2 <<EOF
+            if [ -n "$_inner" ]; then
+                # inner command 를 재귀적으로 canonical_check (inner 도 체인일 수 있음)
+                _inner_blocked=0
+                while IFS= read -r _inner_seg; do
+                    [ -z "$_inner_seg" ] && continue
+                    canonical_check "$_inner_seg" || { _inner_blocked=1; break; }
+                done < <(_seg_split "$_inner")
+                if [ "$_inner_blocked" -eq 1 ]; then
+                    cat >&2 <<EOF
 [pre-bash-gate] Bash 명령 차단 — bash/sh -c 우회 시도 감지 (finding F).
 
 명령: $command
 inner (-c 인자): $_inner
 EOF
-                exit 2
-            fi
-            # inner grep-level 보조 검사
-            if printf '%s' "$_inner" | grep -qE 'gh[[:space:]]+pr[[:space:]]+(merge|review|comment)|git[[:space:]]+push'; then
-                cat >&2 <<EOF
+                    exit 2
+                fi
+                # inner grep-level 보조 검사
+                if printf '%s' "$_inner" | grep -qE 'gh[[:space:]]+pr[[:space:]]+(merge|review|comment)|git[[:space:]]+push'; then
+                    cat >&2 <<EOF
 [pre-bash-gate] Bash 명령 차단 — bash/sh -c 내부 차단 패턴 감지 (finding F).
 
 명령: $command
 inner (-c 인자): $_inner
 EOF
-                exit 2
+                    exit 2
+                fi
             fi
-        fi
-        ;;
-    eval)
-        # eval 우회 — 내부 명령 substring 검사
-        if printf '%s' "$command" | grep -qE 'gh[[:space:]]+pr[[:space:]]+merge|git[[:space:]]+push'; then
-            cat >&2 <<EOF
+            ;;
+        eval)
+            # eval 우회 — 내부 명령 substring 검사
+            if printf '%s' "$_seg" | grep -qE 'gh[[:space:]]+pr[[:space:]]+merge|git[[:space:]]+push'; then
+                cat >&2 <<EOF
 [pre-bash-gate] Bash 명령 차단 — eval 우회 시도 감지.
 
 명령: $command
+검출 segment: $_seg
 EOF
-            exit 2
-        fi
-        ;;
-    env)
-        # WARN-env-wrapper-bypass: `env bash -c '...'` / `env python3 -c '...'` / `env perl -e '...'`
-        # argv0=env のケース — env 자체는 허용이나 env 가 bash/python3/perl 를 wrapping 하면
-        # bash/sh case 와 동일한 -c/-e inner 검사를 적용.
-        _env_inner="$(printf '%s' "$command" | python3 -c '
+                exit 2
+            fi
+            ;;
+        env)
+            # WARN-env-wrapper-bypass: `env bash -c '...'` / `env python3 -c '...'` / `env perl -e '...'`
+            # argv0=env のケース — env 자체는 허용이나 env 가 bash/python3/perl 를 wrapping 하면
+            # bash/sh case 와 동일한 -c/-e inner 검사를 적용.
+            _env_inner="$(printf '%s' "$_seg" | python3 -c '
 import shlex, sys
 try:
     toks = shlex.split(sys.stdin.read(), posix=True, comments=False)
@@ -378,30 +497,36 @@ for i, t in enumerate(toks):
         print(toks[i + 1])
         sys.exit(0)
 ' 2>/dev/null || echo "")"
-        if [ -n "$_env_inner" ]; then
-            if ! canonical_check "$_env_inner"; then
-                cat >&2 <<EOF
+            if [ -n "$_env_inner" ]; then
+                _env_blocked=0
+                while IFS= read -r _env_seg; do
+                    [ -z "$_env_seg" ] && continue
+                    canonical_check "$_env_seg" || { _env_blocked=1; break; }
+                done < <(_seg_split "$_env_inner")
+                if [ "$_env_blocked" -eq 1 ]; then
+                    cat >&2 <<EOF
 [pre-bash-gate] Bash 명령 차단 — env wrapper 우회 시도 감지 (WARN-env-wrapper-bypass).
 
 명령: $command
 inner (-c/-e 인자): $_env_inner
 EOF
-                exit 2
-            fi
-            if printf '%s' "$_env_inner" | grep -qE 'gh[[:space:]]+pr[[:space:]]+(merge|review|comment)|git[[:space:]]+push'; then
-                cat >&2 <<EOF
+                    exit 2
+                fi
+                if printf '%s' "$_env_inner" | grep -qE 'gh[[:space:]]+pr[[:space:]]+(merge|review|comment)|git[[:space:]]+push'; then
+                    cat >&2 <<EOF
 [pre-bash-gate] Bash 명령 차단 — env wrapper 내부 차단 패턴 감지 (WARN-env-wrapper-bypass).
 
 명령: $command
 inner (-c/-e 인자): $_env_inner
 EOF
-                exit 2
+                    exit 2
+                fi
             fi
-        fi
-        ;;
-    __UNPARSEABLE__)
-        # shlex parse 불가 — fail-open (canonical_check 가 이미 처리)
-        ;;
-esac
+            ;;
+        __UNPARSEABLE__)
+            # shlex parse 불가 — fail-open (canonical_check 가 이미 처리)
+            ;;
+    esac
+done
 
 exit 0
