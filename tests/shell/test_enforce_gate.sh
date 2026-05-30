@@ -407,6 +407,39 @@ assert_exit "env -- git push still block (c4 reg)"           2 "$(_gate_rc "env 
 # cycle-4 regression: env -i git status → 여전히 허용
 assert_exit "env -i git status still allow (c4 reg)"         0 "$(_gate_rc "env -i git status" "")"
 
+# --- 21. PR #104 cycle-7 (security-reviewer HIGH): arg-taking flag before -S ---
+# env 의 arg-taking flag(-a/--argv0, -f/--file)가 -S 앞에 오면 cycle-6 flag-skip 루프가
+# 그 flag 의 인자를 명령으로 오인해 멈추고, 뒤따르는 -S cluster 를 검사하지 못해 ALLOW.
+# fix: env argv0 확정 즉시 option-region 전체(`--` terminator 까지) split-string 위치무관 스캔.
+echo "=== Test group 21: env arg-flag-before-S bypass (PR #104 cycle-7) ==="
+# arg-flag (-a/--argv0/-f) 가 -S 앞에 와도 차단 (position-independent scan)
+assert_exit "env -a x0 -S git push block"                    2 "$(_gate_rc "env -a x0 -S'git push origin main'" "")"
+assert_exit "env --argv0 x0 -S git push block"               2 "$(_gate_rc "env --argv0 x0 -S'git push origin main'" "")"
+assert_exit "env -f /dev/null -S git push block"             2 "$(_gate_rc "env -f /dev/null -S'git push origin main'" "")"
+# arg-flag-before-S + sub-agent run.sh / main post.sh payload
+assert_exit "env -a x0 -S run.sh sub-agent block"            2 "$(_gate_rc "env -a x0 -S'bash .claude/skills/safe-push/run.sh br'" "oh-my-claudecode:executor")"
+assert_exit "env -a x0 -S post.sh main block"                2 "$(_gate_rc "env -a x0 -S'bash .claude/skills/post-review/post.sh security-reviewer 104 PASS x'" "")"
+# 여러 arg-flag 누적 후 -S 도 차단
+assert_exit "env -a x0 -f /dev/null -S git push block"       2 "$(_gate_rc "env -a x0 -f /dev/null -S'git push origin main'" "")"
+# `--` terminator: -S 가 명령 이름이면 차단 안 함 (false-positive 방어)
+assert_exit "env -- -S git status allow (-- terminator)"     0 "$(_gate_rc "env -- -S git status" "")"
+# arg-flag false-positive: -a NAME / -f FILE 의 인자만 있고 -S 없으면 허용
+assert_exit "env -a myname git status allow"                 0 "$(_gate_rc "env -a myname git status" "")"
+assert_exit "env -f /dev/null git status allow"              0 "$(_gate_rc "env -f /dev/null git status" "")"
+# arg-flag-hiding (NO -S): -a/--argv0/-f/--file 가 SEPARATE arg 를 소비하지 않으면
+# 그 인자(NAME/FILE)가 명령 argv0 로 오인돼 git/gh/run.sh/post.sh 가 가려짐 -> ALLOW bypass.
+# fix: -a/--argv0/-f/--file 를 _OPTS_WITH_ARG 에 추가 -> 인자 1개 소비 후 실제 argv0 도달.
+assert_exit "env -a x git push block (arg-flag hide)"        2 "$(_gate_rc "env -a x git push origin main" "")"
+assert_exit "env --argv0 x git push block"                   2 "$(_gate_rc "env --argv0 x git push origin main" "")"
+assert_exit "env -f /dev/null git push block"                2 "$(_gate_rc "env -f /dev/null git push origin main" "")"
+assert_exit "env --file /dev/null git push block"            2 "$(_gate_rc "env --file /dev/null git push origin main" "")"
+assert_exit "env -a x gh pr merge block"                     2 "$(_gate_rc "env -a x gh pr merge 104" "")"
+assert_exit "env -a x run.sh sub-agent block"                2 "$(_gate_rc "env -a x bash .claude/skills/safe-push/run.sh br" "oh-my-claudecode:executor")"
+assert_exit "env -a x post.sh main block"                    2 "$(_gate_rc "env -a x bash .claude/skills/post-review/post.sh architect 5 APPROVE x" "")"
+# arg-flag-hiding false-positive: -a/--argv0/-f 의 인자 소비 후 git status 는 허용 유지
+assert_exit "env -a x git status allow"                      0 "$(_gate_rc "env -a x git status" "")"
+assert_exit "env --argv0 x git status allow"                 0 "$(_gate_rc "env --argv0 x git status" "")"
+
 # --- 결과 ---
 echo ""
 echo "=== Summary ==="

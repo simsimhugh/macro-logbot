@@ -118,6 +118,25 @@ _classify_caller() {
     printf '%s' "$1" | python3 -c '
 import shlex, sys, os, re
 post_suf, run_suf = sys.argv[1], sys.argv[2]
+def _env_split_string_active(env_args):
+    # True if ANY token (up to a "--" terminator) activates env split-string.
+    # Position-independent: scans the whole option region regardless of preceding
+    # arg-taking flags (-a/--argv0, -f/--file, ...), so a trailing -S cluster is
+    # never hidden. Stops at the first "--" (after which "-S" is a literal command
+    # name, e.g. `env -- -S git status` must NOT block).
+    for tok in env_args:
+        if tok == "--":
+            return False
+        if tok.startswith("--"):
+            # long: --split-string, --split-string=..., or GNU abbrev --s/--sp/...
+            name = tok[2:].split("=", 1)[0]
+            if name and "split-string".startswith(name):
+                return True
+        elif tok.startswith("-") and len(tok) > 1:
+            # short cluster: letters before any "=", uppercase S anywhere triggers.
+            if "S" in tok[1:].split("=", 1)[0]:
+                return True
+    return False
 try:
     toks = shlex.split(sys.stdin.read(), posix=True, comments=False)
 except Exception:
@@ -126,21 +145,24 @@ while toks and re.match(r"^[A-Za-z_][A-Za-z_0-9]*=", toks[0]):
     toks.pop(0)
 if toks and toks[0] == "env":
     toks.pop(0)
-    # skip env option flags before real argv0.
     # env -S / --split-string executes its payload as a command — hard-block.
-    _OPTS_WITH_ARG = {"-u", "--unset", "-C", "--chdir"}
+    # Position-independent scan: env has arg-taking flags beyond {-u,-C} (e.g.
+    # -a/--argv0 NAME, -f/--file FILE) — enumerating them is an arms race. Instead
+    # scan EVERY option-region token (until a `--` terminator) and block if ANY
+    # activates split-string, regardless of preceding arg-taking flags.
+    if _env_split_string_active(toks):
+        print("__ENV_S_BLOCKED__"); sys.exit(0)
+    # skip env option flags before real argv0 (non-split-string cases).
+    # Separate-arg flags per uutils/GNU env: -u/--unset, -C/--chdir,
+    # -a/--argv0 NAME, -f/--file FILE. Omitting -a/-f mis-reads NAME/FILE as
+    # the command argv0 (env -a x git push -> argv0=x -> allow bypass).
+    _OPTS_WITH_ARG = {"-u", "--unset", "-C", "--chdir",
+                      "-a", "--argv0", "-f", "--file"}
     while toks:
         if toks[0] == "--":
             toks.pop(0); break
         if toks[0].startswith("-"):
             opt = toks.pop(0)
-            # env activates --split-string whenever S appears in a short-flag
-            # cluster (-S, -vS, -uvS, -iS, ...) — not only when S is first.
-            if opt == "--split-string" or opt.startswith("--split-string="):
-                print("__ENV_S_BLOCKED__"); sys.exit(0)
-            if opt.startswith("-") and not opt.startswith("--") \
-                    and "S" in opt[1:].split("=", 1)[0]:
-                print("__ENV_S_BLOCKED__"); sys.exit(0)
             if opt in _OPTS_WITH_ARG and toks:
                 toks.pop(0)
         else:
@@ -166,6 +188,23 @@ canonical_check() {
     local canonical
     canonical="$(printf '%s' "$1" | python3 -c '
 import shlex, sys, re
+def _env_split_string_active(env_args):
+    # True if ANY token (up to a "--" terminator) activates env split-string.
+    # Position-independent: scans the whole option region regardless of preceding
+    # arg-taking flags (-a/--argv0, -f/--file, ...), so a trailing -S cluster is
+    # never hidden. Stops at the first "--" (after which "-S" is a literal command
+    # name, e.g. `env -- -S git status` must NOT block).
+    for tok in env_args:
+        if tok == "--":
+            return False
+        if tok.startswith("--"):
+            name = tok[2:].split("=", 1)[0]
+            if name and "split-string".startswith(name):
+                return True
+        elif tok.startswith("-") and len(tok) > 1:
+            if "S" in tok[1:].split("=", 1)[0]:
+                return True
+    return False
 try:
     toks = shlex.split(sys.stdin.read(), posix=True, comments=False)
 except Exception:
@@ -175,21 +214,21 @@ while toks and re.match(r"^[A-Za-z_][A-Za-z_0-9]*=", toks[0]):
     toks.pop(0)
 if toks and toks[0] == "env":
     toks.pop(0)
-    # skip env option flags before real argv0.
     # env -S / --split-string executes its payload as a command — hard-block.
-    _OPTS_WITH_ARG = {"-u", "--unset", "-C", "--chdir"}
+    # Position-independent scan over the whole option region (see helper).
+    if _env_split_string_active(toks):
+        print("__ENV_S_BLOCKED__"); sys.exit(0)
+    # skip env option flags before real argv0 (non-split-string cases).
+    # Separate-arg flags per uutils/GNU env: -u/--unset, -C/--chdir,
+    # -a/--argv0 NAME, -f/--file FILE. Omitting -a/-f mis-reads NAME/FILE as
+    # the command argv0 (env -a x git push -> argv0=x -> allow bypass).
+    _OPTS_WITH_ARG = {"-u", "--unset", "-C", "--chdir",
+                      "-a", "--argv0", "-f", "--file"}
     while toks:
         if toks[0] == "--":
             toks.pop(0); break
         if toks[0].startswith("-"):
             opt = toks.pop(0)
-            # env activates --split-string whenever S appears in a short-flag
-            # cluster (-S, -vS, -uvS, -iS, ...) — not only when S is first.
-            if opt == "--split-string" or opt.startswith("--split-string="):
-                print("__ENV_S_BLOCKED__"); sys.exit(0)
-            if opt.startswith("-") and not opt.startswith("--") \
-                    and "S" in opt[1:].split("=", 1)[0]:
-                print("__ENV_S_BLOCKED__"); sys.exit(0)
             if opt in _OPTS_WITH_ARG and toks:
                 toks.pop(0)
         else:
