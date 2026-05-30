@@ -100,8 +100,10 @@ verdict 산출 — findings severity 기반 expected verdict
   ↓
 인자 verdict ↔ expected verdict mismatch check (mismatch → exit 4)
   ↓
+findings render — 공유 templates/_finding_template.md 의 FINDING_*_TEMPLATE block 기반
+  (issue #100: 4 role 파일 중복 block 을 단일 파일로 추출. role 파일은 scope 설명만 보유)
+  ↓
 template render — templates/<role>.md 의 placeholder 치환
-  (FINDING_*_TEMPLATE block + spec comment block → review body 에서 strip)
   ↓
 gh pr review <PR> --approve|--request-changes --body "$rendered"
 ```
@@ -119,7 +121,8 @@ gh pr review <PR> --approve|--request-changes --body "$rendered"
 
 ## verdict 자동 결정 (role-specific, 2026-05-24 갱신)
 
-이 표대로 post.sh 의 `expected_verdict()` 가 verdict 를 산출한다.
+이 표대로 `post_helper.py` 의 `_ROLE_POLICY` 테이블이 verdict 를 산출한다 (단일 source — issue #100).
+`expected_verdict()` (verdict 로직) + `policy_summary()`/`verdict_line()` (산문) 모두 본 테이블에서 파생.
 
 | role | blocking severity (→ `REQUEST_CHANGES`) |
 |---|---|

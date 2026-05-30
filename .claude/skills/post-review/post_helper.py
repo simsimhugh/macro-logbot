@@ -13,6 +13,8 @@ commands:
                                       (사용자 명시: template 이 render 의 단일 source)
   verdict_reason <json>             — severity count 요약 출력
   severity_set <json>               — severity set 출력 (sorted, bracket)
+  policy_summary <role>             — verdict mismatch 에러용 정책 산문 (role-specific)
+  verdict_line <role> <verdict>     — PR body verdict 한 줄 (role-specific)
   extract_review_node_ids          — stdin: reviews JSON, argv: user → node IDs (GraphQL)
   validate_findings <json>          — OK / PARSE_ERROR:<msg> / NOT_ARRAY:<type>
   validate_finding_format <json>    — finding severity/length/format validate
@@ -45,6 +47,70 @@ SEV_ORDER = {
 }
 # canonical severity allow-list (finding A: unknown severity → conservative block)
 SEV_ALLOWLIST = frozenset(SEV_EMOJI.keys())
+
+# severity order used to generate policy prose (CRITICAL → PASS).
+_PROSE_ORDER = ["CRITICAL", "HIGH", "MED", "WARN", "LOW", "INFO", "PASS"]
+
+# role-specific blocking policy — 단일 source (issue #100).
+# expected_verdict() 의 verdict 로직 + policy_summary()/verdict_line() 의 산문이
+# 모두 본 테이블에서 파생. 정책 변경 시 여기 한 곳만 수정.
+#   blocking_sev           — REQUEST_CHANGES 를 유발하는 severity set
+#   require_high_confidence — True 면 CRITICAL/HIGH 는 confidence=HIGH(또는 생략) 일 때만 blocking
+#   date                   — 정책 명시일 (산문 출력용 label)
+_ROLE_POLICY = {
+    "code-reviewer": {
+        "blocking_sev": frozenset({"CRITICAL", "HIGH"}),
+        "require_high_confidence": True,
+        "date": "옵션 C 2026-05-23",
+    },
+    "architect": {
+        "blocking_sev": frozenset({"CRITICAL", "HIGH", "MED", "WARN"}),
+        "require_high_confidence": False,
+        "date": "2026-05-23 강화",
+    },
+    # default: security-reviewer / test-engineer
+    "_default": {
+        "blocking_sev": frozenset({"CRITICAL", "HIGH"}),
+        "require_high_confidence": False,
+        "date": "2026-05-24",
+    },
+}
+
+
+def _policy_for(role: str) -> dict:
+    """role 의 blocking policy 반환 (미지정 role → _default)."""
+    return _ROLE_POLICY.get(role, _ROLE_POLICY["_default"])
+
+
+def _blocking_label(policy: dict) -> str:
+    """blocking severity 를 'CRITICAL/HIGH[ at HIGH confidence]' 산문으로."""
+    sev = "/".join(s for s in _PROSE_ORDER if s in policy["blocking_sev"])
+    if policy["require_high_confidence"]:
+        sev += " at HIGH confidence"
+    return sev
+
+
+def policy_summary(role: str) -> str:
+    """verdict mismatch 에러 메시지용 정책 산문 (role-specific)."""
+    p = _policy_for(role)
+    nonblocking = "/".join(s for s in _PROSE_ORDER if s not in p["blocking_sev"])
+    msg = (
+        f"정책 ({role}, {p['date']}): {_blocking_label(p)} → REQUEST_CHANGES."
+        f" {nonblocking} = informational → APPROVE."
+    )
+    if p["require_high_confidence"]:
+        blocking = "/".join(s for s in _PROSE_ORDER if s in p["blocking_sev"])
+        msg += f" LOW-confidence {blocking} = informational → APPROVE."
+    return msg
+
+
+def verdict_line(role: str, verdict: str) -> str:
+    """PR body 의 verdict 한 줄 (role-specific blocking 정책 요약)."""
+    if verdict == "APPROVE":
+        return "**APPROVE** — no blocking findings."
+    p = _policy_for(role)
+    suffix = "만 blocking." if p["require_high_confidence"] else "blocking."
+    return f"**REQUEST_CHANGES** — {_blocking_label(p)} {suffix}"
 
 
 def extract_field(json_str: str, field: str) -> str:
@@ -84,20 +150,10 @@ def expected_verdict(json_str: str, role: str = "") -> str:
     """
     findings = json.loads(json_str)
 
-    # role-specific blocking severity set
-    if role == "code-reviewer":
-        # OMC prompt 정의: CRITICAL / HIGH at HIGH confidence 만 blocking
-        blocking_sev = {"CRITICAL", "HIGH"}
-        require_high_confidence = True
-    elif role == "architect":
-        # architect (강화, 사용자 명시 2026-05-23)
-        blocking_sev = {"CRITICAL", "HIGH", "MED", "WARN"}
-        require_high_confidence = False
-    else:
-        # security-reviewer / test-engineer: CRITICAL + HIGH 만 blocking
-        # MED / WARN = informational (사용자 명시 2026-05-24)
-        blocking_sev = {"CRITICAL", "HIGH"}
-        require_high_confidence = False
+    # role-specific blocking severity set — 단일 source (_ROLE_POLICY, issue #100)
+    _policy = _policy_for(role)
+    blocking_sev = _policy["blocking_sev"]
+    require_high_confidence = _policy["require_high_confidence"]
 
     all_sev = {f.get("severity", "").upper() for f in findings if isinstance(f, dict)}
     # unknown severity → conservative REQUEST_CHANGES
@@ -516,6 +572,10 @@ def main() -> None:
             print(verdict_reason(sys.argv[2]))
         elif cmd == "severity_set":
             print(severity_set(sys.argv[2]))
+        elif cmd == "policy_summary":
+            print(policy_summary(sys.argv[2]))
+        elif cmd == "verdict_line":
+            print(verdict_line(sys.argv[2], sys.argv[3]))
         elif cmd == "validate_findings":
             print(validate_findings(sys.argv[2]))
         elif cmd == "extract_review_node_ids":
