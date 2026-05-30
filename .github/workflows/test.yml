@@ -35,6 +35,11 @@ jobs:
           python -m pip install --upgrade pip
           pip install -e ".[dev]"
 
+      - name: shell test (check-ci SHA guard)
+        # issue #105 stale-green 가드 회귀 방지 (gh mock, 네트워크 없음).
+        # 주의: test_enforce_gate.sh 는 실제 git push 로 hang 하므로 추가 금지.
+        run: bash tests/shell/test_check_ci_sha_guard.sh
+
       - name: pytest + coverage
         # `-m "not poc"` — PoC infra (Docker + /tmp/poc-cases + catalog yaml) 의존 test
         # CI runner 에서 reproduce 불가 → deselect. local + manual measurement 만 실행.
