@@ -40,8 +40,10 @@ done
 # self-test 가 없으면 silent skip (다른 프로젝트 적용 시 self-test copy 누락 회피).
 REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)"
 SELF_TEST="$REPO_ROOT/tests/shell/test_enforce_gate.sh"
-if [ -x "$SELF_TEST" ]; then
-    if ! bash "$SELF_TEST" >/dev/null 2>&1; then
+# 재진입 가드 (PREPUSH_SELFTEST_GUARD): self-test 의 test group 6 이 본 pre-push 를 다시 호출하므로
+# 가드 없으면 pre-push → self-test → pre-push → ... 무한 재귀. 가드 set 시 nested 호출은 self-test skip.
+if [ -x "$SELF_TEST" ] && [ -z "${PREPUSH_SELFTEST_GUARD:-}" ]; then
+    if ! PREPUSH_SELFTEST_GUARD=1 bash "$SELF_TEST" >/dev/null 2>&1; then
         cat >&2 <<EOF
 [task-PROCESS-002] pre-push self-test FAIL — enforcement layer 회귀 감지.
 
