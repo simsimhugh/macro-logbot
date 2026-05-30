@@ -496,40 +496,14 @@ def validate_finding_format(json_str: str) -> None:
 def render_template(template_file: str) -> str:
     """env var 기반 template placeholder 치환.
 
-    strip: spec comment block (<!-- finding format template ... --> 부터
-    <!-- FINDING_TEMPLATE_END --> 까지) 을 review body 에서 제거.
-    template 파일 내 single source 로 유지하되 출력에는 노출 안 함.
+    role template (templates/<role>.md) 은 issue #100 이후 FINDING_*_TEMPLATE
+    block 을 보유하지 않음 (공유 templates/_finding_template.md 로 추출됨) — 따라서
+    별도 strip 단계 불필요.
     """
     import os
 
     with open(template_file, encoding="utf-8") as f:
         tpl = f.read()
-
-    # spec comment block + 모든 FINDING_*_TEMPLATE block 제거
-    # (사용자 명시: block 은 spec single source 유지 but review body 에 안 보이게)
-    # WARN-strip-coupling: 3 개 별도 strip regex → 단일 helper 로 통합
-    def _strip_block(text: str, start: str, end: str) -> str:
-        return re.sub(
-            rf"{re.escape(start)}[\s\S]*?{re.escape(end)}\n?",
-            "",
-            text,
-        )
-
-    # finding format template spec comment (open-ended start marker) 포함 FINDING_TEMPLATE block 제거  # noqa: E501
-    tpl = re.sub(
-        r"<!-- finding format template[\s\S]*?<!-- FINDING_TEMPLATE_END -->\n?",
-        "",
-        tpl,
-    )
-    # finding E: plain / location-only template block 도 review body 에서 제거
-    tpl = _strip_block(
-        tpl, "<!-- FINDING_PLAIN_TEMPLATE_START -->", "<!-- FINDING_PLAIN_TEMPLATE_END -->"
-    )
-    tpl = _strip_block(
-        tpl,
-        "<!-- FINDING_LOCATION_ONLY_TEMPLATE_START -->",
-        "<!-- FINDING_LOCATION_ONLY_TEMPLATE_END -->",
-    )
 
     subs = {
         "{{VERDICT_BADGE}}": os.environ.get("_PR_VERDICT_BADGE", ""),
