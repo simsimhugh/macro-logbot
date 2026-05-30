@@ -248,6 +248,121 @@ assert_exit "agent_type 부재 = main run.sh 허용" 0 "$(_gate_json '{"tool_inp
 assert_exit "agent_type null = main run.sh 허용"  0 "$(_gate_json '{"tool_input":{"command":"bash .claude/skills/safe-push/run.sh feat"},"agent_type":null}')"
 assert_exit "agent_type whitespace = sub-agent run.sh 차단" 2 "$(_gate_json '{"tool_input":{"command":"bash .claude/skills/safe-push/run.sh feat"},"agent_type":"  "}')"
 
+# --- 15. PR #104 architect MED: redirect decapitation ---
+# leading/inline redirect 의 TARGET 이 다음 명령의 argv0 자리에 glue 돼 차단을 우회하던 hole.
+# `_seg_split` 가 redirect 연산자(`>`/`<`/`>&`) 뒤 target 1개를 drop → argv0 복원 → 차단 유지.
+echo "=== Test group 15: redirect decapitation (PR #104) ==="
+# leading/inline redirect 뒤 raw push → 차단 (target drop 후 argv0=git)
+for cmd in \
+    ">/tmp/x git push origin main" \
+    "1>/dev/null git push origin main" \
+    "foo 2>&1 git push origin main" \
+    "2>/dev/null git push origin feature" \
+    ">out gh pr merge 60"; do
+    actual=$(_gate_rc "$cmd" "")
+    assert_exit "redirect-decap block '$cmd'" 2 "$actual"
+done
+# 정상 redirect false-positive 방어 → 통과 (push/merge 가 아니면 허용)
+for cmd in \
+    "echo a > b" \
+    'git commit -m "msg" > /tmp/log' \
+    "ls -la 2>/dev/null" \
+    "cat file > out.txt"; do
+    actual=$(_gate_rc "$cmd" "")
+    assert_exit "redirect false-positive pass '$cmd'" 0 "$actual"
+done
+# redirect 가 붙어도 명령 자체가 push 면 여전히 차단 (redirect 가 면죄부 아님)
+assert_exit "push with trailing redirect still block" 2 "$(_gate_rc "git push origin main >/dev/null" "")"
+
+# --- 16. PR #104 code-reviewer HIGH+MED: literal env prefix bypass ---
+# `env A=1 run.sh` / `env A=1 git push` 는 env-drop 미적용으로 rc=0 우회 가능했던 결함.
+# env-drop 에 리터럴 env 토큰 추가 후 수정.
+echo "=== Test group 16: literal env prefix bypass (PR #104) ==="
+# HIGH: sub-agent 가 env A=1 run.sh 로 push gate 우회 시도 → 차단
+assert_exit "env-prefix run.sh sub-agent block" 2 "$(_gate_rc "env A=1 .claude/skills/safe-push/run.sh feat" "oh-my-claudecode:executor")"
+# HIGH: main 이 env A=1 post.sh 로 self-impersonation 우회 시도 → 차단
+assert_exit "env-prefix post.sh main self-impersonate block" 2 "$(_gate_rc "env A=1 .claude/skills/post-review/post.sh architect 5 APPROVE x" "")"
+# MED: env A=1 git push → canonical_check 가 env drop 후 git 인식 → 차단
+assert_exit "env-prefix git push main block" 2 "$(_gate_rc "env A=1 git push origin main" "")"
+# Regression: env 단독 명령 → 허용 (env 자체는 정상 명령)
+assert_exit "env standalone pass" 0 "$(_gate_rc "env" "")"
+# Regression: env FOO=1 git status → git push 아니므로 허용
+assert_exit "env-prefix git status pass" 0 "$(_gate_rc "env FOO=1 git status" "")"
+# Regression: bash .../run.sh (env 없음) main → 허용
+assert_exit "bash run.sh main pass" 0 "$(_gate_rc "bash .claude/skills/safe-push/run.sh feat" "")"
+# Regression: env A=1 bash .../run.sh main → run.sh는 main이 bash 경유 호출, agent_type 없음 → 허용
+assert_exit "env-prefix bash run.sh main pass" 0 "$(_gate_rc "env A=1 bash .claude/skills/safe-push/run.sh feat" "")"
+
+# --- 17. PR #104 test-engineer HIGH: bash -c caller-id bypass ---
+# bash/sh/env -c '<inner>' 의 inner segment 도 _caller_check 를 통과해야 함.
+# 수정 전: inner loop 가 while-read + 미종결 NUL 로 body skip → rc=0 (bypass).
+# 수정 후: mapfile + _caller_check → inner segment 도 caller-identity 검사.
+echo "=== Test group 17: bash-c caller-id bypass (PR #104 test-engineer HIGH) ==="
+SP="bash .claude/skills/safe-push/run.sh feat"
+PR_POST="bash .claude/skills/post-review/post.sh"
+# sub-agent 가 bash/sh/env -c 로 run.sh 감싸면 차단 (expect 2)
+assert_exit "bash -c run.sh sub-agent block"       2 "$(_gate_rc "bash -c \"$SP\""     "oh-my-claudecode:executor")"
+assert_exit "sh -c run.sh sub-agent block"         2 "$(_gate_rc "sh -c \"$SP\""       "oh-my-claudecode:executor")"
+assert_exit "env bash -c run.sh sub-agent block"   2 "$(_gate_rc "env bash -c \"$SP\"" "oh-my-claudecode:executor")"
+# main 이 bash -c 로 post.sh self-impersonation → 차단 (expect 2)
+assert_exit "bash -c post.sh main self-impersonate block" 2 \
+    "$(_gate_rc "bash -c \"$PR_POST architect 5 APPROVE x\"" "")"
+# sub-agent role-mismatch via bash -c → 차단 (expect 2)
+assert_exit "bash -c post.sh role-mismatch block"  2 \
+    "$(_gate_rc "bash -c \"$PR_POST security-reviewer 5 APPROVE x\"" "oh-my-claudecode:architect")"
+# Regression: main 이 bash -c 로 run.sh → 허용 (expect 0)
+assert_exit "bash -c run.sh main allow"            0 "$(_gate_rc "bash -c \"$SP\"" "")"
+# Regression: bash -c echo hi → 허용 (expect 0)
+assert_exit "bash -c echo hi allow"                0 "$(_gate_rc 'bash -c "echo hi"' "oh-my-claudecode:executor")"
+# Regression: bash -c git status → 허용 (expect 0)
+assert_exit "bash -c git status allow"             0 "$(_gate_rc 'bash -c "git status"' "")"
+
+# --- 18. PR #104 test-engineer LOW: role-mismatch matrix 확장 ---
+# architect 행만 있던 role-mismatch 검사를 모든 reviewer 행으로 확장.
+echo "=== Test group 18: role-mismatch matrix 확장 (PR #104 test-engineer LOW) ==="
+PR_POST="bash .claude/skills/post-review/post.sh"
+# test-engineer 가 다른 role 명의 post.sh 호출 → 차단
+assert_exit "test-engineer calls architect post.sh block"         2 \
+    "$(_gate_rc "$PR_POST architect 5 APPROVE x"          "oh-my-claudecode:test-engineer")"
+assert_exit "test-engineer calls code-reviewer post.sh block"     2 \
+    "$(_gate_rc "$PR_POST code-reviewer 5 APPROVE x"      "oh-my-claudecode:test-engineer")"
+assert_exit "test-engineer calls security-reviewer post.sh block" 2 \
+    "$(_gate_rc "$PR_POST security-reviewer 5 APPROVE x"  "oh-my-claudecode:test-engineer")"
+# code-reviewer 가 다른 role 명의 post.sh 호출 → 차단
+assert_exit "code-reviewer calls architect post.sh block"         2 \
+    "$(_gate_rc "$PR_POST architect 5 APPROVE x"          "oh-my-claudecode:code-reviewer")"
+assert_exit "code-reviewer calls test-engineer post.sh block"     2 \
+    "$(_gate_rc "$PR_POST test-engineer 5 APPROVE x"      "oh-my-claudecode:code-reviewer")"
+# unknown role → 차단
+assert_exit "unknown-role post.sh block"                          2 \
+    "$(_gate_rc "$PR_POST architect 5 APPROVE x"          "oh-my-claudecode:unknown-role")"
+# 각 reviewer 가 자신의 role 로 호출 → 허용
+assert_exit "test-engineer own post.sh allow"                     0 \
+    "$(_gate_rc "$PR_POST test-engineer 5 APPROVE x"      "oh-my-claudecode:test-engineer")"
+assert_exit "code-reviewer own post.sh allow"                     0 \
+    "$(_gate_rc "$PR_POST code-reviewer 5 APPROVE x"      "oh-my-claudecode:code-reviewer")"
+assert_exit "security-reviewer own post.sh allow"                 0 \
+    "$(_gate_rc "$PR_POST security-reviewer 5 APPROVE x"  "oh-my-claudecode:security-reviewer")"
+
+# --- 19. PR #104 cycle-4: env option-flag bypass ---
+# `env -i`, `env -u FOO`, `env --` 등 env 의 option flag 가 VAR=val drop 이후 남아
+# real argv0 자리를 차지하던 hole. env-drop 후 option flag 도 소비하도록 수정.
+echo "=== Test group 19: env option-flag bypass (PR #104 cycle-4) ==="
+# 차단: env flag form 으로 git push 우회 시도 (main)
+assert_exit "env -i git push block"            2 "$(_gate_rc "env -i git push origin main" "")"
+assert_exit "env -u FOO git push block"        2 "$(_gate_rc "env -u FOO git push origin main" "")"
+assert_exit "env -- git push block"            2 "$(_gate_rc "env -- git push origin main" "")"
+# 차단: sub-agent 가 env -i run.sh 로 caller-id 우회 시도
+assert_exit "env -i run.sh sub-agent block"    2 "$(_gate_rc "env -i .claude/skills/safe-push/run.sh feat" "oh-my-claudecode:executor")"
+# 허용: main 이 env -i bash run.sh 호출 (run.sh 는 main 전용 → 허용)
+assert_exit "env -i bash run.sh main allow"    0 "$(_gate_rc "env -i bash .claude/skills/safe-push/run.sh feat" "")"
+# 허용: env -i git status (push 가 아님)
+assert_exit "env -i git status allow"          0 "$(_gate_rc "env -i git status" "")"
+# cycle-2 regression: env A=1 git push → 차단 유지
+assert_exit "env A=1 git push still block"     2 "$(_gate_rc "env A=1 git push origin main" "")"
+# cycle-2 regression: env FOO=1 git status → 허용 유지
+assert_exit "env FOO=1 git status still allow" 0 "$(_gate_rc "env FOO=1 git status" "")"
+
 # --- 결과 ---
 echo ""
 echo "=== Summary ==="

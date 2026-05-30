@@ -19,8 +19,8 @@ branch push 의 정직한 entry:
 > (verifier · fix executor 등)의 `bash run.sh` 호출은 `pre-bash-gate.sh` hook 이 차단합니다
 > (stdin `agent_type` 가 비어있지 않으면 = sub-agent → 차단). 이는 review 게시(`post.sh`)가
 > **sub-agent 전용**인 것의 정반대 대칭 — **"push = main, review = sub-agent"**. 상대경로 카논형식·
-> 경로 정규화 변형·`bash`/`sh`/`env`/`source`/dot-source wrapper·`&&`·`;`·subshell·개행(여러 줄) 체인
-> 우회를 hook 이 탐지합니다. 단, 이 강제는 `agent_type`(Claude Code 내부 미문서 필드)에 의존하는
+> 경로 정규화 변형·`bash`/`sh`/`env`/`source`/dot-source wrapper·`&&`·`;`·subshell·개행(여러 줄) 체인·
+> 선행 redirect(`>`/`<`/`>&` target decapitation) 우회를 hook 이 탐지합니다. 단, 이 강제는 `agent_type`(Claude Code 내부 미문서 필드)에 의존하는
 > defense-in-depth layer 이며 — command substitution·백틱·here-string·`bash -c` 내부 identity·bare-basename
 > 호출(`cd <skill-dir> && bash run.sh`) 등은 미탐지(residual) — 본질 경계는 server-side(branch protection + Mergify)입니다.
 > → [`docs/process/03-개발-프로세스.md`](../../../docs/process/03-개발-프로세스.md) §7

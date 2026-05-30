@@ -83,18 +83,28 @@ s = "".join(res)
 PUNCT = set("();<>|&")
 def is_sep(t):
     return t in ("{", "}") or (t != "" and all(c in PUNCT for c in t))
+# redirect 연산자(`<`/`>`/`>&`/`<&` 등)는 separator 이지만, 바로 뒤 토큰은
+# redirect TARGET(파일·fd) 이지 다음 명령의 argv0 가 아니다. target 을 drop 하지 않으면
+# `>/tmp/x git push` 처럼 leading redirect 가 argv0 를 decapitate 해 차단을 우회한다.
+def is_redir(t):
+    return "<" in t or ">" in t
 try:
     lex = shlex.shlex(s, posix=True, punctuation_chars=True)
     lex.whitespace_split = True
     toks = list(lex)
 except Exception:
     sys.stdout.write(s); sys.exit(0)
-out, cur = [], []
+out, cur, skip_next = [], [], False
 for t in toks:
     if is_sep(t):
         if cur:
             out.append(" ".join(shlex.quote(x) for x in cur)); cur = []
+        # redirect separator → 다음 non-sep 토큰(target) 1개 drop.
+        skip_next = is_redir(t)
     else:
+        if skip_next:
+            skip_next = False  # redirect target — argv0 로 승격 금지.
+            continue
         cur.append(t)
 if cur:
     out.append(" ".join(shlex.quote(x) for x in cur))
@@ -114,6 +124,21 @@ except Exception:
     print("UNPARSEABLE"); sys.exit(0)
 while toks and re.match(r"^[A-Za-z_][A-Za-z_0-9]*=", toks[0]):
     toks.pop(0)
+if toks and toks[0] == "env":
+    toks.pop(0)
+    # skip env option flags before real argv0
+    _OPTS_WITH_ARG = {"-u", "--unset", "-C", "--chdir", "-S", "--split-string"}
+    while toks:
+        if toks[0] == "--":
+            toks.pop(0); break
+        if toks[0].startswith("-"):
+            opt = toks.pop(0)
+            if opt in _OPTS_WITH_ARG and toks:
+                toks.pop(0)
+        else:
+            break
+    while toks and re.match(r"^[A-Za-z_][A-Za-z_0-9]*=", toks[0]):
+        toks.pop(0)
 def matched(t, suf, base):
     n = os.path.normpath(t)
     return n.endswith(suf) or (os.path.basename(n) == base and suf in n)
@@ -140,6 +165,21 @@ except Exception:
     sys.exit(0)
 while toks and re.match(r"^[A-Za-z_][A-Za-z_0-9]*=", toks[0]):
     toks.pop(0)
+if toks and toks[0] == "env":
+    toks.pop(0)
+    # skip env option flags before real argv0
+    _OPTS_WITH_ARG = {"-u", "--unset", "-C", "--chdir", "-S", "--split-string"}
+    while toks:
+        if toks[0] == "--":
+            toks.pop(0); break
+        if toks[0].startswith("-"):
+            opt = toks.pop(0)
+            if opt in _OPTS_WITH_ARG and toks:
+                toks.pop(0)
+        else:
+            break
+    while toks and re.match(r"^[A-Za-z_][A-Za-z_0-9]*=", toks[0]):
+        toks.pop(0)
 if toks and toks[0].endswith("git"):
     i = 1
     while i < len(toks) and toks[i] in ("-c", "-C"):
@@ -177,13 +217,11 @@ print(" ".join(toks[:8]))
     return 0
 }
 
-# 모든 검사를 segment 단위로. 하나라도 block 이면 전체 명령 차단.
-mapfile -d '' -t _segments < <(_seg_split "$command")
-for _seg in "${_segments[@]}"; do
-    [ -z "$_seg" ] && continue
-
-    # --- caller identity (post.sh = sub-agent 전용 / run.sh = main 전용) ---
-    _kind=""; _role=""
+# segment 의 caller-identity 를 검사하고 위반 시 exit 2 하는 함수.
+# 메인 segment 루프와 bash/sh/env -c 내부 segment 루프 양쪽에서 호출됨.
+_caller_check() {
+    local _seg="$1"
+    local _kind="" _role="" _expected=""
     read -r _kind _role <<< "$(_classify_caller "$_seg")"
     case "$_kind" in
         UNPARSEABLE)
@@ -238,6 +276,15 @@ EOF
             fi
             ;;
     esac
+}
+
+# 모든 검사를 segment 단위로. 하나라도 block 이면 전체 명령 차단.
+mapfile -d '' -t _segments < <(_seg_split "$command")
+for _seg in "${_segments[@]}"; do
+    [ -z "$_seg" ] && continue
+
+    # --- caller identity (post.sh = sub-agent 전용 / run.sh = main 전용) ---
+    _caller_check "$_seg"
 
     # --- Layer 1: canonical form ---
     if ! canonical_check "$_seg"; then
@@ -312,7 +359,7 @@ EOF
             done
             ;;
         bash|sh)
-            # bash/sh -c '<inner>' 의 inner 를 재귀 검사 (inner 도 체인 가능 → _seg_split + canonical_check).
+            # bash/sh -c '<inner>' 의 inner 를 재귀 검사 (inner 도 체인 가능 → _seg_split + canonical_check + caller_check).
             _inner="$(printf '%s' "$_seg" | python3 -c '
 import shlex, sys
 try:
@@ -325,10 +372,12 @@ for i, t in enumerate(toks):
 ' 2>/dev/null || echo "")"
             if [ -n "$_inner" ]; then
                 _inner_blocked=0
-                while IFS= read -r -d '' _inner_seg; do
+                mapfile -d '' -t _inner_segs < <(_seg_split "$_inner")
+                for _inner_seg in "${_inner_segs[@]}"; do
                     [ -z "$_inner_seg" ] && continue
+                    _caller_check "$_inner_seg"
                     canonical_check "$_inner_seg" || { _inner_blocked=1; break; }
-                done < <(_seg_split "$_inner")
+                done
                 if [ "$_inner_blocked" -eq 1 ] || printf '%s' "$_inner" | grep -qE 'gh[[:space:]]+pr[[:space:]]+(merge|review|comment)|git[[:space:]]+push'; then
                     cat >&2 <<EOF
 [pre-bash-gate] Bash 명령 차단 — bash/sh -c 우회 시도 감지.
@@ -367,10 +416,12 @@ for i, t in enumerate(toks):
 ' 2>/dev/null || echo "")"
             if [ -n "$_env_inner" ]; then
                 _env_blocked=0
-                while IFS= read -r -d '' _env_seg; do
+                mapfile -d '' -t _env_segs < <(_seg_split "$_env_inner")
+                for _env_seg in "${_env_segs[@]}"; do
                     [ -z "$_env_seg" ] && continue
+                    _caller_check "$_env_seg"
                     canonical_check "$_env_seg" || { _env_blocked=1; break; }
-                done < <(_seg_split "$_env_inner")
+                done
                 if [ "$_env_blocked" -eq 1 ] || printf '%s' "$_env_inner" | grep -qE 'gh[[:space:]]+pr[[:space:]]+(merge|review|comment)|git[[:space:]]+push'; then
                     cat >&2 <<EOF
 [pre-bash-gate] Bash 명령 차단 — env wrapper 우회 시도 감지.
