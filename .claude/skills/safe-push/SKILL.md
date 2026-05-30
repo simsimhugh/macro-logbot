@@ -23,7 +23,7 @@ bash .claude/skills/safe-push/run.sh <BRANCH> [--force-with-lease]
 
 `<BRANCH>` 생략 시 현재 branch 자동 사용.
 
-`--force-with-lease` — amend 후 force push 시 사용. remote 에 다른 변경이 있으면 push 거절 (안전한 force push). `git commit --amend` 후 필수.
+`--force-with-lease` — force push 가 **정말로 필요한 경우에만** 쓰는 opt-in (remote 에 다른 변경이 있으면 거절하는 안전한 force push). 단, 리뷰 후 commit 을 1 개로 유지하려고 amend/squash + force push 할 필요는 없다 — 새 commit 을 일반 push 하면 된다 ([`docs/process/03-개발-프로세스.md`](../../../docs/process/03-개발-프로세스.md) §5.2).
 
 ## 동작 흐름
 
@@ -96,7 +96,7 @@ Agent(subagent_type="oh-my-claudecode:test-engineer",   prompt="PR #N review ...
 - **1+ REQUEST_CHANGES** → fix → verify → re-push 후 새 reviewer cycle 재진입 (모두 APPROVE 까지 반복)
 - **COMMENT 만** → main session 판단 (finding 정합성 검토 후 필요 시 fix)
 
-> **fix → verify → re-push 의 상세 메커니즘**(reviewer별 fix · 모델 고정 · commit 1개 · 단일 verifier · 횟수 한도)은 [`docs/process/03-개발-프로세스.md`](../../../docs/process/03-개발-프로세스.md) §5 (Fix cycle) 가 **단일 진실** — 본 스킬은 중복 정의하지 않음 (drift 방지).
+> **fix → verify → re-push 의 상세 메커니즘**(reviewer별 fix · 모델 고정 · commit 통합 권장 · 단일 verifier · 횟수 한도)은 [`docs/process/03-개발-프로세스.md`](../../../docs/process/03-개발-프로세스.md) §5 (Fix cycle) 가 **단일 진실** — 본 스킬은 중복 정의하지 않음 (drift 방지).
 
 ## Exit codes
 
