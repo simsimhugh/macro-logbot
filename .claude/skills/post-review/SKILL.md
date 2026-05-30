@@ -9,10 +9,7 @@ description: 4 reviewer agent (architect / code-reviewer / security-reviewer / t
 
 4 reviewer agent 의 PR review 게시:
 1. **per-role template** — `templates/{architect,code-reviewer,security-reviewer,test-engineer}.md` 의 일관 형식.
-2. **verdict 자동 결정** — finding severity + confidence 기반 (role-specific, 2026-05-24 갱신). agent 의 verdict 자율 결정 금지.
-   - `code-reviewer`: CRITICAL / HIGH at HIGH confidence → REQUEST_CHANGES, 나머지 APPROVE
-   - `architect`: CRITICAL + HIGH + MED + WARN → REQUEST_CHANGES, LOW / INFO / PASS → APPROVE
-   - `security-reviewer` / `test-engineer`: CRITICAL + HIGH → REQUEST_CHANGES, MED / WARN / LOW / INFO / PASS → APPROVE
+2. **verdict 자동 결정** — finding severity + confidence 기반 (role-specific). agent 의 verdict 자율 결정 금지. 정책 표는 본 문서 § "verdict 자동 결정" 참조.
 3. **identity verify** — token user.login ↔ `$GH_USER` 일치 (token 오염 / 다른 bot 명의 게시 catch).
 4. **scope verify** — `<role>` ↔ `$GH_USER` substring 일치 (architect agent 가 code-reviewer-bot 명의로 게시 catch).
 5. **full PR review** — 매 cycle 전체 PR diff (`origin/main...HEAD`) 를 review scope 로 사용. main session 이 reviewer agent prompt 작성 시 scope 를 incremental 로 좁히는 것 금지 — 기존 finding 이 scope 밖으로 사라지는 사각지대 방지. last review SHA == 현 HEAD 면 게시 skip (idempotent). commit 범위는 template 에 `PR_BASE_SHA ~ HEAD_SHA` (full SHA) 로 표기 — GitHub 이 자동 링크 + 앞 7자리 표시.
@@ -64,10 +61,7 @@ severity ∈ {`CRITICAL`, `HIGH`, `MED`, `WARN`, `LOW`, `INFO`, `PASS`}
 - `detail` — optional, 짧은 요약
 - `confidence` — optional, `HIGH` / `MEDIUM` / `LOW` (생략 시 `HIGH`). 옵션 C (2026-05-23): CRITICAL/HIGH at HIGH confidence 만 blocking. LOW-confidence CRITICAL/HIGH = informational → APPROVE.
 
-> **verdict 정책 (role-specific, 2026-05-24 갱신)**:
-> - `code-reviewer`: CRITICAL/HIGH + confidence=HIGH (또는 생략) → `REQUEST_CHANGES`. MED/WARN/LOW/INFO/PASS = informational → `APPROVE`. OMC code-reviewer prompt 의 `"REQUEST_CHANGES: CRITICAL or HIGH issues present at HIGH confidence"` 와 정합.
-> - `architect`: CRITICAL/HIGH/MED/WARN → `REQUEST_CHANGES`. LOW/INFO/PASS = informational → `APPROVE`.
-> - `security-reviewer` / `test-engineer`: CRITICAL/HIGH → `REQUEST_CHANGES`. MED/WARN/LOW/INFO/PASS = informational → `APPROVE`.
+> **verdict 정책**: severity → verdict 산출 규칙은 본 문서 § "verdict 자동 결정" 참조 (role-specific).
 
 ### 예시
 
@@ -125,14 +119,18 @@ gh pr review <PR> --approve|--request-changes --body "$rendered"
 
 ## verdict 자동 결정 (role-specific, 2026-05-24 갱신)
 
-| role | blocking severity |
+이 표대로 post.sh 의 `expected_verdict()` 가 verdict 를 산출한다.
+
+| role | blocking severity (→ `REQUEST_CHANGES`) |
 |---|---|
 | `code-reviewer` | CRITICAL / HIGH at HIGH confidence (OMC code-reviewer prompt 정의) |
 | `architect` | CRITICAL + HIGH + MED + WARN (강화) |
 | `security-reviewer` / `test-engineer` | CRITICAL + HIGH 만. MED / WARN = informational |
 
-LOW / INFO / PASS 는 informational — verdict 영향 X, body render 안 함.
-security-reviewer / test-engineer 의 MED / WARN 는 body render 하되 verdict 영향 X.
+- `code-reviewer` 의 CRITICAL/HIGH 는 **confidence=HIGH(또는 생략)** 일 때만 blocking — LOW-confidence CRITICAL/HIGH 는 informational → `APPROVE`. (OMC code-reviewer prompt `"REQUEST_CHANGES: CRITICAL or HIGH issues present at HIGH confidence"` 와 정합.)
+- 위 표의 blocking severity 외에는 전부 informational — verdict 영향 X.
+
+> 어떤 severity 를 코멘트 본문에 표시할지(**body render**)는 verdict 와 별개 정책 → 위 § "body 표기 정책" 참조.
 
 ## env 의 위치
 
@@ -164,7 +162,7 @@ POST_REVIEW_DRY_RUN=1 .claude/skills/post-review/post.sh <args>
 |---|---|
 | code-reviewer agent 가 CRITICAL/HIGH finding + APPROVE 게시 | verdict mismatch → exit 4 |
 | architect agent 가 code-reviewer-bot 명의로 게시 (token confusion) | identity (exit 2) + scope (exit 3) verify |
-| reviewer 가 scope 를 incremental 로 좁혀 기존 finding 사각지대 | 본 SKILL.md 의 full PR review 정책 명시 — main 의 scope 축소 prompt 금지 |
+| reviewer 가 scope 를 incremental 로 좁혀 기존 finding 사각지대 | 본 SKILL.md 의 full PR review 정책 명시 — main session 의 scope 축소 prompt 금지 |
 | 같은 reviewer 가 같은 HEAD commit 에 대해 2번 review 호출 | idempotent skip (last SHA == HEAD → exit 0, 게시 안 함) |
 | reviewer 가 raw `gh pr comment` 직접 호출 (skill bypass) | settings.deny + pre-bash-gate.sh 차단 |
 | main session 이 직접 post.sh 호출 (self-impersonation 시도) | hook 의 agent_type 검사 — agent_type field 없음 → 차단 |
@@ -188,10 +186,10 @@ POST_REVIEW_DRY_RUN=1 .claude/skills/post-review/post.sh <args>
 ### OMC agent prompt 의 정직성 안전망 비대칭
 
 OMC code-reviewer prompt 만 강한 안전망 갖고 있음:
-- `Discovery_Filtering_Separation` — main 의 dishonest filter prompt ("only important issues", "don't nitpick") 거부
+- `Discovery_Filtering_Separation` — main session 의 dishonest filter prompt ("only important issues", "don't nitpick") 거부
 - `Never approve ... HIGH at HIGH confidence` — 자동 approve 거부
 
-architect / security-reviewer / test-engineer prompt 는 약함 — main 의 dishonest review 지시 거부 vector 명시 X. 매우 정교한 main prompt 의 agent behavior override 시도 시 무력화 가능성.
+architect / security-reviewer / test-engineer prompt 는 약함 — main session 의 dishonest review 지시 거부 vector 명시 X. 매우 정교한 main session prompt 의 agent behavior override 시도 시 무력화 가능성.
 
 ### 차단 못 하는 vector
 

@@ -15,9 +15,9 @@ fix sub-agent 의 작업 완료 후 main session 이 verifier sub-agent 를 spaw
 - **단일 verifier**: fix 가 여러 reviewer 도메인에 걸쳐도 **verifier sub-agent 는 1 개** (agent type `oh-my-claudecode:verifier`, sonnet). reviewer 별로 쪼개지 않는다 — verify 의 핵심은 **도메인 간 regression 검출**(한 도메인의 fix 가 다른 도메인의 fix 를 깨뜨림, 예: security fix 가 architect fix 를 깼나)이라, 변경 전체를 한 agent 가 한 번에 봐야 사각지대가 없다. **reviewer 4 개(다양한 전문성 렌즈) → verifier 1 개(전체 통합 조망)** 의 비대칭이 의도된 설계.
 - **검증 대상**: fix 가 수렴한 **단일 commit 의 전체 변경** (단일 worktree 산출물).
 - **FAIL 임계값**: 의무 검증 항목 중 **1 개라도 FAIL 이면 전체 verdict = FAIL** (부분 통과 없음). → 완료 보고 항목 9.
-- **보고 전용 · push 금지**: verifier 는 결과를 **`PASS` / `FAIL` 로 main 에 보고만** 한다. push / merge / commit 권한 없음 — consequential 행동은 main 의 gated entry(safe-push)로만 (settings.deny 가 물리적으로도 raw push 차단). push 직후 4 reviewer spawn 도 main 전용 의무라, verifier 가 push 해도 제어는 어차피 main 으로 돌아옴 → verifier push 는 이득 없이 choke-point 만 흐림.
-  - `FAIL` → main 이 재-fix 지시 (fix→verify 재실행, **최대 3회** — 3회 연속 FAIL 시 `needs-human-review` + 사용자 개입. [`03-개발-프로세스.md`](../../../docs/process/03-개발-프로세스.md) §5.4)
-  - `PASS` → main 이 safe-push 진행 → 4 reviewer cycle 재진입
+- **보고 전용 · push 금지**: verifier 는 결과를 **`PASS` / `FAIL` 로 main session 에 보고만** 한다. push / merge / commit 권한 없음 (settings.deny 가 raw push 물리 차단). 후속 행동(push · reviewer spawn 등)은 main session 이 수행.
+  - `FAIL` → main session 이 재-fix 지시 (fix→verify 재실행). **inner loop 재시도 한도 = 최대 3회** — verifier 3회 연속 FAIL 시 `needs-human-review` label + 사용자 개입 (non-converging fix 무한 루프 방지).
+  - `PASS` → main session 에 PASS 보고 → 이후 push·reviewer cycle 재진입은 main session 의 의무 (→ [`safe-push/SKILL.md`](../safe-push/SKILL.md)).
 
 ## 사용법
 

@@ -4,8 +4,8 @@
 # 목적:
 #   - 4 reviewer agent 의 review 게시 형식 표준화 (per-role template).
 #   - agent 의 raw `gh pr comment`/`gh pr review` 직접 호출 금지 (hook + settings.deny).
-#   - finding severity 로 verdict 자동 결정 — CRITICAL/HIGH at HIGH confidence 만 REQUEST_CHANGES, 나머지 APPROVE.
-#     (옵션 C 2026-05-23: MED/WARN = informational — OMC code-reviewer prompt 정합)
+#   - finding severity 로 verdict 자동 결정 (role-specific) — 정책 표는 SKILL.md § "verdict 자동 결정",
+#     구현은 본 script + post_helper.py 의 expected_verdict().
 #   - identity 검증: token user.login ↔ 명시 GH_USER 일치.
 #   - scope 검증: <role> ↔ token username substring 일치 (e.g. architect ↔ *architect-bot).
 #   - full PR scope: origin/main...HEAD 전체 diff review (incremental 아님).
