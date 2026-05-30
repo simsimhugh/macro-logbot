@@ -314,13 +314,8 @@ python3 "$HELPER" validate_finding_format "$FINDINGS_JSON" || exit 1
 EXPECTED_VERDICT="$(python3 "$HELPER" expected_verdict "$FINDINGS_JSON" "$ROLE")"
 
 if [ "$VERDICT_ARG" != "$EXPECTED_VERDICT" ]; then
-    if [ "$ROLE" = "code-reviewer" ]; then
-        _policy_msg="정책 (code-reviewer, 옵션 C 2026-05-23): CRITICAL/HIGH at HIGH confidence → REQUEST_CHANGES. MED/WARN/LOW/INFO/PASS = informational → APPROVE. LOW-confidence CRITICAL/HIGH = informational → APPROVE."
-    elif [ "$ROLE" = "architect" ]; then
-        _policy_msg="정책 (architect, 2026-05-23 강화): CRITICAL/HIGH/MED/WARN → REQUEST_CHANGES. LOW/INFO/PASS = informational → APPROVE."
-    else
-        _policy_msg="정책 (${ROLE}, 2026-05-24): CRITICAL/HIGH → REQUEST_CHANGES. MED/WARN/LOW/INFO/PASS = informational → APPROVE."
-    fi
+    # 정책 산문은 helper 의 _ROLE_POLICY 에서 단일 source 파생 (issue #100)
+    _policy_msg="$(python3 "$HELPER" policy_summary "$ROLE")"
     cat >&2 <<EOF
 [post-review] verdict mismatch — agent 의 verdict 결정 ↔ findings severity 일관성 위반
   arg verdict:        $VERDICT_ARG
@@ -344,30 +339,28 @@ if [ ! -r "$TEMPLATE_FILE" ]; then
 fi
 
 #-----------------------------------------------------------------------
-# 9. findings render — template file 의 FINDING_TEMPLATE block 기반 render
-#    (사용자 명시: template 이 render 의 단일 source)
+# 9. findings render — 공유 _finding_template.md 의 FINDING_*_TEMPLATE block 기반 render
+#    (issue #100: 4 role 파일에 중복됐던 block 을 단일 파일로 추출)
 #-----------------------------------------------------------------------
-RENDERED_FINDINGS="$(python3 "$HELPER" render_findings "$FINDINGS_JSON" "$TEMPLATE_FILE" "$ROLE")"
+FINDING_TEMPLATE_FILE="$SCRIPT_DIR/templates/_finding_template.md"
+if [ ! -r "$FINDING_TEMPLATE_FILE" ]; then
+    echo "[post-review] finding template not found: $FINDING_TEMPLATE_FILE" >&2
+    exit 5
+fi
+RENDERED_FINDINGS="$(python3 "$HELPER" render_findings "$FINDINGS_JSON" "$FINDING_TEMPLATE_FILE" "$ROLE")"
 
 #-----------------------------------------------------------------------
 # 10. verdict badge + reason
 # finding C: COMMENT case 제거 (dead code — APPROVE/REQUEST_CHANGES 2갈래만)
 #-----------------------------------------------------------------------
+# role-specific verdict 한 줄은 helper 의 _ROLE_POLICY 에서 단일 source 파생 (issue #100)
+VERDICT_LINE="$(python3 "$HELPER" verdict_line "$ROLE" "$EXPECTED_VERDICT")"
 case "$EXPECTED_VERDICT" in
     APPROVE)
         VERDICT_BADGE="✅ APPROVE"
-        VERDICT_LINE="**APPROVE** — no blocking findings."
         ;;
     REQUEST_CHANGES)
         VERDICT_BADGE="❌ REQUEST CHANGES"
-        # role-specific blocking policy message (사용자 명시 2026-05-23)
-        if [ "$ROLE" = "code-reviewer" ]; then
-            VERDICT_LINE="**REQUEST_CHANGES** — CRITICAL/HIGH at HIGH confidence 만 blocking."
-        elif [ "$ROLE" = "architect" ]; then
-            VERDICT_LINE="**REQUEST_CHANGES** — CRITICAL/HIGH/MED/WARN blocking."
-        else
-            VERDICT_LINE="**REQUEST_CHANGES** — CRITICAL/HIGH blocking."
-        fi
         ;;
     # code-r LOW-1: wildcard branch 제거 — expected_verdict 는 APPROVE/REQUEST_CHANGES 만 반환
     # 도달 불가 코드였으나 명시적 오류로 교체

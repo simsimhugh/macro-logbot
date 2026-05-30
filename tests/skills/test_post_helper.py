@@ -273,6 +273,27 @@ def test_render_findings_empty():
     assert result == "_(no blocking findings)_"
 
 
+def test_render_findings_shared_template_file():
+    # issue #100: 3 FINDING block 은 공유 _finding_template.md 에 존재 — render_findings
+    # 가 실제 공유 파일을 파싱할 수 있어야 함 (block marker 누락 시 ValueError).
+    shared = _HELPER_PATH.parent / "templates" / "_finding_template.md"
+    assert shared.is_file(), "공유 finding template 파일 존재 의무"
+    findings = json.dumps(
+        [
+            {
+                "severity": "HIGH",
+                "title": "bug",
+                "location": "a.py:1",
+                "code": "x",
+                "language": "python",
+            }
+        ]
+    )
+    result = ph.render_findings(findings, str(shared), "architect")
+    assert "```python" in result
+    assert "a.py:1" in result
+
+
 def test_render_findings_plain_branch(tmp_template: str):
     # no code, no location → FINDING_PLAIN_TEMPLATE 사용
     # WARN severity: renders for all roles (architect default)
@@ -624,6 +645,74 @@ def test_expected_verdict_code_reviewer_critical_low_confidence_approve():
         )
         == "APPROVE"
     )
+
+
+# ---------------------------------------------------------------------------
+# policy_summary / verdict_line — _ROLE_POLICY 단일 source (issue #100)
+# 기존 post.sh 하드코딩 문자열과 byte-for-byte 동일해야 함 (regression lock).
+# ---------------------------------------------------------------------------
+
+
+def test_policy_summary_code_reviewer():
+    assert ph.policy_summary("code-reviewer") == (
+        "정책 (code-reviewer, 옵션 C 2026-05-23): CRITICAL/HIGH at HIGH confidence"
+        " → REQUEST_CHANGES. MED/WARN/LOW/INFO/PASS = informational → APPROVE."
+        " LOW-confidence CRITICAL/HIGH = informational → APPROVE."
+    )
+
+
+def test_policy_summary_architect():
+    assert ph.policy_summary("architect") == (
+        "정책 (architect, 2026-05-23 강화): CRITICAL/HIGH/MED/WARN → REQUEST_CHANGES."
+        " LOW/INFO/PASS = informational → APPROVE."
+    )
+
+
+def test_policy_summary_security_and_test_default():
+    for role in ("security-reviewer", "test-engineer"):
+        assert ph.policy_summary(role) == (
+            f"정책 ({role}, 2026-05-24): CRITICAL/HIGH → REQUEST_CHANGES."
+            " MED/WARN/LOW/INFO/PASS = informational → APPROVE."
+        )
+
+
+def test_verdict_line_approve_role_independent():
+    for role in ("code-reviewer", "architect", "security-reviewer", "test-engineer"):
+        assert ph.verdict_line(role, "APPROVE") == "**APPROVE** — no blocking findings."
+
+
+def test_verdict_line_request_changes_code_reviewer():
+    assert ph.verdict_line("code-reviewer", "REQUEST_CHANGES") == (
+        "**REQUEST_CHANGES** — CRITICAL/HIGH at HIGH confidence 만 blocking."
+    )
+
+
+def test_verdict_line_request_changes_architect():
+    assert ph.verdict_line("architect", "REQUEST_CHANGES") == (
+        "**REQUEST_CHANGES** — CRITICAL/HIGH/MED/WARN blocking."
+    )
+
+
+def test_verdict_line_request_changes_default():
+    for role in ("security-reviewer", "test-engineer"):
+        assert ph.verdict_line(role, "REQUEST_CHANGES") == (
+            "**REQUEST_CHANGES** — CRITICAL/HIGH blocking."
+        )
+
+
+def test_policy_table_matches_expected_verdict():
+    # _ROLE_POLICY 가 expected_verdict 의 실제 blocking 동작과 일관적인지 (drift 방지)
+    cases = [
+        ("architect", "MED", "REQUEST_CHANGES"),
+        ("architect", "LOW", "APPROVE"),
+        ("security-reviewer", "MED", "APPROVE"),
+        ("security-reviewer", "HIGH", "REQUEST_CHANGES"),
+        ("code-reviewer", "HIGH", "REQUEST_CHANGES"),
+        ("code-reviewer", "MED", "APPROVE"),
+    ]
+    for role, sev, expected in cases:
+        findings = json.dumps([{"severity": sev, "title": "x", "detail": ""}])
+        assert ph.expected_verdict(findings, role) == expected, (role, sev)
 
 
 # ---------------------------------------------------------------------------
