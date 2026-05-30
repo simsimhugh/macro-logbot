@@ -10,7 +10,7 @@
 
 1. **Mechanical 검증** — GitHub Actions 9 checks (lint/types/test/SAST/secrets/deps) + Dependabot + Push Protection. 토큰 소비 없음.
 2. **Semantic 리뷰** — architect / code-reviewer / security-reviewer / test-engineer (4 AI 병렬). GitHub 이 이미 하는 영역은 검토 금지 → 토큰 절약.
-3. **Fix cycle** — REQUEST_CHANGES 시 scope 안은 fix sub-agent 위임, scope 밖은 GitHub Issue 로 분리 (follow-up PR).
+3. **Fix cycle** — REQUEST_CHANGES 시 scope 안은 reviewer별 fix sub-agent(순차·모델고정) → 단일 verifier 전체통합 검증(변경 전체를 한 번에 봄, PASS 시 main이 push), scope 밖은 GitHub Issue 로 분리 (follow-up PR).
 4. **자동 머지** — 4 APPROVE + 9 CI pass → Mergify auto squash merge.
 
 ## v1 과의 차이

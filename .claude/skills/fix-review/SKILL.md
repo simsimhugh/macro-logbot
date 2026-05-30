@@ -10,6 +10,19 @@ description: fix sub-agent 위임 시 따라야 할 brief 의무 spec. main sess
 main session 이 fix sub-agent 를 spawn 할 때 sub-agent 가 반드시 따라야 할 의무 항목을 spec 화.
 `brief-template.md` 를 main session 의 fix sub-agent prompt 에 포함시켜 regression 및 찾기 누락을 차단.
 
+## fix sub-agent 구성 (agent type · 모델 · 실행)
+
+REQUEST_CHANGES 낸 **각 reviewer 마다 전용 fix sub-agent 1 개** 를 spawn (APPROVE 한 reviewer 는 fix 대상 아님). agent type 은 `oh-my-claudecode:executor`, 모델은 reviewer 도메인별 **정적 고정** (설계·보안 → opus, 로직·테스트 → sonnet; 런타임 escalate 판단 없음).
+
+→ **reviewer↔모델 매핑 표는 [`docs/process/03-개발-프로세스.md`](../../../docs/process/03-개발-프로세스.md) §5.2 가 단일 진실.** 본 스킬은 중복 정의하지 않음 (drift 방지 — safe-push §4 와 동일 원칙).
+
+### 실행 모델 — 순차 · 단일 worktree · commit 은 main
+
+- **단일 worktree**: 모든 fix sub-agent 는 같은 worktree 에서 작업 (격리된 작업 공간).
+- **순차 호출**: fix sub-agent 는 **병렬 금지**, 순차 호출. 여러 reviewer 가 같은 파일/함수를 지적하면 병렬 편집 시 충돌하기 때문. 순서: opus 도메인(architect → security) 먼저, 그다음 sonnet(code-reviewer → test-engineer).
+- **fix sub-agent 는 commit 안 함**: working tree 만 편집. 순차 fix 가 모두 끝난 뒤 **main 이 1 회 commit 으로 통합** (개별 commit 시 N 개 → 충돌·squash 복잡). commit 1 개 수렴 규칙은 [`docs/process/03-개발-프로세스.md`](../../../docs/process/03-개발-프로세스.md) §5.2 가 단일 진실.
+- **push 금지**: fix sub-agent 는 push 하지 않는다. push 는 verify `PASS` 후 main 의 의무. → [`verify-fix/SKILL.md`](../verify-fix/SKILL.md)
+
 ## 사용법
 
 main session 이 fix sub-agent prompt 작성 시 `brief-template.md` 의 모든 의무 항목을 포함시켜야 함.

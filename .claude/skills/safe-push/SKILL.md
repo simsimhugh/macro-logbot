@@ -90,16 +90,13 @@ Agent(subagent_type="oh-my-claudecode:test-engineer",   prompt="PR #N review ...
 
 ### 4 reviewer cycle 의무
 
-4 reviewer parallel spawn 후 **모든 review 게시 완료 wait**. 결과 별 자율 진행:
+4 reviewer parallel spawn 후 **모든 review 게시 완료 wait**. push 후 침묵 금지 — 결과 처리부터 머지까지 cycle 을 완수할 의무 (#71 재발 방지). 결과별 처리:
 
 - **모두 APPROVE** → 머지 진행 (Mergify auto / 사용자 admin bypass)
-- **1+ REQUEST_CHANGES** → 즉시 fix 진행 (사용자 명시 없이 자율)
-  - 모든 reviewer 의 finding **+ 그 결과의 lint/typecheck/format fix 도** 모두 **한 commit 으로 통합 fix** (분리 commit 금지 — 옛 commit 분리 됐다면 `git commit --amend` 또는 `git reset --soft <last-review-sha> && git commit -F file` 로 squash)
-  - 즉 last review SHA 이후 **HEAD 까지 commit 가 정확 1 개** 여야 함
-  - 그 commit 으로 다음 `bash run.sh <BRANCH> --force-with-lease` 호출 (squash 후 force push)
-  - 새 4 reviewer cycle 진입 (반복)
-- **모두 APPROVE 까지 cycle**
-- COMMENT 만 있으면 → main session 판단 (finding 정합성 검토 후 필요 시 fix)
+- **1+ REQUEST_CHANGES** → fix → verify → re-push 후 새 reviewer cycle 재진입 (모두 APPROVE 까지 반복)
+- **COMMENT 만** → main session 판단 (finding 정합성 검토 후 필요 시 fix)
+
+> **fix → verify → re-push 의 상세 메커니즘**(reviewer별 fix · 모델 고정 · commit 1개 · 단일 verifier · 횟수 한도)은 [`docs/process/03-개발-프로세스.md`](../../../docs/process/03-개발-프로세스.md) §5 (Fix cycle) 가 **단일 진실** — 본 스킬은 중복 정의하지 않음 (drift 방지).
 
 ## Exit codes
 
